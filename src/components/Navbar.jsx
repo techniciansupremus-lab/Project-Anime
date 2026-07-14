@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Play } from 'lucide-react';
+import { Bell, ChevronDown, Search } from 'lucide-react';
 
 export default function Navbar({ onSearch, activeView, setView, onHome }) {
   const [searchVal, setSearchVal] = useState('');
@@ -29,39 +29,58 @@ export default function Navbar({ onSearch, activeView, setView, onHome }) {
     <nav className="navbar">
       <div className="container navbar-inner">
         <div className="logo" onClick={handleHomeClick}>
-          <Play size={24} fill="currentColor" style={{ color: 'var(--accent-primary)' }} />
-          AniStream<span>.tv</span>
+          AniStream
+        </div>
+
+        <div className="nav-links primary-nav">
+          <div
+            className={`nav-link ${activeView === 'home' ? 'active' : ''}`}
+            onClick={handleHomeClick}
+          >
+            Home
+          </div>
+          <div
+            className={`nav-link ${activeView === 'tv-shows' ? 'active' : ''}`}
+            onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); setView('tv-shows'); }}
+          >
+            TV Shows
+          </div>
+          <div
+            className={`nav-link ${activeView === 'movies' ? 'active' : ''}`}
+            onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); setView('movies'); }}
+          >
+            Movies
+          </div>
+          <div
+            className={`nav-link ${activeView === 'new-popular' ? 'active' : ''}`}
+            onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); setView('new-popular'); }}
+          >
+            New & Popular
+          </div>
+          <div
+            className={`nav-link ${activeView === 'my-list' ? 'active' : ''}`}
+            onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); setView('my-list'); }}
+          >
+            My List
+          </div>
         </div>
 
         <form onSubmit={handleSearchSubmit} className="search-bar">
           <Search size={18} className="search-icon" />
           <input 
             type="text" 
-            placeholder="Search anime, genres..." 
+            placeholder="Titles, genres..." 
             value={searchVal}
             onChange={handleInputChange}
           />
         </form>
 
-        <div className="nav-links">
-          <div 
-            className={`nav-link ${activeView === 'home' ? 'active' : ''}`}
-            onClick={handleHomeClick}
-          >
-            Home
+        <div className="nav-actions">
+          <Bell size={19} />
+          <div className="profile-chip">
+            <span>A</span>
+            <ChevronDown size={15} />
           </div>
-          <a 
-            href="https://github.com" 
-            target="_blank" 
-            rel="noreferrer" 
-            className="nav-link"
-            style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}
-          >
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
-            </svg>
-            GitHub
-          </a>
         </div>
       </div>
     </nav>

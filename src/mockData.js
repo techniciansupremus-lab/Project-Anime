@@ -61,6 +61,7 @@ function mapMediaToDetail(media) {
   
   return {
     id: media.id.toString(),
+    malId: media.idMal || null,
     title: media.title.english || media.title.romaji || media.title.userPreferred,
     japaneseTitle: media.title.romaji,
     description: media.description ? media.description.replace(/<[^>]*>/g, '') : "No synopsis available.",
@@ -73,7 +74,7 @@ function mapMediaToDetail(media) {
     status: media.status || "Completed",
     genres: media.genres || [],
     totalEpisodes: totalEps,
-    // Episodes will be populated from the backend provider
+    // Episodes will be populated from Jikan / backend provider
     episodes: null
   };
 }
@@ -81,6 +82,7 @@ function mapMediaToDetail(media) {
 // AniList media fragment used in queries
 const MEDIA_FRAGMENT = `
   id
+  idMal
   title { romaji english userPreferred }
   coverImage { extraLarge large }
   bannerImage
@@ -92,7 +94,30 @@ const MEDIA_FRAGMENT = `
   duration
   status
   nextAiringEpisode { episode }
+  relations {
+    edges {
+      relationType
+      node {
+        id
+        title { english romaji userPreferred }
+        format
+        type
+        coverImage { large }
+        bannerImage
+        averageScore
+      }
+    }
+  }
 `;
+
+function getBaseTitle(title) {
+  if (!title) return '';
+  // Clean common season indicators
+  let clean = title.replace(/\b(season|part|cour|ova|oad|specials?|movie|tv|series)\b.*/gi, '');
+  // Clean trailing punctuation, colons, hyphens
+  clean = clean.replace(/[:\-–—,\s]+$/, '').trim();
+  return clean || title;
+}
 
 // ─────────────────────────────────────────
 // API Methods
@@ -116,7 +141,50 @@ export const api = {
     return [];
   },
 
-  // Full details for an anime (AniList metadata only — episodes come from backend)
+  // TV shows category
+  getTVShows: async () => {
+    const data = await fetchAniList(`
+      query { Page(page: 1, perPage: 24) { media(type: ANIME, format_in: [TV, TV_SHORT], sort: POPULARITY_DESC) { ${MEDIA_FRAGMENT} } } }
+    `);
+    if (data?.Page?.media) return data.Page.media.map(mapMediaToDetail);
+    return [];
+  },
+
+  // Movies category
+  getMovies: async () => {
+    const data = await fetchAniList(`
+      query { Page(page: 1, perPage: 24) { media(type: ANIME, format: MOVIE, sort: POPULARITY_DESC) { ${MEDIA_FRAGMENT} } } }
+    `);
+    if (data?.Page?.media) return data.Page.media.map(mapMediaToDetail);
+    return [];
+  },
+
+  // New & Popular category (airing now)
+  getNewAndPopular: async () => {
+    const data = await fetchAniList(`
+      query { Page(page: 1, perPage: 24) { media(type: ANIME, status: RELEASING, sort: POPULARITY_DESC) { ${MEDIA_FRAGMENT} } } }
+    `);
+    if (data?.Page?.media) return data.Page.media.map(mapMediaToDetail);
+    return [];
+  },
+
+  // Fetch lists filtered by format and genre for custom category horizontal rows
+  getGenreList: async (format, genre) => {
+    const formatFilter = format === 'TV' ? 'format_in: [TV, TV_SHORT],' : 'format: MOVIE,';
+    const data = await fetchAniList(`
+      query {
+        Page(page: 1, perPage: 24) {
+          media(type: ANIME, ${formatFilter} genre: "${genre}", sort: POPULARITY_DESC) {
+            ${MEDIA_FRAGMENT}
+          }
+        }
+      }
+    `);
+    if (data?.Page?.media) return data.Page.media.map(mapMediaToDetail);
+    return [];
+  },
+
+  // Full details for an anime (AniList metadata + Jikan episode list)
   getAnimeDetails: async (id) => {
     const data = await fetchAniList(`
       query ($id: Int) { Media(id: $id, type: ANIME) { ${MEDIA_FRAGMENT} } }
@@ -125,8 +193,41 @@ export const api = {
     if (!data?.Media) return null;
     
     const anime = mapMediaToDetail(data.Media);
-    
-    // Now try to fetch the REAL episode list from the backend (Consumet META.Anilist + AnimeUnity)
+
+    // 1. Try Jikan (MAL) for episode metadata — real titles, air dates, filler flags
+    if (anime.malId) {
+      try {
+        console.log(`[API] Fetching Jikan episode list for MAL ID ${anime.malId} (page 1)...`);
+        const jikanRes = await fetch(`${BACKEND_API}/episodes/mal/${anime.malId}?page=1`);
+        if (jikanRes.ok) {
+          const jikanData = await jikanRes.json();
+          if (jikanData.episodes && jikanData.episodes.length > 0) {
+            console.log(`[API] Got ${jikanData.episodes.length} episodes from Jikan (total pages: ${jikanData.pagination.lastPage})`);
+            anime.episodes = jikanData.episodes.map(ep => ({
+              id: null,
+              number: ep.number,
+              title: ep.title,
+              aired: ep.aired,
+              score: ep.score,
+              filler: ep.filler,
+              recap: ep.recap,
+              thumbnail: anime.bannerImage || anime.coverImage,
+              sources: []
+            }));
+            anime.episodePagination = jikanData.pagination;
+            // If Jikan reports more pages, reflect real total count
+            if (jikanData.pagination.lastPage > 1) {
+              anime.totalEpisodes = jikanData.pagination.lastPage * 100; // approximate
+            }
+            return anime;
+          }
+        }
+      } catch (err) {
+        console.warn(`[API] Jikan fetch failed:`, err.message);
+      }
+    }
+
+    // 2. Try AnimeUnity/Consumet for episode list (has provider episode IDs for streaming)
     try {
       console.log(`[API] Fetching episode list from backend for AniList ID ${id}...`);
       const backendRes = await fetch(`${BACKEND_API}/info/${id}`);
@@ -137,9 +238,11 @@ export const api = {
         if (backendData.episodes && backendData.episodes.length > 0) {
           console.log(`[API] Got ${backendData.episodes.length} real episodes from backend! (total: ${backendData.totalEpisodes})`);
           anime.episodes = backendData.episodes.map(ep => ({
-            id: ep.id,           // AnimeUnity episode ID — needed for streaming
+            id: ep.id,
             number: ep.number,
             title: ep.title || `Episode ${ep.number}`,
+            filler: false,
+            recap: false,
             thumbnail: ep.image || anime.bannerImage,
             sources: []
           }));
@@ -151,19 +254,34 @@ export const api = {
       console.warn(`[API] Backend episode fetch failed:`, err.message);
     }
 
-    // Fallback: generate numbered episode placeholders from AniList count
-    // Cap at 200 to avoid creating a massive DOM for long-running shows
-    const fallbackCount = Math.min(anime.totalEpisodes || 12, 200);
+    // 3. Last resort: generate numbered placeholders from AniList count (no hard cap)
+    const fallbackCount = anime.totalEpisodes || 12;
     console.log(`[API] Using AniList episode count fallback: ${fallbackCount} episodes`);
     anime.episodes = Array.from({ length: fallbackCount }, (_, i) => ({
-      id: null,            // No provider episode ID — streaming won't work
+      id: null,
       number: i + 1,
       title: `Episode ${i + 1}`,
+      filler: false,
+      recap: false,
       thumbnail: anime.bannerImage,
       sources: []
     }));
     
     return anime;
+  },
+
+  // Lazy-load a specific page of Jikan episodes (for long-running shows)
+  getEpisodePage: async (malId, page) => {
+    if (!malId) return null;
+    try {
+      const res = await fetch(`${BACKEND_API}/episodes/mal/${malId}?page=${page}`);
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data; // { episodes, pagination }
+    } catch (err) {
+      console.warn(`[API] Jikan page ${page} fetch failed:`, err.message);
+      return null;
+    }
   },
 
   // Search anime by title
@@ -225,15 +343,87 @@ export const api = {
       }
     }
 
-    // Fallback: return test stream so the player doesn't break
-    console.warn(`[API] All providers failed. Returning fallback test stream.`);
+    console.warn(`[API] All providers failed. No playable stream found.`);
     return {
-      provider: 'fallback',
-      sources: [
-        { url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8", isM3U8: true, quality: "default" }
-      ],
+      provider: 'unavailable',
+      sources: [],
       subtitles: [],
-      error: 'Streaming providers are currently unavailable. This is a test stream.'
+      error: 'No playable source was found for this episode. Try another anime or episode.'
     };
+  },
+
+  // Builds a complete franchise list (all seasons, movies, OVAs)
+  getFranchise: async (anilistId, title, relations) => {
+    const baseTitle = getBaseTitle(title);
+    if (!baseTitle) return [];
+
+    console.log(`[API] Building franchise for: "${baseTitle}"`);
+
+    // Map to keep track of franchise entries
+    const franchiseMap = new Map();
+
+    // Helper to format item for dropdown selection list
+    const formatItem = (node) => ({
+      id: node.id.toString(),
+      title: node.title.english || node.title.romaji || node.title.userPreferred,
+      format: node.format,
+      coverImage: node.coverImage?.large || node.coverImage?.extraLarge,
+      bannerImage: node.bannerImage,
+      rating: node.averageScore ? (node.averageScore / 10).toFixed(1) : "N/A",
+    });
+
+    // 1. Add relations from current anime details
+    if (relations?.edges) {
+      for (const edge of relations.edges) {
+        const node = edge.node;
+        if (node.type === 'ANIME') {
+          franchiseMap.set(node.id.toString(), formatItem(node));
+        }
+      }
+    }
+
+    // 2. Perform base title search on AniList to discover all seasons/movies (even indirect relations)
+    try {
+      const searchData = await fetchAniList(`
+        query ($search: String) {
+          Page(page: 1, perPage: 25) {
+            media(type: ANIME, search: $search) {
+              id
+              title { english romaji userPreferred }
+              format
+              coverImage { large }
+              bannerImage
+              averageScore
+            }
+          }
+        }
+      `, { search: baseTitle });
+
+      if (searchData?.Page?.media) {
+        const baseWords = baseTitle.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+        for (const item of searchData.Page.media) {
+          const itemTitle = (item.title.english || item.title.romaji || item.title.userPreferred || '').toLowerCase();
+          // Check if itemTitle contains all base words to keep results relevant
+          const isMatch = baseWords.every(word => itemTitle.includes(word));
+          if (isMatch) {
+            franchiseMap.set(item.id.toString(), formatItem(item));
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`[API] Franchise search failed:`, err.message);
+    }
+
+    // 3. Convert map to array and sort logically: TV (chronological) -> MOVIE -> OVA/ONA/SPECIAL
+    const sortedList = Array.from(franchiseMap.values()).sort((a, b) => {
+      const formatOrder = { 'TV': 1, 'TV_SHORT': 1, 'MOVIE': 2, 'OVA': 3, 'ONA': 4, 'SPECIAL': 5 };
+      const orderA = formatOrder[a.format] || 99;
+      const orderB = formatOrder[b.format] || 99;
+      if (orderA !== orderB) return orderA - orderB;
+      return parseInt(a.id) - parseInt(b.id);
+    });
+
+    console.log(`[API] Found ${sortedList.length} items in franchise franchise for "${baseTitle}"`);
+    return sortedList;
   }
 };

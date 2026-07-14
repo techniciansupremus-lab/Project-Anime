@@ -16,11 +16,33 @@ function App() {
   const [currentEpisode, setCurrentEpisode] = useState(null);
   const [currentSourceIndex, setCurrentSourceIndex] = useState(0);
   const [loadingSources, setLoadingSources] = useState(false);
+  const [pageLoading, setPageLoading] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [carouselIndex, setCarouselIndex] = useState(0);
+  const [franchiseList, setFranchiseList] = useState([]);
+
+  // Category specific data sets (Netflix style rows structure)
+  const [tvShowsData, setTvShowsData] = useState({ featured: null, genres: {} });
+  const [moviesData, setMoviesData] = useState({ featured: null, genres: {} });
+  const [newPopularData, setNewPopularData] = useState({ featured: null, rows: {} });
+  const [myList, setMyList] = useState([]);
+
   const detailRequestRef = useRef(0);
   const watchRequestRef = useRef(0);
   const searchRequestRef = useRef(0);
   const searchDebounceRef = useRef(null);
+
+  // Load My List on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('anistream_watchlist');
+      if (stored) {
+        setMyList(JSON.parse(stored));
+      }
+    } catch (e) {
+      console.warn('Failed to load watchlist from localStorage', e);
+    }
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -47,10 +69,132 @@ function App() {
     return () => window.clearInterval(timer);
   }, [featured.length, view]);
 
+  // Lazy-load view category content
+  useEffect(() => {
+    let mounted = true;
+    const CATEGORY_GENRES = ['Action', 'Adventure', 'Fantasy', 'Sci-Fi', 'Drama', 'Romance'];
+
+    if (view === 'tv-shows' && !tvShowsData.featured) {
+      setPageLoading(true);
+      api.getTVShows().then(async (featuredTV) => {
+        if (!mounted) return;
+        if (featuredTV.length === 0) {
+          setPageLoading(false);
+          return;
+        }
+        
+        const genres = {};
+        await Promise.all(
+          CATEGORY_GENRES.map(async (genre) => {
+            try {
+              const list = await api.getGenreList('TV', genre);
+              if (mounted) genres[genre] = list;
+            } catch (e) {
+              console.warn(`Failed to fetch TV genre ${genre}`, e);
+            }
+          })
+        );
+        
+        if (mounted) {
+          setTvShowsData({
+            featured: featuredTV[0],
+            genres
+          });
+          setPageLoading(false);
+        }
+      }).catch(() => {
+        if (mounted) setPageLoading(false);
+      });
+    } else if (view === 'movies' && !moviesData.featured) {
+      setPageLoading(true);
+      api.getMovies().then(async (featuredMovies) => {
+        if (!mounted) return;
+        if (featuredMovies.length === 0) {
+          setPageLoading(false);
+          return;
+        }
+
+        const genres = {};
+        await Promise.all(
+          CATEGORY_GENRES.map(async (genre) => {
+            try {
+              const list = await api.getGenreList('MOVIE', genre);
+              if (mounted) genres[genre] = list;
+            } catch (e) {
+              console.warn(`Failed to fetch Movie genre ${genre}`, e);
+            }
+          })
+        );
+
+        if (mounted) {
+          setMoviesData({
+            featured: featuredMovies[0],
+            genres
+          });
+          setPageLoading(false);
+        }
+      }).catch(() => {
+        if (mounted) setPageLoading(false);
+      });
+    } else if (view === 'new-popular' && !newPopularData.featured) {
+      setPageLoading(true);
+      Promise.all([
+        api.getAnimeList(),      // Trending
+        api.getNewAndPopular(),  // Airing now
+        api.getFeatured()        // All-Time Popular
+      ]).then(([trendingNow, airing, popular]) => {
+        if (mounted) {
+          setNewPopularData({
+            featured: airing[0] || trendingNow[0] || popular[0],
+            rows: {
+              'Trending Now': trendingNow,
+              'Currently Airing': airing,
+              'All-Time Popular': popular
+            }
+          });
+          setPageLoading(false);
+        }
+      }).catch(() => {
+        if (mounted) setPageLoading(false);
+      });
+    }
+    return () => {
+      mounted = false;
+    };
+  }, [view, tvShowsData.featured, moviesData.featured, newPopularData.featured]);
+
+  const toggleWatchlist = (animeItem) => {
+    setMyList((prev) => {
+      let updated;
+      const exists = prev.some((item) => item.id === animeItem.id);
+      if (exists) {
+        updated = prev.filter((item) => item.id !== animeItem.id);
+      } else {
+        const item = {
+          id: animeItem.id,
+          title: animeItem.title,
+          coverImage: animeItem.coverImage,
+          bannerImage: animeItem.bannerImage,
+          rating: animeItem.rating,
+          type: animeItem.type || animeItem.format,
+          genres: animeItem.genres || []
+        };
+        updated = [item, ...prev];
+      }
+      try {
+        localStorage.setItem('anistream_watchlist', JSON.stringify(updated));
+      } catch (e) {
+        console.warn('Failed to save watchlist to localStorage', e);
+      }
+      return updated;
+    });
+  };
+
   const resetSearch = () => {
     searchRequestRef.current += 1;
     setSearchQuery('');
     setSearchResults([]);
+    setSearchLoading(false);
   };
 
   const goHome = () => {
@@ -69,9 +213,12 @@ function App() {
 
     if (query.trim() === '') {
       setSearchResults([]);
+      setSearchLoading(false);
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
       return;
     }
+
+    setSearchLoading(true);
 
     // Debounce: wait 400ms after user stops typing before querying AniList
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
@@ -81,17 +228,24 @@ function App() {
       api.searchAnime(query).then((items) => {
         if (requestId === searchRequestRef.current) {
           setSearchResults(items);
+          setSearchLoading(false);
+        }
+      }).catch(() => {
+        if (requestId === searchRequestRef.current) {
+          setSearchResults([]);
+          setSearchLoading(false);
         }
       });
     }, 400);
   };
 
-  const handleAnimeClick = (id) => {
+  const handleAnimeClick = (id, keepFranchise = false) => {
     const requestId = detailRequestRef.current + 1;
     detailRequestRef.current = requestId;
     watchRequestRef.current += 1;
     resetSearch();
     setLoadingSources(false);
+    setPageLoading(true);
 
     api.getAnimeDetails(id).then((details) => {
       if (requestId !== detailRequestRef.current || !details) return;
@@ -99,14 +253,42 @@ function App() {
       setCurrentEpisode(null);
       setView('detail');
       window.scrollTo(0, 0);
+
+      if (!keepFranchise) {
+        setFranchiseList([]); // Reset
+        api.getFranchise(details.id, details.title, details.relations)
+          .then((list) => {
+            if (requestId === detailRequestRef.current) {
+              if (list.length === 0) {
+                setFranchiseList([{
+                  id: details.id.toString(),
+                  title: details.title,
+                  format: details.type,
+                  coverImage: details.coverImage,
+                  bannerImage: details.bannerImage,
+                  rating: details.rating
+                }]);
+              } else {
+                setFranchiseList(list);
+              }
+            }
+          });
+      }
+    }).catch((err) => {
+      console.error('Error loading anime details:', err);
+    }).finally(() => {
+      if (requestId === detailRequestRef.current) {
+        setPageLoading(false);
+      }
     });
   };
 
-  const startWatching = async (anime, episodeNum = 1) => {
+  const startWatching = async (anime, episodeNum = 1, keepFranchise = false) => {
     const requestId = watchRequestRef.current + 1;
     watchRequestRef.current = requestId;
     detailRequestRef.current += 1;
     resetSearch();
+    setPageLoading(false);
 
     const episode = anime.episodes?.find((ep) => ep.number === episodeNum) || {
       number: episodeNum,
@@ -120,6 +302,25 @@ function App() {
     setCurrentSourceIndex(0);
     setLoadingSources(true);
     window.scrollTo(0, 0);
+
+    if (!keepFranchise) {
+      setFranchiseList([]); // Reset
+      api.getFranchise(anime.id, anime.title, anime.relations)
+        .then((list) => {
+          if (list.length === 0) {
+            setFranchiseList([{
+              id: anime.id.toString(),
+              title: anime.title,
+              format: anime.type || anime.format,
+              coverImage: anime.coverImage,
+              bannerImage: anime.bannerImage,
+              rating: anime.rating
+            }]);
+          } else {
+            setFranchiseList(list);
+          }
+        });
+    }
 
     try {
       const result = await api.getEpisodeSources(
@@ -170,12 +371,16 @@ function App() {
   return (
     <div className="app-container">
       <Navbar onSearch={handleSearch} activeView={view} setView={setView} onHome={goHome} />
+      {pageLoading && view !== 'tv-shows' && view !== 'movies' && view !== 'new-popular' && (
+        <GlobalLoader label="Loading anime details..." />
+      )}
 
       <main className="main-content">
         {searchQuery.trim() !== '' ? (
           <SearchResults
             query={searchQuery}
             results={searchResults}
+            loading={searchLoading}
             onAnimeClick={handleAnimeClick}
           />
         ) : (
@@ -183,6 +388,7 @@ function App() {
             {view === 'home' && (
               <HomeView
                 activeFeatured={activeFeatured}
+                featured={featured}
                 activeCategory={activeCategory}
                 filteredTrending={filteredTrending}
                 setActiveCategory={setActiveCategory}
@@ -191,9 +397,57 @@ function App() {
               />
             )}
 
+            {view === 'tv-shows' && (
+              <CategoryGridView
+                title="TV Shows"
+                viewName="tv-shows"
+                featuredItem={tvShowsData.featured}
+                genresData={tvShowsData.genres}
+                onAnimeClick={handleAnimeClick}
+                onStartWatching={startWatching}
+                isLoading={pageLoading}
+              />
+            )}
+
+            {view === 'movies' && (
+              <CategoryGridView
+                title="Movies"
+                viewName="movies"
+                featuredItem={moviesData.featured}
+                genresData={moviesData.genres}
+                onAnimeClick={handleAnimeClick}
+                onStartWatching={startWatching}
+                isLoading={pageLoading}
+              />
+            )}
+
+            {view === 'new-popular' && (
+              <CategoryGridView
+                title="New & Popular"
+                viewName="new-popular"
+                featuredItem={newPopularData.featured}
+                genresData={newPopularData.rows}
+                onAnimeClick={handleAnimeClick}
+                onStartWatching={startWatching}
+                isLoading={pageLoading}
+              />
+            )}
+
+            {view === 'my-list' && (
+              <WatchlistView
+                items={myList}
+                onAnimeClick={handleAnimeClick}
+                onBackHome={goHome}
+              />
+            )}
+
             {view === 'detail' && selectedAnime && (
               <DetailView
                 anime={selectedAnime}
+                franchiseList={franchiseList}
+                myList={myList}
+                onToggleWatchlist={toggleWatchlist}
+                onAnimeSelect={(id) => handleAnimeClick(id, true)}
                 onBackHome={goHome}
                 onStartWatching={startWatching}
               />
@@ -204,10 +458,19 @@ function App() {
                 anime={selectedAnime}
                 episode={currentEpisode}
                 source={playerSource}
+                franchiseList={franchiseList}
                 currentSourceIndex={currentSourceIndex}
                 loadingSources={loadingSources}
                 setCurrentSourceIndex={setCurrentSourceIndex}
-                onStartWatching={startWatching}
+                onStartWatching={(animeNode, epNum) => startWatching(animeNode, epNum, true)}
+                onAnimeSelect={(id) => {
+                  setPageLoading(true);
+                  api.getAnimeDetails(id).then((newDetails) => {
+                    if (newDetails) {
+                      startWatching(newDetails, 1, true);
+                    }
+                  }).finally(() => setPageLoading(false));
+                }}
               />
             )}
           </>
@@ -217,13 +480,15 @@ function App() {
   );
 }
 
-function SearchResults({ query, results, onAnimeClick }) {
+function SearchResults({ query, results, loading, onAnimeClick }) {
   return (
     <div className="container" style={{ marginTop: '2rem' }}>
       <div className="section-header">
         <h2 className="section-title">Search Results for "{query}"</h2>
       </div>
-      {results.length > 0 ? (
+      {loading ? (
+        <InlineLoader label="Searching anime..." />
+      ) : results.length > 0 ? (
         <div className="anime-grid">
           {results.map((anime) => (
             <AnimeCard
@@ -246,28 +511,110 @@ function SearchResults({ query, results, onAnimeClick }) {
   );
 }
 
+function GlobalLoader({ label }) {
+  return (
+    <div className="global-loader-overlay" role="status" aria-live="polite">
+      <div className="global-loader-content">
+        <div className="loading-spinner"></div>
+        <div className="global-loader-text">{label}</div>
+      </div>
+    </div>
+  );
+}
+
+function InlineLoader({ label }) {
+  return (
+    <div className="inline-loader" role="status" aria-live="polite">
+      <div className="loading-spinner"></div>
+      <p>{label}</p>
+    </div>
+  );
+}
+
+/* ─── Skeleton Components ─────────────────────────────────────────── */
+function SkeletonHero() {
+  return (
+    <div className="skeleton-hero">
+      <div className="skeleton-hero-bg skeleton-shimmer" />
+      <div className="skeleton-hero-content">
+        <div className="skeleton-badge skeleton-shimmer" />
+        <div className="skeleton-title skeleton-shimmer" />
+        <div className="skeleton-title skeleton-shimmer" style={{ width: '55%' }} />
+        <div className="skeleton-meta">
+          <div className="skeleton-pill skeleton-shimmer" />
+          <div className="skeleton-pill skeleton-shimmer" />
+          <div className="skeleton-pill skeleton-shimmer" />
+        </div>
+        <div className="skeleton-desc skeleton-shimmer" />
+        <div className="skeleton-desc skeleton-shimmer" style={{ width: '70%' }} />
+        <div className="skeleton-btns">
+          <div className="skeleton-btn skeleton-shimmer" />
+          <div className="skeleton-btn skeleton-shimmer" style={{ width: '140px' }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SkeletonRow() {
+  return (
+    <div className="skeleton-row">
+      <div className="skeleton-row-title skeleton-shimmer" />
+      <div className="skeleton-cards">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="skeleton-card skeleton-shimmer" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CategorySkeleton() {
+  return (
+    <div className="skeleton-page">
+      <SkeletonHero />
+      <div className="netflix-rows" style={{ marginTop: '0' }}>
+        <SkeletonRow />
+        <SkeletonRow />
+        <SkeletonRow />
+        <SkeletonRow />
+      </div>
+    </div>
+  );
+}
+
 function HomeView({
   activeFeatured,
+  featured,
   activeCategory,
   filteredTrending,
   setActiveCategory,
   onAnimeClick,
   onStartWatching
 }) {
+  const continueWatching = featured.filter((anime) => anime.id !== activeFeatured?.id).slice(0, 5);
+  const popularNow = filteredTrending.slice(0, 10);
+  const genrePicks = filteredTrending.slice(6, 16);
+
   return (
-    <>
+    <div className="netflix-home">
       {activeFeatured && (
         <div
-          className="hero"
+          className="hero netflix-hero"
           style={{ backgroundImage: `url(${activeFeatured.bannerImage})` }}
         >
           <div className="hero-overlay"></div>
-          <div className="container" style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center' }}>
+          <div className="container hero-shell">
             <div className="hero-content">
-              <div className="badge">Featured Series</div>
+              <div className="netflix-series-mark">
+                <span>N</span>
+                <strong>Series</strong>
+              </div>
               <h1 className="hero-title">{activeFeatured.title}</h1>
 
               <div className="hero-meta">
+                <span className="top-ten-badge">Top 10</span>
+                <span className="hero-rank">#1 in TV Shows Today</span>
                 <span>
                   <Star size={16} fill="var(--accent-primary)" style={{ color: 'var(--accent-primary)' }} />
                   {activeFeatured.rating}
@@ -281,10 +628,10 @@ function HomeView({
 
               <div className="btn-group">
                 <button className="btn btn-primary" onClick={() => onStartWatching(activeFeatured, 1)}>
-                  <Play size={18} fill="currentColor" /> Watch Now
+                  <Play size={22} fill="currentColor" /> Play
                 </button>
                 <button className="btn btn-secondary" onClick={() => onAnimeClick(activeFeatured.id)}>
-                  <Info size={18} /> View Details
+                  <Info size={22} /> More Info
                 </button>
               </div>
             </div>
@@ -292,44 +639,59 @@ function HomeView({
         </div>
       )}
 
-      <div className="container">
-        <div className="category-row">
+      <div className="netflix-rows">
+        {continueWatching.length > 0 && (
+          <NetflixRow
+            title="Continue Watching"
+            items={continueWatching}
+            onAnimeClick={onAnimeClick}
+            progress
+          />
+        )}
+
+        <NetflixRow
+          title="Popular on AniStream"
+          items={popularNow}
+          onAnimeClick={onAnimeClick}
+        />
+
+        <div className="category-row netflix-category-row">
           <div className="section-header">
-            <h2 className="section-title">Explore Genres</h2>
+            <h2 className="section-title">Browse by Genre</h2>
           </div>
           <div className="categories-container">
-            <div
+            <button
               className={`category-pill ${activeCategory === 'All' ? 'active' : ''}`}
               onClick={() => setActiveCategory('All')}
             >
               All
-            </div>
+            </button>
             {animeCategories.map((cat) => (
-              <div
+              <button
                 key={cat}
                 className={`category-pill ${activeCategory === cat ? 'active' : ''}`}
                 onClick={() => setActiveCategory(cat)}
               >
                 {cat}
-              </div>
+              </button>
             ))}
           </div>
         </div>
 
-        <div className="anime-row">
-          <div className="section-header">
-            <h2 className="section-title">Trending Anime</h2>
-          </div>
-          <div className="anime-grid">
-            {filteredTrending.map((anime) => (
-              <AnimeCard
-                key={anime.id}
-                anime={anime}
-                onClick={() => onAnimeClick(anime.id)}
-              />
-            ))}
-          </div>
-        </div>
+        <NetflixRow
+          title={activeCategory === 'All' ? 'Trending Now' : `${activeCategory} Picks`}
+          items={filteredTrending}
+          onAnimeClick={onAnimeClick}
+          ranked
+        />
+
+        {genrePicks.length > 0 && (
+          <NetflixRow
+            title="Because You Watch Anime"
+            items={genrePicks}
+            onAnimeClick={onAnimeClick}
+          />
+        )}
 
         {recentReleases.length > 0 && (
           <div className="anime-row">
@@ -361,11 +723,110 @@ function HomeView({
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 }
 
-function DetailView({ anime, onBackHome, onStartWatching }) {
+function NetflixRow({ title, items, onAnimeClick, progress = false, ranked = false }) {
+  if (!items || items.length === 0) return null;
+
+  return (
+    <section className="netflix-row">
+      <div className="section-header">
+        <h2 className="section-title">{title}</h2>
+      </div>
+      <div className={`netflix-slider ${ranked ? 'ranked-row' : ''}`}>
+        {items.map((anime, index) => (
+          <NetflixTile
+            key={`${title}-${anime.id}`}
+            anime={anime}
+            rank={ranked ? index + 1 : null}
+            progress={progress ? ((index + 2) * 13) % 88 : null}
+            onClick={() => onAnimeClick(anime.id)}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function NetflixTile({ anime, rank, progress, onClick }) {
+  return (
+    <button className={`netflix-tile ${rank ? 'ranked-tile' : ''}`} onClick={onClick}>
+      {rank && <span className="tile-rank">{rank}</span>}
+      <span className="tile-art">
+        <img src={anime.bannerImage || anime.coverImage} alt={anime.title} loading="lazy" />
+        <span className="tile-logo-mark">N</span>
+        {progress !== null && (
+          <span className="watch-progress">
+            <span style={{ width: `${progress}%` }}></span>
+          </span>
+        )}
+      </span>
+      <span className="tile-info">
+        <strong>{anime.title}</strong>
+        <small>{anime.type} &middot; {anime.rating}</small>
+      </span>
+    </button>
+  );
+}
+
+function DetailView({ anime, franchiseList = [], myList = [], onToggleWatchlist, onAnimeSelect, onBackHome, onStartWatching }) {
+  const EPISODES_PER_PART = 100;
+  const totalPages = anime.episodePagination?.lastPage || 1;
+  const totalEpisodes = anime.totalEpisodes || anime.episodes?.length || 0;
+
+  const getPartLabel = (pageNum) => {
+    const start = (pageNum - 1) * EPISODES_PER_PART + 1;
+    const end = Math.min(pageNum * EPISODES_PER_PART, totalEpisodes);
+    if (totalPages <= 1) return 'Season 1';
+    return `Part ${pageNum} (Ep ${start}\u2013${end})`;
+  };
+
+  const [selectedPart, setSelectedPart] = React.useState(1);
+  const [pageEpisodes, setPageEpisodes] = React.useState(anime.episodes || []);
+  const [loadingPage, setLoadingPage] = React.useState(false);
+  const [filter, setFilter] = React.useState('all');
+
+  React.useEffect(() => {
+    // Reset selection to part 1 when selected anime changes
+    setSelectedPart(1);
+  }, [anime.id]);
+
+  React.useEffect(() => {
+    if (selectedPart === 1) {
+      setPageEpisodes(anime.episodes || []);
+      return;
+    }
+    if (!anime.malId) return;
+    setLoadingPage(true);
+    api.getEpisodePage(anime.malId, selectedPart).then((data) => {
+      if (data && data.episodes) {
+        setPageEpisodes(data.episodes.map(ep => ({
+          id: null,
+          number: ep.number,
+          title: ep.title,
+          aired: ep.aired,
+          score: ep.score,
+          filler: ep.filler,
+          recap: ep.recap,
+          thumbnail: anime.bannerImage || anime.coverImage,
+          sources: []
+        })));
+      }
+    }).finally(() => setLoadingPage(false));
+  }, [selectedPart, anime.malId, anime.episodes]);
+
+  const filteredEpisodes = pageEpisodes.filter(ep => {
+    if (filter === 'canon') return !ep.filler && !ep.recap;
+    if (filter === 'filler') return ep.filler;
+    if (filter === 'recap') return ep.recap;
+    return true;
+  });
+
+  const isLongRunning = totalPages > 1;
+  const hasFranchise = franchiseList.length > 1;
+
   return (
     <div>
       <div
@@ -388,10 +849,13 @@ function DetailView({ anime, onBackHome, onStartWatching }) {
 
             <div className="detail-tags">
               <div className="detail-tag" style={{ borderColor: 'var(--accent-primary)', color: 'var(--accent-primary)' }}>
-                * {anime.rating}
+                {'\u2605'} {anime.rating}
               </div>
               <div className="detail-tag">{anime.type}</div>
               <div className="detail-tag">{anime.status}</div>
+              {anime.totalEpisodes && (
+                <div className="detail-tag">{anime.totalEpisodes} Episodes</div>
+              )}
               {anime.genres?.map((genre) => (
                 <div key={genre} className="detail-tag">{genre}</div>
               ))}
@@ -403,6 +867,12 @@ function DetailView({ anime, onBackHome, onStartWatching }) {
               <button className="btn btn-primary" onClick={() => onStartWatching(anime, 1)}>
                 <Play size={18} fill="currentColor" /> Play Episode 1
               </button>
+              <button
+                className={`btn ${myList.some(item => item.id === anime.id) ? 'btn-watchlist-active' : 'btn-secondary'}`}
+                onClick={() => onToggleWatchlist(anime)}
+              >
+                {myList.some(item => item.id === anime.id) ? '✓ In My List' : '+ My List'}
+              </button>
               <button className="btn btn-secondary" onClick={onBackHome}>
                 Back to Home
               </button>
@@ -410,31 +880,136 @@ function DetailView({ anime, onBackHome, onStartWatching }) {
           </div>
         </div>
 
+        {/* Episodes Section */}
         <div className="episodes-section">
-          <h2 className="section-title">Episodes</h2>
-          <div className="episodes-grid">
-            {anime.episodes?.map((ep) => (
-              <div
-                key={ep.number}
-                className="episode-card"
-                onClick={() => onStartWatching(anime, ep.number)}
-              >
-                <div className="ep-thumb-wrapper">
-                  <img src={ep.thumbnail || anime.coverImage} alt={ep.title} className="ep-thumb" />
-                  <div className="ep-play-btn">
-                    <Play size={20} fill="white" />
-                  </div>
-                  <div className="ep-num-badge">Episode {ep.number}</div>
+          <div className="episodes-section-header">
+            <h2 className="section-title">Episodes</h2>
+
+            <div className="episodes-controls">
+              {/* Franchise / Season Selector */}
+              {hasFranchise && (
+                <div className="season-selector-wrap">
+                  <select
+                    className="season-selector"
+                    value={anime.id}
+                    onChange={(e) => onAnimeSelect(e.target.value)}
+                    aria-label="Select season or movie"
+                  >
+                    {franchiseList.map(item => (
+                      <option key={item.id} value={item.id}>
+                        {item.title} ({item.format})
+                      </option>
+                    ))}
+                  </select>
+                  <span className="season-selector-arrow">&#9660;</span>
                 </div>
-                <div className="ep-info">
-                  <div className="ep-title">{ep.title}</div>
+              )}
+
+              {/* Part selector (for long running shows) */}
+              {isLongRunning && (
+                <div className="season-selector-wrap">
+                  <select
+                    className="season-selector"
+                    value={selectedPart}
+                    onChange={(e) => setSelectedPart(Number(e.target.value))}
+                    aria-label="Select part"
+                  >
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                      <option key={p} value={p}>{getPartLabel(p)}</option>
+                    ))}
+                  </select>
+                  <span className="season-selector-arrow">&#9660;</span>
                 </div>
+              )}
+
+              <div className="episode-filter-bar">
+                {['all', 'canon', 'filler', 'recap'].map(f => (
+                  <button
+                    key={f}
+                    className={`ep-filter-btn${filter === f ? ' active' : ''}`}
+                    onClick={() => setFilter(f)}
+                  >
+                    {f.charAt(0).toUpperCase() + f.slice(1)}
+                  </button>
+                ))}
               </div>
-            ))}
+            </div>
           </div>
+
+          <div className="episode-count-info">
+            {isLongRunning
+              ? <span>{getPartLabel(selectedPart)} &middot; {filteredEpisodes.length} episodes</span>
+              : <span>{filteredEpisodes.length} episodes total</span>
+            }
+          </div>
+
+          {loadingPage ? (
+            <div className="inline-loader" role="status">
+              <div className="loading-spinner"></div>
+              <p>Loading episodes...</p>
+            </div>
+          ) : filteredEpisodes.length === 0 ? (
+            <div className="ep-empty-state">
+              <p>No {filter !== 'all' ? filter : ''} episodes in this part.</p>
+            </div>
+          ) : (
+            <div className="episode-list-netflix">
+              {filteredEpisodes.map((ep) => (
+                <EpisodeCard
+                  key={ep.number}
+                  ep={ep}
+                  anime={anime}
+                  onStartWatching={onStartWatching}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
+  );
+}
+
+function EpisodeCard({ ep, anime, onStartWatching }) {
+  const [imgError, setImgError] = React.useState(false);
+  return (
+    <button
+      className={`ep-card-netflix${ep.filler ? ' ep-filler' : ''}${ep.recap ? ' ep-recap' : ''}`}
+      onClick={() => onStartWatching(anime, ep.number)}
+    >
+      <div className="ep-card-thumb">
+        {!imgError ? (
+          <img
+            src={ep.thumbnail || anime.coverImage}
+            alt={ep.title}
+            loading="lazy"
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          <div className="ep-thumb-fallback"><Play size={24} /></div>
+        )}
+        <div className="ep-card-play-overlay"><Play size={28} fill="white" /></div>
+        <div className="ep-card-num-badge">EP {ep.number}</div>
+      </div>
+
+      <div className="ep-card-body">
+        <div className="ep-card-top">
+          <span className="ep-card-number">Episode {ep.number}</span>
+          <div className="ep-card-badges">
+            {ep.filler && <span className="ep-badge ep-badge-filler">FILLER</span>}
+            {ep.recap && <span className="ep-badge ep-badge-recap">RECAP</span>}
+          </div>
+        </div>
+        <div className="ep-card-title">{ep.title}</div>
+        <div className="ep-card-meta">
+          {ep.aired && <span>{ep.aired}</span>}
+          {ep.score && <span>{'\u2b50'} {ep.score}/5</span>}
+          {anime.duration && <span>{anime.duration}</span>}
+        </div>
+      </div>
+
+      <div className="ep-card-action"><Play size={20} /></div>
+    </button>
   );
 }
 
@@ -442,17 +1017,164 @@ function WatchView({
   anime,
   episode,
   source,
+  franchiseList = [],
   currentSourceIndex,
   loadingSources,
   setCurrentSourceIndex,
-  onStartWatching
+  onStartWatching,
+  onAnimeSelect
 }) {
-  const hasProviderProblem = episode.provider === 'fallback' || episode.provider === 'error';
+  const EPISODES_PER_PART = 100;
+  const totalPages = anime.episodePagination?.lastPage || 1;
+  const isLongRunning = totalPages > 1;
+  const defaultPart = Math.ceil(episode.number / EPISODES_PER_PART) || 1;
+
+  const [selectedPart, setSelectedPart] = React.useState(defaultPart);
+  const [episodesList, setEpisodesList] = React.useState([]);
+  const [loadingEpisodes, setLoadingEpisodes] = React.useState(false);
+  const [filter, setFilter] = React.useState('all');
+  const [showSeasonDropdown, setShowSeasonDropdown] = React.useState(false);
+
+  const dropdownRef = React.useRef(null);
+  const activeEpisodeRef = React.useRef(null);
+
+  // Sync part with current episode number when it changes
+  React.useEffect(() => {
+    const currentPart = Math.ceil(episode.number / EPISODES_PER_PART) || 1;
+    setSelectedPart(currentPart);
+  }, [episode.number]);
+
+  // Handle click outside to close dropdown
+  React.useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setShowSeasonDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Fetch episodes when part changes
+  React.useEffect(() => {
+    if (selectedPart === 1) {
+      setEpisodesList(anime.episodes || []);
+      return;
+    }
+    if (!anime.malId) {
+      setEpisodesList([]);
+      return;
+    }
+    setLoadingEpisodes(true);
+    // Simulate slight lag to make the skeleton animation beautifully visible
+    const fetchPromise = api.getEpisodePage(anime.malId, selectedPart);
+    const delayPromise = new Promise(resolve => setTimeout(resolve, 800));
+    
+    Promise.all([fetchPromise, delayPromise]).then(([data]) => {
+      if (data && data.episodes) {
+        setEpisodesList(data.episodes.map(ep => ({
+          id: null,
+          number: ep.number,
+          title: ep.title,
+          filler: ep.filler,
+          recap: ep.recap,
+          thumbnail: anime.bannerImage || anime.coverImage,
+          sources: []
+        })));
+      }
+    }).finally(() => setLoadingEpisodes(false));
+  }, [selectedPart, anime.malId, anime.episodes]);
+
+  // Center active episode in viewport if needed
+  React.useEffect(() => {
+    if (activeEpisodeRef.current) {
+      setTimeout(() => {
+        activeEpisodeRef.current?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest',
+          inline: 'nearest'
+        });
+      }, 400);
+    }
+  }, [episode.number, loadingEpisodes]);
+
+  const hasProviderProblem = ['fallback', 'error', 'unavailable'].includes(episode.provider);
+
+  // Generate Season dropdown options
+  const seasonOptions = [];
+  if (franchiseList && franchiseList.length > 0) {
+    franchiseList.forEach(item => {
+      const isActive = item.id === anime.id;
+      if (isActive) {
+        if (isLongRunning) {
+          for (let p = 1; p <= totalPages; p++) {
+            const start = (p - 1) * EPISODES_PER_PART + 1;
+            const end = Math.min(p * EPISODES_PER_PART, anime.totalEpisodes || (p * EPISODES_PER_PART));
+            seasonOptions.push({
+              id: item.id,
+              title: `${item.title} - Part ${p} (Ep ${start}–${end})`,
+              part: p,
+              isActive: isActive && selectedPart === p
+            });
+          }
+        } else {
+          seasonOptions.push({
+            id: item.id,
+            title: `${item.title} (${item.format})`,
+            part: 1,
+            isActive: true
+          });
+        }
+      } else {
+        seasonOptions.push({
+          id: item.id,
+          title: `${item.title} (${item.format})`,
+          part: 1,
+          isActive: false
+        });
+      }
+    });
+  }
+
+  // Fallback if no franchise list
+  if (seasonOptions.length === 0) {
+    if (isLongRunning) {
+      for (let p = 1; p <= totalPages; p++) {
+        const start = (p - 1) * EPISODES_PER_PART + 1;
+        const end = Math.min(p * EPISODES_PER_PART, anime.totalEpisodes || (p * EPISODES_PER_PART));
+        seasonOptions.push({
+          id: anime.id,
+          title: `Season 1 - Part ${p} (Ep ${start}–${end})`,
+          part: p,
+          isActive: selectedPart === p
+        });
+      }
+    } else {
+      seasonOptions.push({
+        id: anime.id,
+        title: `Season 1`,
+        part: 1,
+        isActive: true
+      });
+    }
+  }
+
+  const activeOption = seasonOptions.find(opt => opt.isActive) || seasonOptions[0];
+  const activeLabel = activeOption ? activeOption.title : 'Select Season';
+
+  // Filtered episodes
+  const filteredEpisodes = episodesList.filter(ep => {
+    if (filter === 'canon') return !ep.filler && !ep.recap;
+    if (filter === 'filler') return ep.filler;
+    if (filter === 'recap') return ep.recap;
+    return true;
+  });
 
   return (
-    <div className="container" style={{ marginTop: '2rem' }}>
-      <div className="watch-container">
-        <div className="player-area">
+    <div className="watch-page-wrapper">
+      <div className="watch-container-netflix">
+        {/* Player Block */}
+        <div className="player-area-full">
           {loadingSources ? (
             <LoadingPlayer />
           ) : (
@@ -460,21 +1182,30 @@ function WatchView({
               source={source}
               poster={episode.thumbnail || anime.bannerImage}
               subtitles={episode?.subtitles}
+              malId={anime.idMal}
+              episodeNumber={episode.number}
             />
           )}
 
-          <div className="watch-meta">
-            {hasProviderProblem && (
-              <ProviderWarning error={episode.error} />
-            )}
+          {/* Warning banner */}
+          {hasProviderProblem && (
+            <ProviderWarning error={episode.error} />
+          )}
 
-            <div className="watch-ep-info">
-              Episode {episode.number}: {episode.title}
+          {/* Watch Page Title Block */}
+          <div className="watch-action-bar" style={{ borderBottom: 'none', paddingBottom: '0.5rem' }}>
+            <div className="action-bar-left">
+              <div className="watch-ep-info">
+                Episode {episode.number}: {episode.title}
+              </div>
+              <h1 className="watch-meta-title">{anime.title}</h1>
             </div>
-            <h1 className="watch-meta-title">{anime.title}</h1>
+          </div>
 
+          {/* Description & Server Block */}
+          <div className="watch-description-block" style={{ marginTop: '0' }}>
             {episode.sources && episode.sources.length > 1 && (
-              <div className="server-selector">
+              <div className="server-selector" style={{ marginBottom: '1.25rem' }}>
                 <span style={{ fontSize: '0.85rem', fontWeight: '600', color: 'var(--text-secondary)' }}>
                   Choose Server / Quality:
                 </span>
@@ -490,34 +1221,151 @@ function WatchView({
               </div>
             )}
 
-            <div style={{ marginTop: '1.5rem', borderTop: '1px solid var(--border-color)', paddingTop: '1.25rem' }}>
-              <p className="watch-meta-desc">{anime.description}</p>
-            </div>
+            <p className="watch-meta-desc">{anime.description}</p>
           </div>
-        </div>
 
-        <div className="sidebar-area">
-          <div className="sidebar-panel">
-            <h3 className="sidebar-title">Episodes</h3>
-            <div className="sidebar-list">
-              {anime.episodes?.map((ep) => (
-                <div
-                  key={ep.number}
-                  className={`sidebar-item ${episode.number === ep.number ? 'active' : ''}`}
-                  onClick={() => onStartWatching(anime, ep.number)}
-                >
-                  <div className="sidebar-thumb">
-                    <img src={ep.thumbnail || anime.coverImage} alt={ep.title} />
-                  </div>
-                  <div className="sidebar-info">
-                    <div className="sidebar-ep-num">Episode {ep.number}</div>
-                    <div className="sidebar-ep-title" title={ep.title}>{ep.title}</div>
-                  </div>
+          {/* Netflix-Style Bento Episodes Section */}
+          <div className="watch-episodes-slider-section" style={{ borderTop: 'none', paddingTop: '1rem' }}>
+            {/* Header: Title on Left, Season dropdown button on Right */}
+            <div className="slider-header" style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+                <h3 className="slider-title" style={{ margin: '0', fontSize: '1.5rem' }}>Episodes</h3>
+                <div className="episode-filter-bar" style={{ marginTop: '0' }}>
+                  {['all', 'canon', 'filler', 'recap'].map(f => (
+                    <button
+                      key={f}
+                      className={`ep-filter-btn${filter === f ? ' active' : ''}`}
+                      onClick={() => setFilter(f)}
+                    >
+                      {f.charAt(0).toUpperCase() + f.slice(1)}
+                    </button>
+                  ))}
                 </div>
-              ))}
+              </div>
+
+              {/* Season Selector Button on the far right */}
+              <div className="season-dropdown-wrapper" ref={dropdownRef}>
+                <button
+                  className="watch-action-btn season-btn"
+                  onClick={() => setShowSeasonDropdown(!showSeasonDropdown)}
+                  aria-expanded={showSeasonDropdown}
+                  style={{ minWidth: '180px' }}
+                >
+                  <span>{activeLabel}</span>
+                  <span className="btn-arrow">▼</span>
+                </button>
+
+                {showSeasonDropdown && (
+                  <div className="season-dropdown-menu">
+                    {seasonOptions.map((opt, idx) => (
+                      <button
+                        key={idx}
+                        className={`season-dropdown-item${opt.isActive ? ' active' : ''}`}
+                        onClick={() => {
+                          setShowSeasonDropdown(false);
+                          if (opt.id !== anime.id) {
+                            onAnimeSelect(opt.id);
+                          } else {
+                            setSelectedPart(opt.part);
+                          }
+                        }}
+                      >
+                        {opt.title}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
+
+            {/* Episode List or Bento Skeletons */}
+            {loadingEpisodes ? (
+              <div className="ep-bento-list">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <BentoEpisodeSkeleton key={i} />
+                ))}
+              </div>
+            ) : filteredEpisodes.length === 0 ? (
+              <div className="slider-empty">
+                <p>No {filter !== 'all' ? filter : ''} episodes found.</p>
+              </div>
+            ) : (
+              <div className="ep-bento-list">
+                {filteredEpisodes.map(ep => {
+                  const isActive = ep.number === episode.number;
+                  // Dynamic placeholder synopsis text for Netflix look
+                  const dynamicDesc = `In Episode ${ep.number} of ${anime.title}, the journey intensifies. Watch as the characters face new challenges, make key decisions, and shape their destiny. Stream in Full HD quality now.`;
+                  
+                  // Calculate active season number from franchise list
+                  const franchiseIndex = franchiseList.findIndex(item => item.id === anime.id);
+                  const seasonNum = franchiseIndex !== -1 ? (franchiseIndex + 1) : 1;
+
+                  // Avoid redundant "Episode X - Episode X" title labels
+                  const rawTitle = ep.title || '';
+                  const isRedundantTitle = rawTitle.trim().toLowerCase() === `episode ${ep.number}` || 
+                                           rawTitle.trim().toLowerCase() === `episode 0${ep.number}`;
+                  const cleanTitle = ep.title && !isRedundantTitle ? ep.title.trim() : '';
+
+                  return (
+                    <div
+                      key={ep.number}
+                      ref={isActive ? activeEpisodeRef : null}
+                      className={`ep-bento-card${isActive ? ' active' : ''}${ep.filler ? ' filler' : ''}${ep.recap ? ' recap' : ''}`}
+                      onClick={() => onStartWatching(anime, ep.number)}
+                    >
+                      {/* Left: Index Number */}
+                      <div className="ep-bento-number">{ep.number}</div>
+
+                      {/* Center: Image Thumbnail */}
+                      <div className="ep-bento-thumb">
+                        <img src={ep.thumbnail || anime.coverImage} alt={ep.title} loading="lazy" />
+                        <div className="ep-bento-play-overlay">
+                          <Play size={24} fill="currentColor" />
+                        </div>
+                        {ep.filler && <span className="ep-badge ep-badge-filler">FILLER</span>}
+                        {ep.recap && <span className="ep-badge ep-badge-recap">RECAP</span>}
+                      </div>
+
+                      {/* Right: Content details */}
+                      <div className="ep-bento-info">
+                        <div className="ep-bento-header">
+                          <h4 className="ep-bento-title">
+                            Season {seasonNum} &middot; Episode {ep.number}{cleanTitle ? ` - ${cleanTitle}` : ''}
+                          </h4>
+                          <span className="ep-bento-duration">
+                            {anime.duration || '24m'}
+                          </span>
+                        </div>
+                        <p className="ep-bento-desc">{dynamicDesc}</p>
+                        <div className="ep-bento-meta">
+                          {ep.aired && <span>Aired: {ep.aired}</span>}
+                          {ep.score && <span style={{ color: 'var(--accent-primary)' }}>★ {ep.score}/5</span>}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function BentoEpisodeSkeleton() {
+  return (
+    <div className="ep-bento-card skeleton-bento">
+      <div className="ep-bento-number skeleton-shimmer" style={{ height: '30px', width: '20px', borderRadius: '4px' }} />
+      <div className="ep-bento-thumb skeleton-shimmer" style={{ background: 'none' }} />
+      <div className="ep-bento-info">
+        <div className="ep-bento-header">
+          <div className="skeleton-shimmer" style={{ height: '18px', width: '40%', borderRadius: '4px' }} />
+          <div className="skeleton-shimmer" style={{ height: '14px', width: '60px', borderRadius: '4px' }} />
+        </div>
+        <div className="skeleton-shimmer" style={{ height: '14px', width: '90%', borderRadius: '4px', marginTop: '8px' }} />
+        <div className="skeleton-shimmer" style={{ height: '14px', width: '70%', borderRadius: '4px', marginTop: '6px' }} />
       </div>
     </div>
   );
@@ -542,8 +1390,112 @@ function ProviderWarning({ error }) {
         <span>Streaming providers are currently unavailable</span>
       </div>
       <span style={{ color: '#fca5a5', fontSize: '0.8rem' }}>
-        {error || 'The streaming provider did not return a playable source.'} Try another episode or restart the backend server.
+        {error || 'The streaming provider did not return a playable source.'} Try another episode or connect a working stream source.
       </span>
+    </div>
+  );
+}
+
+function CategoryGridView({
+  title,
+  viewName,
+  featuredItem,
+  genresData = {},
+  onAnimeClick,
+  onStartWatching,
+  isLoading = false
+}) {
+  if (isLoading || !featuredItem) {
+    return <CategorySkeleton />;
+  }
+
+  return (
+    <div className="netflix-home">
+      <div
+        className="hero netflix-hero"
+        style={{ backgroundImage: `url(${featuredItem.bannerImage})` }}
+      >
+        <div className="hero-overlay"></div>
+        <div className="container hero-shell">
+          <div className="hero-content">
+            <div className="netflix-series-mark">
+              <span>N</span>
+              <strong>{viewName === 'movies' ? 'Film' : 'Series'}</strong>
+            </div>
+            <h1 className="hero-title">{featuredItem.title}</h1>
+
+            <div className="hero-meta">
+              <span className="top-ten-badge">Top Picks</span>
+              <span>
+                <Star size={16} fill="var(--accent-primary)" style={{ color: 'var(--accent-primary)' }} />
+                {featuredItem.rating}
+              </span>
+              <span>{featuredItem.type}</span>
+              <span>{featuredItem.duration || 'HD'}</span>
+              <span>{featuredItem.status}</span>
+            </div>
+
+            <p className="hero-desc">{featuredItem.description}</p>
+
+            <div className="btn-group">
+              <button className="btn btn-primary" onClick={() => onStartWatching(featuredItem, 1)}>
+                <Play size={22} fill="currentColor" /> Play
+              </button>
+              <button className="btn btn-secondary" onClick={() => onAnimeClick(featuredItem.id)}>
+                <Info size={22} /> More Info
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Netflix Horizontal Rows Grouped by Genres */}
+      <div className="netflix-rows">
+        {Object.entries(genresData).map(([genreName, list]) => {
+          if (!list || list.length === 0) return null;
+          return (
+            <NetflixRow
+              key={genreName}
+              title={`${genreName} ${viewName === 'movies' ? 'Movies' : 'Shows'}`}
+              items={list}
+              onAnimeClick={onAnimeClick}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function WatchlistView({ items, onAnimeClick, onBackHome }) {
+  return (
+    <div className="container" style={{ marginTop: '5rem', minHeight: '60vh' }}>
+      <div className="section-header" style={{ marginBottom: '2rem' }}>
+        <h2 className="section-title">My List</h2>
+      </div>
+
+      {items.length > 0 ? (
+        <div className="anime-grid">
+          {items.map((anime) => (
+            <AnimeCard
+              key={anime.id}
+              anime={anime}
+              onClick={() => onAnimeClick(anime.id)}
+            />
+          ))}
+        </div>
+      ) : (
+        <div style={{ textAlign: 'center', padding: '6rem 0', color: 'var(--text-secondary)' }}>
+          <Star size={48} style={{ marginBottom: '1rem', color: 'var(--text-muted)' }} />
+          <h3>Your watchlist is empty</h3>
+          <p style={{ fontSize: '0.9rem', marginTop: '0.5rem', color: 'var(--text-muted)' }}>
+            Explore shows and movies, and click "+ My List" to bookmark them.
+          </p>
+          <button className="btn btn-primary" onClick={onBackHome} style={{ marginTop: '1.5rem', display: 'inline-flex' }}>
+            Browse Shows
+          </button>
+        </div>
+      )}
     </div>
   );
 }

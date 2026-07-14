@@ -83,6 +83,12 @@ const AXIOS_OPTS = {
 const animeCache = new Map();
 const CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
+// ─────────────────────────────────────────────────────
+// Jikan episode cache: "malId:page" -> { data, timestamp }
+// ─────────────────────────────────────────────────────
+const jikanCache = new Map();
+const JIKAN_TTL = 60 * 60 * 1000; // 1 hour
+
 /**
  * Given a vivibebe.site embed URL, extracts the direct HLS .m3u8 stream URL
  * and subtitle track. Returns null if extraction fails.
@@ -185,9 +191,64 @@ async function animeKaiGetEpisodeEmbeds(slug, episodeNum) {
 }
 
 // ─────────────────────────────────────────────────────
+// Jikan (MyAnimeList) Episode Metadata Proxy
+// Fetches episode titles, air dates, filler/recap flags
+// ─────────────────────────────────────────────────────
+app.get('/api/episodes/mal/:malId', async (req, res) => {
+  const { malId } = req.params;
+  const page = parseInt(req.query.page) || 1;
+  const cacheKey = `${malId}:${page}`;
+
+  console.log(`\n[JIKAN] Episode list for MAL ID ${malId}, page ${page}`);
+
+  // Serve from cache if fresh
+  const cached = jikanCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < JIKAN_TTL) {
+    console.log(`[JIKAN] Cache hit: ${cacheKey}`);
+    return res.json(cached.data);
+  }
+
+  try {
+    const jikanUrl = `https://api.jikan.moe/v4/anime/${malId}/episodes?page=${page}`;
+    const { data } = await axios.get(jikanUrl, {
+      timeout: 10000,
+      headers: { 'Accept': 'application/json', 'User-Agent': 'AniStream/1.0' }
+    });
+
+    const episodes = (data.data || []).map(ep => ({
+      number: ep.mal_id,
+      title: ep.title || `Episode ${ep.mal_id}`,
+      titleJapanese: ep.title_japanese || null,
+      aired: ep.aired ? ep.aired.split('T')[0] : null,
+      score: ep.score || null,
+      filler: ep.filler || false,
+      recap: ep.recap || false,
+    }));
+
+    const result = {
+      episodes,
+      pagination: {
+        currentPage: page,
+        lastPage: data.pagination?.last_visible_page || 1,
+        hasNextPage: data.pagination?.has_next_page || false,
+        total: (data.pagination?.last_visible_page || 1) * 100
+      }
+    };
+
+    jikanCache.set(cacheKey, { data: result, timestamp: Date.now() });
+    console.log(`[JIKAN] ${episodes.length} episodes fetched (page ${page}/${data.pagination?.last_visible_page || 1})`);
+    res.json(result);
+  } catch (err) {
+    console.error(`[JIKAN] Failed for MAL ID ${malId}:`, err.message);
+    res.status(502).json({ error: 'Could not fetch episode data from Jikan', message: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────
 // Health check
 // ─────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
+
   res.json({
     status: 'ok',
     providers: ['animekai-scraper (English sub/dub)', 'animeunity-consumet (fallback)']
