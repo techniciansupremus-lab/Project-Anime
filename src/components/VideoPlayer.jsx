@@ -117,11 +117,14 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
 
     setIsBuffering(true);
 
+    const nativeHLSSupport = video.canPlayType('application/vnd.apple.mpegurl') ||
+                             video.canPlayType('audio/mpegurl');
+
     if (source?.isM3U8 && Hls.isSupported()) {
+      // ── HLS.js path (Chrome, Firefox, Android, desktop) ──
       const hls = new Hls({
         maxMaxBufferLength: 60,
         enableWorker: true,
-        // Aggressive retry: helps with slow KissKH CDN responses
         manifestLoadingMaxRetry: 6,
         manifestLoadingRetryDelay: 1000,
         levelLoadingMaxRetry: 6,
@@ -143,8 +146,18 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
         setIsBuffering(false);
         hls.destroy();
       });
-    } else {
+    } else if (source?.isM3U8 && nativeHLSSupport) {
+      // ── Native HLS path (iOS Safari) ──
+      // iOS Safari parses m3u8 natively — pass our proxy URL directly
       video.src = streamUrl;
+      video.load();
+    } else if (!source?.isM3U8) {
+      // ── Direct MP4 / non-HLS ──
+      video.src = streamUrl;
+    } else {
+      // No HLS support at all
+      setError('Your browser does not support HLS video. Please try Chrome or Firefox.');
+      setIsBuffering(false);
     }
 
     return () => {

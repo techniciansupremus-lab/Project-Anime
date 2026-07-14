@@ -406,6 +406,7 @@ app.get('/api/info/:anilistId', async (req, res) => {
 app.get('/api/gogoanime/watch', async (req, res) => {
   const { title, episode } = req.query;
   const episodeNum = parseInt(episode) || 1;
+  const host = `${req.protocol}://${req.get('host')}`;
 
   if (!title) {
     return res.status(400).json({ error: 'Missing title parameter' });
@@ -493,7 +494,7 @@ app.get('/api/gogoanime/watch', async (req, res) => {
     res.json({
       provider: 'animekai',
       type: 'hls',
-      streamUrl: `http://localhost:5000/api/m3u8-proxy?url=${encodeURIComponent(directStream.streamUrl)}&referer=${encodeURIComponent(directStream.headers.Referer)}`,
+      streamUrl: `${host}/api/m3u8-proxy?url=${encodeURIComponent(directStream.streamUrl)}&referer=${encodeURIComponent(directStream.headers.Referer)}`,
       subtitleUrl: directStream.subtitleUrl,
       headers: directStream.headers,
       episode: episodeNum,
