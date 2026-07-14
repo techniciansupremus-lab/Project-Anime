@@ -9,7 +9,7 @@ function App() {
   const [view, setView] = useState('home');
   const [featured, setFeatured] = useState([]);
   const [trending, setTrending] = useState([]);
-  const [searchResults, setSearchResults] = useState([]);
+  const [searchResults, setSearchResults] = useState({ anime: [], dramas: [] });
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
   const [selectedAnime, setSelectedAnime] = useState(null);
@@ -26,6 +26,17 @@ function App() {
   const [moviesData, setMoviesData] = useState({ featured: null, genres: {} });
   const [newPopularData, setNewPopularData] = useState({ featured: null, rows: {} });
   const [myList, setMyList] = useState([]);
+
+  // ── Drama state ──
+  const [dramaHomeData, setDramaHomeData] = useState(null);
+  const [dramaHomeLoading, setDramaHomeLoading] = useState(false);
+  const [selectedDrama, setSelectedDrama] = useState(null);
+  const [dramaEpisode, setDramaEpisode] = useState(null);
+  const [dramaStream, setDramaStream] = useState(null);
+  const [dramaStreamLoading, setDramaStreamLoading] = useState(false);
+  const [dramaSearchQuery, setDramaSearchQuery] = useState('');
+  const [dramaSearchResults, setDramaSearchResults] = useState([]);
+  const [dramaSearchLoading, setDramaSearchLoading] = useState(false);
 
   const detailRequestRef = useRef(0);
   const watchRequestRef = useRef(0);
@@ -163,6 +174,16 @@ function App() {
     };
   }, [view, tvShowsData.featured, moviesData.featured, newPopularData.featured]);
 
+  // Load drama home when switching to dramas view
+  useEffect(() => {
+    if (view !== 'dramas' || dramaHomeData) return;
+    setDramaHomeLoading(true);
+    fetch('/api/drama/home')
+      .then(r => r.json())
+      .then(data => { setDramaHomeData(data); setDramaHomeLoading(false); })
+      .catch(() => setDramaHomeLoading(false));
+  }, [view, dramaHomeData]);
+
   const toggleWatchlist = (animeItem) => {
     setMyList((prev) => {
       let updated;
@@ -193,7 +214,7 @@ function App() {
   const resetSearch = () => {
     searchRequestRef.current += 1;
     setSearchQuery('');
-    setSearchResults([]);
+    setSearchResults({ anime: [], dramas: [] });
     setSearchLoading(false);
   };
 
@@ -208,11 +229,67 @@ function App() {
     window.scrollTo(0, 0);
   };
 
+  const goDramas = () => {
+    resetSearch();
+    setView('dramas');
+    setSelectedDrama(null);
+    setDramaEpisode(null);
+    setDramaStream(null);
+    window.scrollTo(0, 0);
+  };
+
+  const handleDramaClick = async (drama) => {
+    setSelectedDrama({ ...drama, episodes: [] });
+    setView('drama-detail');
+    setDramaStream(null);
+    window.scrollTo(0, 0);
+    try {
+      const r = await fetch(`/api/drama/info/${drama.id}`);
+      const data = await r.json();
+      setSelectedDrama({ ...data, thumbnail: data.thumbnail || drama.thumbnail });
+    } catch (e) {
+      console.error('Drama info load failed', e);
+    }
+  };
+
+  const startWatchingDrama = async (drama, episode) => {
+    setDramaEpisode(episode);
+    setDramaStream(null);
+    setDramaStreamLoading(true);
+    setView('drama-watch');
+    window.scrollTo(0, 0);
+    try {
+      const r = await fetch(`/api/drama/stream/${episode.id}`);
+      const data = await r.json();
+      setDramaStream(data);
+    } catch (e) {
+      console.error('Drama stream load failed', e);
+      setDramaStream({ error: 'Could not load stream for this episode.' });
+    } finally {
+      setDramaStreamLoading(false);
+    }
+  };
+
+  const handleDramaSearch = (q) => {
+    setDramaSearchQuery(q);
+    if (!q.trim()) { setDramaSearchResults([]); return; }
+    setDramaSearchLoading(true);
+    fetch(`/api/drama/search?q=${encodeURIComponent(q)}`)
+      .then(r => r.json())
+      .then(data => {
+        // KissKH returns { value: [...], Count: N } — extract the array
+        const arr = Array.isArray(data) ? data : (Array.isArray(data?.value) ? data.value : []);
+        setDramaSearchResults(arr);
+        setDramaSearchLoading(false);
+      })
+      .catch(() => { setDramaSearchResults([]); setDramaSearchLoading(false); });
+  };
+
   const handleSearch = (query) => {
     setSearchQuery(query);
 
     if (query.trim() === '') {
-      setSearchResults([]);
+      setSearchResults({ anime: [], dramas: [] });
       setSearchLoading(false);
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
       return;
@@ -220,19 +297,32 @@ function App() {
 
     setSearchLoading(true);
 
-    // Debounce: wait 400ms after user stops typing before querying AniList
+    // Debounce: wait 400ms after user stops typing before querying providers in parallel
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     searchDebounceRef.current = setTimeout(() => {
       const requestId = searchRequestRef.current + 1;
       searchRequestRef.current = requestId;
-      api.searchAnime(query).then((items) => {
+
+      const animePromise = api.searchAnime(query).catch(() => []);
+      const dramaPromise = fetch(`/api/drama/search?q=${encodeURIComponent(query)}`)
+        .then(r => r.json())
+        .then(data => {
+          // KissKH returns { value: [...], Count: N } — extract the array
+          return Array.isArray(data) ? data : (Array.isArray(data?.value) ? data.value : []);
+        })
+        .catch(() => []);
+
+      Promise.all([animePromise, dramaPromise]).then(([animeItems, dramaItems]) => {
         if (requestId === searchRequestRef.current) {
-          setSearchResults(items);
+          setSearchResults({
+            anime: Array.isArray(animeItems) ? animeItems : [],
+            dramas: Array.isArray(dramaItems) ? dramaItems : []
+          });
           setSearchLoading(false);
         }
       }).catch(() => {
         if (requestId === searchRequestRef.current) {
-          setSearchResults([]);
+          setSearchResults({ anime: [], dramas: [] });
           setSearchLoading(false);
         }
       });
@@ -379,9 +469,11 @@ function App() {
         {searchQuery.trim() !== '' ? (
           <SearchResults
             query={searchQuery}
-            results={searchResults}
+            animeResults={searchResults.anime}
+            dramaResults={searchResults.dramas}
             loading={searchLoading}
             onAnimeClick={handleAnimeClick}
+            onDramaClick={handleDramaClick}
           />
         ) : (
           <>
@@ -423,7 +515,7 @@ function App() {
 
             {view === 'new-popular' && (
               <CategoryGridView
-                title="New & Popular"
+                title="New &amp; Popular"
                 viewName="new-popular"
                 featuredItem={newPopularData.featured}
                 genresData={newPopularData.rows}
@@ -473,6 +565,38 @@ function App() {
                 }}
               />
             )}
+
+            {/* ── Drama Views ── */}
+            {view === 'dramas' && (
+              <DramaHomeView
+                data={dramaHomeData}
+                isLoading={dramaHomeLoading}
+                searchQuery={dramaSearchQuery}
+                searchResults={dramaSearchResults}
+                searchLoading={dramaSearchLoading}
+                onSearch={handleDramaSearch}
+                onDramaClick={handleDramaClick}
+              />
+            )}
+
+            {view === 'drama-detail' && selectedDrama && (
+              <DramaDetailView
+                drama={selectedDrama}
+                onBack={goDramas}
+                onWatchEpisode={startWatchingDrama}
+              />
+            )}
+
+            {view === 'drama-watch' && selectedDrama && dramaEpisode && (
+              <DramaWatchView
+                drama={selectedDrama}
+                episode={dramaEpisode}
+                stream={dramaStream}
+                loading={dramaStreamLoading}
+                onBack={() => { setView('drama-detail'); window.scrollTo(0,0); }}
+                onEpisodeSelect={(ep) => startWatchingDrama(selectedDrama, ep)}
+              />
+            )}
           </>
         )}
       </main>
@@ -480,28 +604,55 @@ function App() {
   );
 }
 
-function SearchResults({ query, results, loading, onAnimeClick }) {
+function SearchResults({ query, animeResults = [], dramaResults = [], loading, onAnimeClick, onDramaClick }) {
+  const hasResults = animeResults.length > 0 || dramaResults.length > 0;
+
   return (
-    <div className="container" style={{ marginTop: '2rem' }}>
-      <div className="section-header">
+    <div className="container" style={{ marginTop: '2rem', paddingBottom: '4rem' }}>
+      <div className="section-header" style={{ marginBottom: '2rem' }}>
         <h2 className="section-title">Search Results for "{query}"</h2>
       </div>
+
       {loading ? (
-        <InlineLoader label="Searching anime..." />
-      ) : results.length > 0 ? (
-        <div className="anime-grid">
-          {results.map((anime) => (
-            <AnimeCard
-              key={anime.id}
-              anime={anime}
-              onClick={() => onAnimeClick(anime.id)}
-            />
-          ))}
+        <InlineLoader label="Searching anime and dramas..." />
+      ) : hasResults ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '3rem' }}>
+          {/* Anime Results */}
+          {animeResults.length > 0 && (
+            <div>
+              <h3 style={{ fontSize: '1.4rem', fontWeight: '700', marginBottom: '1.2rem', color: 'var(--text-primary)', borderLeft: '4px solid var(--accent-primary)', paddingLeft: '0.8rem' }}>Anime</h3>
+              <div className="anime-grid">
+                {animeResults.map((anime) => (
+                  <AnimeCard
+                    key={anime.id}
+                    anime={anime}
+                    onClick={() => onAnimeClick(anime.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Drama Results */}
+          {dramaResults.length > 0 && (
+            <div>
+              <h3 style={{ fontSize: '1.4rem', fontWeight: '700', marginBottom: '1.2rem', color: 'var(--text-primary)', borderLeft: '4px solid var(--accent-primary)', paddingLeft: '0.8rem' }}>Dramas</h3>
+              <div className="drama-grid">
+                {dramaResults.map((drama) => (
+                  <DramaCard
+                    key={drama.id}
+                    drama={drama}
+                    onClick={() => onDramaClick(drama)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div style={{ textAlign: 'center', padding: '4rem 0', color: 'var(--text-secondary)' }}>
           <AlertCircle size={48} style={{ marginBottom: '1rem', color: 'var(--text-muted)' }} />
-          <h3>No anime found matching your query</h3>
+          <h3>No results found matching your query</h3>
           <p style={{ fontSize: '0.9rem', marginTop: '0.5rem' }}>
             Try checking your spelling or trying different keywords.
           </p>
@@ -1501,3 +1652,280 @@ function WatchlistView({ items, onAnimeClick, onBackHome }) {
 }
 
 export default App;
+
+// ─────────────────────────────────────────────────────
+// DRAMA COMPONENTS
+// ─────────────────────────────────────────────────────
+
+function DramaCard({ drama, onClick }) {
+  const [imgErr, setImgErr] = React.useState(false);
+  return (
+    <button className="drama-card" onClick={onClick}>
+      <div className="drama-card-art">
+        {!imgErr ? (
+          <img
+            src={drama.thumbnail}
+            alt={drama.title}
+            loading="lazy"
+            onError={() => setImgErr(true)}
+          />
+        ) : (
+          <div className="drama-card-placeholder">
+            <span>{drama.title?.[0] || '?'}</span>
+          </div>
+        )}
+        <div className="drama-card-overlay">
+          <div className="drama-card-play">▶</div>
+        </div>
+        {drama.episodesCount && (
+          <span className="drama-card-ep-badge">{drama.episodesCount} Ep</span>
+        )}
+      </div>
+      <div className="drama-card-info">
+        <span className="drama-card-title">{drama.title}</span>
+      </div>
+    </button>
+  );
+}
+
+function DramaRow({ title, dramas, onDramaClick }) {
+  if (!dramas || dramas.length === 0) return null;
+  return (
+    <section className="drama-row">
+      <h2 className="drama-row-title">{title}</h2>
+      <div className="drama-row-slider">
+        {dramas.map(d => (
+          <DramaCard key={d.id} drama={d} onClick={() => onDramaClick(d)} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function DramaHomeView({ data, isLoading, searchQuery, searchResults, searchLoading, onSearch, onDramaClick }) {
+  const featured = data?.show?.[0];
+  const [imgErr, setImgErr] = React.useState(false);
+
+  return (
+    <div className="drama-home">
+      {/* Search bar */}
+      <div className="drama-search-bar-wrap">
+        <input
+          className="drama-search-input"
+          type="text"
+          placeholder="Search Dramas, Chinese, Thai..."
+          value={searchQuery}
+          onChange={e => onSearch(e.target.value)}
+        />
+      </div>
+
+      {searchQuery.trim() ? (
+        <div className="container drama-search-results">
+          <h2 className="drama-row-title">Results for "{searchQuery}"</h2>
+          {searchLoading ? (
+            <div className="drama-loading"><div className="loading-spinner" /></div>
+          ) : searchResults.length ? (
+            <div className="drama-grid">
+              {searchResults.map(d => <DramaCard key={d.id} drama={d} onClick={() => onDramaClick(d)} />)}
+            </div>
+          ) : (
+            <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '3rem 0' }}>No dramas found.</p>
+          )}
+        </div>
+      ) : isLoading ? (
+        <div className="drama-loading" style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="loading-spinner" />
+        </div>
+      ) : (
+        <>
+          {/* Featured Banner */}
+          {featured && (
+            <div className="drama-hero" style={{ backgroundImage: `url(${featured.thumbnail})` }}>
+              <div className="drama-hero-overlay" />
+              <div className="drama-hero-content">
+                <div className="drama-hero-badge">🎬 Featured Drama</div>
+                <h1 className="drama-hero-title">{featured.title}</h1>
+                <button className="btn btn-primary drama-hero-btn" onClick={() => onDramaClick(featured)}>
+                  <Play size={20} fill="currentColor" /> Watch Now
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="drama-rows-container">
+            <DramaRow title="Featured" dramas={data?.show || []} onDramaClick={onDramaClick} />
+            <DramaRow title="🇰🇷 Most Popular Korean Dramas" dramas={data?.korean || []} onDramaClick={onDramaClick} />
+            <DramaRow title="🇨🇳 Most Popular Chinese Dramas" dramas={data?.chinese || []} onDramaClick={onDramaClick} />
+            <DramaRow title="⭐ Top Rated" dramas={data?.topRating || []} onDramaClick={onDramaClick} />
+            <DramaRow title="🆕 Recently Updated" dramas={data?.lastUpdate || []} onDramaClick={onDramaClick} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function DramaDetailView({ drama, onBack, onWatchEpisode }) {
+  const episodes = Array.isArray(drama?.episodes) ? drama.episodes : [];
+  const [showAll, setShowAll] = React.useState(false);
+  const displayedEps = showAll ? episodes : episodes.slice(0, 24);
+
+  return (
+    <div className="drama-detail">
+      {/* Hero */}
+      <div className="drama-detail-hero" style={{ backgroundImage: `url(${drama.thumbnail})` }}>
+        <div className="drama-hero-overlay" />
+        <div className="drama-detail-hero-content">
+          <button className="drama-back-btn" onClick={onBack}>← Back</button>
+          <h1 className="drama-detail-title">{drama.title}</h1>
+          {drama.releaseDate && (
+            <span className="drama-detail-meta">
+              {new Date(drama.releaseDate).getFullYear()} · {drama.country} · {drama.status}
+            </span>
+          )}
+          {episodes.length > 0 && (
+            <button
+              className="btn btn-primary"
+              onClick={() => onWatchEpisode(drama, episodes[episodes.length - 1])}
+            >
+              <Play size={20} fill="currentColor" /> Episode 1
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="drama-detail-body container">
+        {drama.description && (
+          <div className="drama-detail-desc">
+            <h3>Synopsis</h3>
+            <p>{drama.description}</p>
+          </div>
+        )}
+
+        <div className="drama-episodes-section">
+          <h3 className="drama-episodes-heading">
+            Episodes <span className="drama-ep-count">({episodes.length})</span>
+          </h3>
+          {episodes.length === 0 ? (
+            <div className="drama-loading"><div className="loading-spinner" /></div>
+          ) : (
+            <>
+              <div className="drama-episodes-grid">
+                {displayedEps.map(ep => (
+                  <button
+                    key={ep.id}
+                    className="drama-ep-btn"
+                    onClick={() => onWatchEpisode(drama, ep)}
+                  >
+                    <span className="drama-ep-num">Ep {ep.number}</span>
+                    {ep.sub > 0 && <span className="drama-ep-sub-badge">SUB</span>}
+                  </button>
+                ))}
+              </div>
+              {episodes.length > 24 && (
+                <button className="drama-show-more-btn" onClick={() => setShowAll(p => !p)}>
+                  {showAll ? 'Show Less' : `Show All ${episodes.length} Episodes`}
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DramaWatchView({ drama, episode, stream, loading, onBack, onEpisodeSelect }) {
+  const episodes = Array.isArray(drama?.episodes) ? drama.episodes : [];
+  // activeSub = the `file` URL of the selected subtitle, or null = off
+  const [activeSub, setActiveSub] = React.useState(null);
+
+  // Auto-select English subtitle whenever a new stream loads
+  React.useEffect(() => {
+    if (stream?.subtitles?.length) {
+      const eng = stream.subtitles.find(s => s.default) || stream.subtitles[0];
+      setActiveSub(eng?.file || null);
+    } else {
+      setActiveSub(null);
+    }
+  }, [stream]);
+
+  // Build a SINGLE-element subtitle array for VideoPlayer so only one track
+  // is ever mounted. Swapping this triggers VideoPlayer to remount the track.
+  const playerSubtitle = React.useMemo(() => {
+    if (!activeSub || !stream?.subtitles) return [];
+    const found = stream.subtitles.find(s => s.file === activeSub);
+    if (!found) return [];
+    return [{ url: found.file, lang: 'en', label: found.label, default: true }];
+  }, [activeSub, stream]);
+
+  return (
+    <div className="drama-watch">
+      <div className="drama-watch-header">
+        <button className="drama-back-btn" onClick={onBack}>← {drama.title}</button>
+        <span className="drama-watch-ep-label">Episode {episode.number}</span>
+      </div>
+
+      <div className="drama-player-wrap">
+        {loading ? (
+          <div className="drama-player-loading">
+            <div className="loading-spinner large" />
+            <p>Loading stream for Episode {episode.number}...</p>
+          </div>
+        ) : stream?.error ? (
+          <div className="drama-player-error">
+            <AlertCircle size={40} />
+            <p>{stream.error}</p>
+          </div>
+        ) : stream?.streamUrl ? (
+          <VideoPlayer
+            source={{
+              url: stream.streamUrl,
+              isM3U8: stream.type === 'hls',
+              error: stream.error
+            }}
+            subtitles={playerSubtitle}
+            poster={drama.thumbnail}
+          />
+        ) : null}
+      </div>
+
+      {/* Subtitle selector */}
+      {stream?.subtitles?.length > 0 && (
+        <div className="drama-sub-selector">
+          <span className="drama-sub-label">Subtitles:</span>
+          <button
+            className={`drama-sub-btn ${!activeSub ? 'active' : ''}`}
+            onClick={() => setActiveSub(null)}
+          >Off</button>
+          {stream.subtitles.map(s => (
+            <button
+              key={s.file}
+              className={`drama-sub-btn ${activeSub === s.file ? 'active' : ''}`}
+              onClick={() => setActiveSub(s.file)}
+            >{s.label}</button>
+          ))}
+        </div>
+      )}
+
+      {/* Episode list */}
+      {episodes.length > 0 && (
+        <div className="drama-watch-episodes container">
+          <h3 className="drama-episodes-heading">Episodes</h3>
+          <div className="drama-episodes-grid">
+            {episodes.slice(0, 50).map(ep => (
+              <button
+                key={ep.id}
+                className={`drama-ep-btn ${ep.id === episode.id ? 'active' : ''}`}
+                onClick={() => onEpisodeSelect(ep)}
+              >
+                <span className="drama-ep-num">Ep {ep.number}</span>
+                {ep.sub > 0 && <span className="drama-ep-sub-badge">SUB</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

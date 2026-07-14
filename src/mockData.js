@@ -1,5 +1,5 @@
 const ANILIST_API = 'https://graphql.anilist.co';
-const BACKEND_API = 'http://localhost:5000/api';
+const BACKEND_API = '/api';
 
 export const animeCategories = [
   "Action", "Adventure", "Fantasy", "Sci-Fi", "Romance", "Shounen", "Drama", "Slice of Life", "Mystery"

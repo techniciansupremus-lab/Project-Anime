@@ -58,6 +58,12 @@ export default function Navbar({ onSearch, activeView, setView, onHome }) {
             New & Popular
           </div>
           <div
+            className={`nav-link drama-nav-link ${activeView === 'dramas' || activeView === 'drama-detail' || activeView === 'drama-watch' ? 'active' : ''}`}
+            onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); setView('dramas'); }}
+          >
+            Dramas
+          </div>
+          <div
             className={`nav-link ${activeView === 'my-list' ? 'active' : ''}`}
             onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); setView('my-list'); }}
           >

@@ -10,6 +10,7 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
   const isDraggingRef = useRef(false);
 
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isBuffering, setIsBuffering] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
@@ -104,6 +105,7 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
     setIsPlaying(false);
     setCurrentTime(0);
     setBufferPercent(0);
+    setIsBuffering(false);
     setError(sourceError || null);
 
     if (!streamUrl) {
@@ -113,8 +115,20 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
       return;
     }
 
+    setIsBuffering(true);
+
     if (source?.isM3U8 && Hls.isSupported()) {
-      const hls = new Hls({ maxMaxBufferLength: 30, enableWorker: true });
+      const hls = new Hls({
+        maxMaxBufferLength: 60,
+        enableWorker: true,
+        // Aggressive retry: helps with slow KissKH CDN responses
+        manifestLoadingMaxRetry: 6,
+        manifestLoadingRetryDelay: 1000,
+        levelLoadingMaxRetry: 6,
+        levelLoadingRetryDelay: 1000,
+        fragLoadingMaxRetry: 6,
+        fragLoadingRetryDelay: 1000,
+      });
       hlsRef.current = hls;
 
       hls.loadSource(streamUrl);
@@ -122,9 +136,11 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
 
       hls.on(Hls.Events.ERROR, (event, data) => {
         if (!data.fatal) return;
+        console.error('[HLS] Fatal error:', data.type, data.details);
         if (data.type === Hls.ErrorTypes.NETWORK_ERROR) { hls.startLoad(); return; }
         if (data.type === Hls.ErrorTypes.MEDIA_ERROR) { hls.recoverMediaError(); return; }
-        setError('Failed to load video stream.');
+        setError('Stream failed to load. The episode may be unavailable.');
+        setIsBuffering(false);
         hls.destroy();
       });
     } else {
@@ -147,8 +163,10 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
   }, [ccActive, subtitles]);
 
   // ── Video Events ──────────────────────────────────────────────────────────
-  const onPlay = () => setIsPlaying(true);
+  const onPlay = () => { setIsPlaying(true); setIsBuffering(false); };
   const onPause = () => setIsPlaying(false);
+  const onWaiting = () => setIsBuffering(true);
+  const onCanPlay = () => setIsBuffering(false);
 
   const onTimeUpdate = () => {
     const video = videoRef.current;
@@ -383,6 +401,9 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
             crossOrigin="anonymous"
             onPlay={onPlay}
             onPause={onPause}
+            onWaiting={onWaiting}
+            onCanPlay={onCanPlay}
+            onCanPlayThrough={onCanPlay}
             onTimeUpdate={onTimeUpdate}
             onDurationChange={onDurationChange}
             onClick={togglePlay}
@@ -400,7 +421,18 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
             ))}
           </video>
 
-          {/* ── Skip Intro / Skip Ending Button ─────────────────────────── */}
+          {/* Buffering spinner overlay */}
+          {isBuffering && !error && (
+            <div style={{
+              position: 'absolute', inset: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'rgba(0,0,0,0.45)', zIndex: 5, pointerEvents: 'none'
+            }}>
+              <div className="loading-spinner" style={{ width: '52px', height: '52px', borderWidth: '4px' }} />
+            </div>
+          )}
+
+          {/* Skip Intro / Skip Ending Button */}
           {activeSkip && (
             <button
               className={`skip-btn ${activeSkip === 'op' ? 'skip-op' : 'skip-ed'}`}
