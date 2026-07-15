@@ -622,28 +622,18 @@ async function initCFSession(force = false) {
     });
     const page = await browser.newPage();
 
-    // Set a realistic viewport and UA
-    await page.setViewport({ width: 1920, height: 1080 });
-    await page.setUserAgent(
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-    );
+    // Set a realistic viewport
+    await page.setViewport({ width: 1280, height: 800 });
 
-    // Block images/fonts/media to speed up the CF challenge page load
-    await page.setRequestInterception(true);
-    page.on('request', (req) => {
-      const type = req.resourceType();
-      if (['image', 'font', 'media', 'stylesheet'].includes(type)) {
-        req.abort();
-      } else {
-        req.continue();
-      }
-    });
+    console.log('[CF SESSION] Navigating to KissKH homepage...');
+    // Use domcontentloaded for initial landing, then wait for scripts to execute naturally
+    await page.goto(KISSKH_BASE + '/', { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-    // Visit the homepage — Cloudflare JS challenge runs and clears automatically
-    await page.goto(KISSKH_BASE + '/', { waitUntil: 'networkidle2', timeout: 60000 });
+    console.log('[CF SESSION] Waiting for Cloudflare challenge to resolve...');
+    await new Promise(r => setTimeout(r, 10000));
 
-    // Wait for CF challenge to fully resolve (may need a few extra seconds)
-    await new Promise(r => setTimeout(r, 5000));
+    const pageTitle = await page.title();
+    console.log(`[CF SESSION] Loaded page title: "${pageTitle}"`);
 
     const cookies = await page.cookies();
     cfCookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
