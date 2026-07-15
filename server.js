@@ -4,7 +4,8 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import https from 'https';
 import { ANIME, META } from '@consumet/extensions';
-import puppeteer from 'puppeteer';
+import puppeteerExtra from 'puppeteer-extra';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -601,26 +602,57 @@ async function initCFSession(force = false) {
   }
 
   cfInitializing = true;
-  console.log('\n[CF SESSION] Launching headless Chrome to get Cloudflare cookies...');
+  console.log('\n[CF SESSION] Launching stealth Chrome to bypass Cloudflare...');
+
+  // Apply stealth plugin (only needs to be done once)
+  puppeteerExtra.use(StealthPlugin());
+
   let browser;
   try {
-    browser = await puppeteer.launch({
+    browser = await puppeteerExtra.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--window-size=1920,1080',
+        '--disable-blink-features=AutomationControlled',
+      ],
     });
     const page = await browser.newPage();
+
+    // Set a realistic viewport and UA
+    await page.setViewport({ width: 1920, height: 1080 });
     await page.setUserAgent(
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
     );
-    // Visit the homepage — Cloudflare challenge runs and clears automatically
-    await page.goto(KISSKH_BASE + '/', { waitUntil: 'networkidle2', timeout: 30000 });
-    // Extra wait for JS challenge to resolve
-    await new Promise(r => setTimeout(r, 3000));
+
+    // Block images/fonts/media to speed up the CF challenge page load
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+      const type = req.resourceType();
+      if (['image', 'font', 'media', 'stylesheet'].includes(type)) {
+        req.abort();
+      } else {
+        req.continue();
+      }
+    });
+
+    // Visit the homepage — Cloudflare JS challenge runs and clears automatically
+    await page.goto(KISSKH_BASE + '/', { waitUntil: 'networkidle2', timeout: 60000 });
+
+    // Wait for CF challenge to fully resolve (may need a few extra seconds)
+    await new Promise(r => setTimeout(r, 5000));
 
     const cookies = await page.cookies();
     cfCookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
     cfCookieExpiry = Date.now() + CF_COOKIE_TTL;
     console.log(`[CF SESSION] ✅ Got ${cookies.length} cookies. Session valid for 90 min.`);
+
+    if (cookies.length === 0) {
+      console.warn('[CF SESSION] ⚠️  Zero cookies — Cloudflare may be blocking this IP. Dramas will return 403.');
+    }
 
     // Resolve all waiting callers
     cfInitQueue.forEach(q => q.resolve(cfCookieString));
