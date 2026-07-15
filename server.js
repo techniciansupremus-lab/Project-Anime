@@ -6,6 +6,7 @@ import https from 'https';
 import { ANIME, META } from '@consumet/extensions';
 import puppeteerExtra from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -570,7 +571,7 @@ app.get('/api/search', async (req, res) => {
 // ─────────────────────────────────────────────────────
 // KISSKH DRAMA — Config, Headers & Caches
 // ─────────────────────────────────────────────────────
-const KISSKH_BASE = 'https://kisskh.co'; // kisskh.co is the active domain
+const KISSKH_BASE = 'https://static-logged-atmospheric-guided.trycloudflare.com'; // Pointing to the phone reverse proxy tunnel
 const ENCDEC_BASE = 'https://enc-dec.app';
 
 const DRAMA_LIST_TTL  = 30 * 60 * 1000; // 30 min  — drama catalog changes rarely
@@ -580,111 +581,24 @@ const dramaListCache   = new Map(); // key: "type:page"  → { data, timestamp }
 const dramaInfoCache   = new Map(); // key: dramaId      → { data, timestamp }
 const dramaStreamCache = new Map(); // key: episodeId    → { data, timestamp }
 
-// ─────────────────────────────────────────────────────
-// CLOUDFLARE SESSION MANAGER
-// KissKH is Cloudflare-protected. Bare HTTP requests get the SPA HTML.
-// We use puppeteer once to get the cf_clearance cookie, then reuse it.
-// ─────────────────────────────────────────────────────
-let cfCookieString  = null;  // raw cookie header string
-let cfCookieExpiry  = 0;     // when to refresh
-const CF_COOKIE_TTL = 90 * 60 * 1000; // 90 min — Cloudflare cookies last ~hours
-let cfInitializing  = false; // prevent parallel launches
-let cfInitQueue     = [];    // waiters during init
-
-async function initCFSession(force = false) {
-  // Return cached cookies if still fresh
-  if (!force && cfCookieString && Date.now() < cfCookieExpiry) {
-    return cfCookieString;
-  }
-  // If already initializing, queue up and wait
-  if (cfInitializing) {
-    return new Promise((resolve, reject) => cfInitQueue.push({ resolve, reject }));
-  }
-
-  cfInitializing = true;
-  console.log('\n[CF SESSION] Launching stealth Chrome to bypass Cloudflare...');
-
-  // Apply stealth plugin (only needs to be done once)
-  puppeteerExtra.use(StealthPlugin());
-
-  let browser;
-  try {
-    browser = await puppeteerExtra.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--window-size=1920,1080',
-        '--disable-blink-features=AutomationControlled',
-      ],
-    });
-    const page = await browser.newPage();
-
-    // Set a realistic viewport
-    await page.setViewport({ width: 1280, height: 800 });
-
-    console.log('[CF SESSION] Navigating to KissKH homepage...');
-    // Use domcontentloaded for initial landing, then wait for scripts to execute naturally
-    await page.goto(KISSKH_BASE + '/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-
-    console.log('[CF SESSION] Waiting for Cloudflare challenge to resolve...');
-    await new Promise(r => setTimeout(r, 10000));
-
-    const pageTitle = await page.title();
-    console.log(`[CF SESSION] Loaded page title: "${pageTitle}"`);
-
-    const cookies = await page.cookies();
-    cfCookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-    cfCookieExpiry = Date.now() + CF_COOKIE_TTL;
-    console.log(`[CF SESSION] ✅ Got ${cookies.length} cookies. Session valid for 90 min.`);
-
-    if (cookies.length === 0) {
-      console.warn('[CF SESSION] ⚠️  Zero cookies — Cloudflare may be blocking this IP. Dramas will return 403.');
-    }
-
-    // Resolve all waiting callers
-    cfInitQueue.forEach(q => q.resolve(cfCookieString));
-    return cfCookieString;
-  } catch (err) {
-    console.error('[CF SESSION] ❌ Failed to get Cloudflare cookies:', err.message);
-    cfInitQueue.forEach(q => q.reject(err));
-    throw err;
-  } finally {
-    cfInitializing = false;
-    cfInitQueue = [];
-    if (browser) await browser.close();
-  }
-}
-
-// Helper: GET a KissKH URL with Cloudflare cookies
+// Helper: GET a KissKH URL
 async function kissKhGet(url, retried = false) {
-  const cookies = await initCFSession();
   const res = await axios.get(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Referer': KISSKH_BASE + '/',
-      'Origin': KISSKH_BASE,
       'Accept': 'application/json, text/plain, */*',
       'Accept-Language': 'en-US,en;q=0.9',
-      'Cookie': cookies,
     },
     timeout: 15000,
   });
 
-  // If we got HTML back (Cloudflare rejected our cookies), refresh once and retry
+  // If we got HTML back, log it
   const ct = res.headers['content-type'] || '';
-  if (!retried && (ct.includes('text/html') || typeof res.data === 'string')) {
-    console.warn('[CF SESSION] Got HTML response — cookies expired, refreshing...');
-    await initCFSession(true); // force refresh
-    return kissKhGet(url, true); // retry once
+  if (ct.includes('text/html') || typeof res.data === 'string') {
+    console.warn('[KISSKH] Received HTML response instead of JSON. Reverse proxy might be failing.');
   }
   return res;
 }
-
-// Start warming the CF session in background at server startup
-initCFSession().catch(err => console.warn('[CF SESSION] Background init failed:', err.message));
 
 // ─────────────────────────────────────────────────────
 // DRAMA: Home Feed — GET /api/drama/home
