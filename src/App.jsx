@@ -176,13 +176,30 @@ function App() {
 
   // Load drama home when switching to dramas view
   useEffect(() => {
-    if (view !== 'dramas' || dramaHomeData) return;
+    if (view !== 'dramas') return;
+    // Re-fetch if data is null/missing or is an error object
+    const hasValidData = dramaHomeData && dramaHomeData.korean && Array.isArray(dramaHomeData.korean);
+    if (hasValidData) return;
     setDramaHomeLoading(true);
     fetch('/api/drama/home')
       .then(r => r.json())
-      .then(data => { setDramaHomeData(data); setDramaHomeLoading(false); })
-      .catch(() => setDramaHomeLoading(false));
-  }, [view, dramaHomeData]);
+      .then(data => {
+        // Check if it's a real data response or an error object
+        if (data && Array.isArray(data.korean)) {
+          setDramaHomeData(data);
+        } else {
+          // API returned an error — keep data null so the retry works
+          setDramaHomeData(null);
+          console.warn('[Drama Home] API returned error:', data);
+        }
+        setDramaHomeLoading(false);
+      })
+      .catch(err => {
+        console.warn('[Drama Home] Fetch failed:', err);
+        setDramaHomeLoading(false);
+        setDramaHomeData(null);
+      });
+  }, [view]);
 
   const toggleWatchlist = (animeItem) => {
     setMyList((prev) => {
@@ -1735,6 +1752,16 @@ function DramaHomeView({ data, isLoading, searchQuery, searchResults, searchLoad
       ) : isLoading ? (
         <div className="drama-loading" style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div className="loading-spinner" />
+        </div>
+      ) : !data || !Array.isArray(data.korean) ? (
+        <div style={{ minHeight: '60vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.2rem' }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem' }}>⚠️ Could not load drama catalog. The server may still be warming up.</p>
+          <button
+            className="btn btn-primary"
+            onClick={() => window.location.reload()}
+          >
+            🔄 Retry
+          </button>
         </div>
       ) : (
         <>
