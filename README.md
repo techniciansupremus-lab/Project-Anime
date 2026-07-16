@@ -31,19 +31,31 @@ pkg install nodejs python -y
 termux-wake-lock
 ```
 
-### a) Relay proxy (`proxy.py`)
-KissKH/Cloudflare block datacenter/cloud IPs, so the backend must reach KissKH
-from the phone's residential IP. `proxy.py` is a tiny local proxy that forwards
-`/api/*` to `https://kisskh.co`. Save it next to `server.js` and run:
+### a) (Optional) Relay proxy (`proxy.py`)
+KissKH/Cloudflare block **datacenter/cloud** IPs, but the phone is on a
+**residential** IP, so in most cases you can skip this step and hit kisskh.co
+directly (leave `KISSKH_BASE` empty). `proxy.py` is only needed if KissKH
+starts blocking the phone's IP — it's a tiny proxy that forwards to
+`https://kisskh.co` from the phone's IP. If you run it, give it its OWN port
+(default **9090**, set `PROXY_PORT`) and point `KISSKH_BASE` at it. It must
+NOT share port 8080 with the API server.
 
 ```bash
-python proxy.py
+PROXY_PORT=9090 python proxy.py
 ```
 
-Keep this running (Session 1).
+### b) Start the API server
+In one Termux session (or backgrounded):
 
-### b) Public tunnel (ngrok)
-In a second Termux session:
+```bash
+node server.js
+```
+
+`server.js` listens on `PORT` (default **8080**) and enables CORS for the
+frontend.
+
+### c) Public tunnel (ngrok)
+In a second Termux session, tunnel the API port (NOT the relay):
 
 ```bash
 curl -L https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-arm64.tgz -o ngrok.tgz
@@ -52,25 +64,22 @@ tar -xzf ngrok.tgz
 ./ngrok http 8080
 ```
 
-Copy the printed `https://….ngrok-free.app` URL — the frontend needs it.
+Copy the printed `https://….ngrok-free.app` URL — the frontend needs it
+(`VITE_API_BASE` on Vercel).
 
-### c) Start the API server
-In a third Termux session (or backgrounded):
-
-```bash
-node server.js
-```
-
-`server.js` listens on `PORT` (default **8080**) and enables CORS for the
-frontend. The full phone chain is: **`proxy.py` → `ngrok` → `node server.js`**,
-all on port 8080.
+> ⚠️ **Do not run `proxy.py` on 8080.** `node server.js` and `proxy.py` cannot
+> both bind 8080 — if the relay grabs it, the ngrok tunnel serves the KissKH
+> proxy instead of the API, and every frontend request returns KissKH's HTML
+> (e.g. `/api/search` would return the KissKH homepage). Keep the relay on
+> 9090 and the API on 8080.
 
 ### Backend env vars
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `PORT` | `8080` | Listen port (must match `proxy.py` + ngrok target) |
+| `PORT` | `8080` | API listen port (this is what ngrok tunnels). |
+| `PROXY_PORT` | `9090` | Port for the optional `proxy.py` KissKH relay (must differ from `PORT`). |
 | `CORS_ORIGIN` | `*` | Allowed frontend origin (`*` or your Vercel URL) |
-| `KISSKH_BASE` | `https://kisskh.co` | Override to a relay URL when KissKH blocks the backend's IP |
+| `KISSKH_BASE` | `https://kisskh.co` | Override to the relay (`http://localhost:9090`) only if KissKH blocks the phone's IP. Leave empty otherwise. |
 | `ENCDEC_BASE` | `https://enc-dec.app` | Override only if enc-dec.app also blocks the backend's IP |
 
 ---

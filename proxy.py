@@ -1,7 +1,10 @@
 from http.server import HTTPServer, BaseHTTPRequestHandler
-import urllib.request, ssl
+import urllib.request, ssl, os
 
 TARGET = 'kisskh.co'
+# IMPORTANT: this relay must NOT share the API port. node server.js listens on
+# PORT (default 8080) and ngrok tunnels that. Run the relay on a SEPARATE port.
+PORT = int(os.environ.get('PROXY_PORT', '9090'))
 ctx = ssl.create_default_context()
 ctx.check_hostname = False
 ctx.verify_mode = ssl.CERT_NONE
@@ -28,4 +31,5 @@ class H(BaseHTTPRequestHandler):
             self.wfile.write(str(e).encode())
     def log_message(self, *a): pass
 
-HTTPServer(('0.0.0.0', 8080), H).serve_forever()
+print(f'[proxy.py] KissKH relay listening on 0.0.0.0:{PORT} -> https://{TARGET}')
+HTTPServer(('0.0.0.0', PORT), H).serve_forever()
