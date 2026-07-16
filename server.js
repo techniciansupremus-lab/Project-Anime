@@ -571,8 +571,13 @@ app.get('/api/search', async (req, res) => {
 // ─────────────────────────────────────────────────────
 // KISSKH DRAMA — Config, Headers & Caches
 // ─────────────────────────────────────────────────────
-const KISSKH_BASE = 'https://static-logged-atmospheric-guided.trycloudflare.com'; // Pointing to the phone reverse proxy tunnel
-const ENCDEC_BASE = 'https://enc-dec.app';
+// KISSKH (and enc-dec) reject requests from cloud/datacenter IPs (e.g. Railway)
+// due to Cloudflare. Locally we hit kisskh.co directly; on hosted deployments
+// set KISSKH_BASE (and optionally ENCDEC_BASE) to a relay on a trusted IP
+// — e.g. a 24/7 phone (Termux) Cloudflare tunnel — so the calls originate
+// from an IP KissKH doesn't block.
+const KISSKH_BASE = process.env.KISSKH_BASE || 'https://kisskh.co';
+const ENCDEC_BASE = process.env.ENCDEC_BASE || 'https://enc-dec.app';
 
 const DRAMA_LIST_TTL  = 30 * 60 * 1000; // 30 min  — drama catalog changes rarely
 const STREAM_TTL      =  2 * 60 * 60 * 1000; // 2 hours — kkey tokens last hours
@@ -804,7 +809,9 @@ app.get('/api/drama/stream/:episodeId', async (req, res) => {
     // ── Build the proxied stream URL ──
     const isM3U8 = videoUrl.includes('.m3u8');
     const proxiedStream = isM3U8
-      ? `${host}/api/m3u8-proxy?url=${encodeURIComponent(videoUrl)}&referer=${encodeURIComponent(KISSKH_BASE + '/')}`
+      // Referer sent to the video CDN must be the real KissKH origin (not the
+      // relay URL) so the CDN accepts the request.
+      ? `${host}/api/m3u8-proxy?url=${encodeURIComponent(videoUrl)}&referer=${encodeURIComponent('https://kisskh.co/')}`
       : videoUrl; // MP4: browser can play directly if CORS allows, or proxy if needed
 
     const result = {
@@ -868,8 +875,227 @@ app.use((req, res, next) => {
   next();
 });
 
+
+// ═════════════════════════════════════════════════════
+// HIVETOONS MANHWA — Scraper
+// Source: https://hivetoons.org
+// No Cloudflare, no tokens, images are open CDN links
+// ═════════════════════════════════════════════════════
+const HIVETOONS_BASE = 'https://hivetoons.org';
+const HT_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+};
+
+const htHomeCache    = new Map();
+const htSeriesCache  = new Map();
+const htChapterCache = new Map();
+const htSearchCache  = new Map();
+const HT_CACHE_TTL   = 30 * 60 * 1000; // 30 min
+// Helper: fetch Hivetoons page HTML
+async function htGet(url) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await fetch(url, { headers: HT_HEADERS, signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+    const text = await res.text();
+    return cheerio.load(text);
+  } catch (err) {
+    clearTimeout(timeoutId);
+    throw err;
+  }
+}
+
+// Helper: extract series cards from a cheerio-loaded page
+function extractSeriesCards($) {
+  const cards = [];
+  // Series cards have an <a href="/series/slug"> with an img inside
+  $('a[href^="/series/"]').each((_, el) => {
+    const href = $(el).attr('href');
+    const slug = href.replace('/series/', '').replace(/\/$/, '');
+    if (!slug || slug.includes('/') || slug.includes('?')) return;
+    const img = $(el).find('img').first();
+    const title = img.attr('alt') || $(el).find('[class*="title"]').text().trim() || '';
+    const cover = img.attr('src') || '';
+    if (title && cover && cover.startsWith('http')) {
+      cards.push({ slug, title, cover });
+    }
+  });
+  // Dedupe by slug
+  const seen = new Set();
+  return cards.filter(c => { if (seen.has(c.slug)) return false; seen.add(c.slug); return true; });
+}
+
+// ─────────────────────────────────────────────────────
+// MANHWA: Home Feed — GET /api/manhwa/home
+// ─────────────────────────────────────────────────────
+app.get('/api/manhwa/home', async (req, res) => {
+  const cached = htHomeCache.get('home');
+  if (cached && Date.now() - cached.timestamp < HT_CACHE_TTL) {
+    return res.json(cached.data);
+  }
+
+  try {
+    console.log('\n[MANHWA HOME] Fetching...');
+    const [home$, latest$] = await Promise.all([
+      htGet(`${HIVETOONS_BASE}/`),
+      htGet(`${HIVETOONS_BASE}/latest-updates/`),
+    ]);
+
+    const popular  = extractSeriesCards(home$).slice(0, 20);
+    const latest   = extractSeriesCards(latest$).slice(0, 20);
+
+    // Merge unique slugs for a combined "all" list
+    const seen = new Set(popular.map(c => c.slug));
+    const combined = [...popular, ...latest.filter(c => !seen.has(c.slug))];
+
+    const data = { popular, latest, combined };
+    htHomeCache.set('home', { data, timestamp: Date.now() });
+    console.log(`[MANHWA HOME] ✅ popular=${popular.length} latest=${latest.length}`);
+    res.json(data);
+  } catch (err) {
+    console.error('[MANHWA HOME] Error:', err.message);
+    res.status(502).json({ error: 'Hivetoons home fetch failed', message: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────
+// MANHWA: Search — GET /api/manhwa/search?q=<query>
+// ─────────────────────────────────────────────────────
+app.get('/api/manhwa/search', async (req, res) => {
+  const q = req.query.q;
+  if (!q) return res.status(400).json({ error: 'Missing q parameter' });
+
+  const cacheKey = `search:${q.toLowerCase()}`;
+  const cached = htSearchCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < HT_CACHE_TTL) {
+    return res.json(cached.data);
+  }
+
+  try {
+    console.log(`\n[MANHWA SEARCH] Searching: "${q}"`);
+    const $ = await htGet(`${HIVETOONS_BASE}/series/?searchTerm=${encodeURIComponent(q)}`);
+    const results = extractSeriesCards($);
+    htSearchCache.set(cacheKey, { data: results, timestamp: Date.now() });
+    console.log(`[MANHWA SEARCH] Got ${results.length} results`);
+    res.json(results);
+  } catch (err) {
+    console.error('[MANHWA SEARCH] Error:', err.message);
+    res.status(502).json({ error: 'Hivetoons search failed', message: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────
+// MANHWA: Series Detail — GET /api/manhwa/series/:slug
+// Returns: { slug, title, cover, description, genres, status, chapters[] }
+// ─────────────────────────────────────────────────────
+app.get('/api/manhwa/series/:slug', async (req, res) => {
+  const { slug } = req.params;
+  const cached = htSeriesCache.get(slug);
+  if (cached && Date.now() - cached.timestamp < HT_CACHE_TTL) {
+    return res.json(cached.data);
+  }
+
+  try {
+    console.log(`\n[MANHWA SERIES] Fetching: ${slug}`);
+    const $ = await htGet(`${HIVETOONS_BASE}/series/${slug}`);
+
+    const title       = $('meta[property="og:title"]').attr('content') || slug;
+    const cover       = $('meta[property="og:image"]').attr('content') || '';
+    const description = $('meta[property="og:description"]').attr('content') || '';
+
+    // Genres from links
+    const genres = [];
+    $('a[href*="genre="]').each((_, el) => {
+      const g = $(el).text().trim();
+      if (g) genres.push(g);
+    });
+
+    const chapSet = new Set();
+    const chapters = [];
+    $(`a[href^="/series/${slug}/chapter-"]`).each((_, el) => {
+      const href = $(el).attr('href');
+      const match = href.match(/chapter-([0-9.]+)$/);
+      if (match && !chapSet.has(match[1])) {
+        chapSet.add(match[1]);
+
+        // Thumbnail image URL inside the chapter link image
+        const thumbnail = $(el).find('img').attr('src') || '';
+
+        // Subtitle or description of chapter
+        const title = $(el).find('.text-xs.text-gray-600, .dark\\:text-gray-400').first().text().trim() || '';
+
+        // Relative release date
+        const dateText = $(el).find('time').text().trim() || '';
+        const date = dateText ? (dateText.includes('ago') ? dateText : `${dateText} ago`) : '';
+
+        chapters.push({
+          number: parseFloat(match[1]),
+          slug: `chapter-${match[1]}`,
+          url: href,
+          thumbnail,
+          title,
+          date
+        });
+      }
+    });
+
+    // Sort chapters ascending
+    chapters.sort((a, b) => a.number - b.number);
+
+    const data = { slug, title, cover, description, genres, chapters };
+    htSeriesCache.set(slug, { data, timestamp: Date.now() });
+    console.log(`[MANHWA SERIES] ✅ ${title} — ${chapters.length} chapters`);
+    res.json(data);
+  } catch (err) {
+    console.error('[MANHWA SERIES] Error:', err.message);
+    res.status(502).json({ error: 'Hivetoons series fetch failed', message: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────
+// MANHWA: Chapter Images — GET /api/manhwa/chapter/:slug/:chapter
+// Returns: { slug, chapter, images: [url, ...] }
+// ─────────────────────────────────────────────────────
+app.get('/api/manhwa/chapter/:slug/:chapter', async (req, res) => {
+  const { slug, chapter } = req.params;
+  const cacheKey = `${slug}:${chapter}`;
+  const cached = htChapterCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < HT_CACHE_TTL) {
+    return res.json(cached.data);
+  }
+
+  try {
+    console.log(`\n[MANHWA CHAPTER] Fetching: ${slug}/${chapter}`);
+    const $ = await htGet(`${HIVETOONS_BASE}/series/${slug}/${chapter}`);
+
+    // Images are at storage.hivetoon.com/public/upload/series/{slug}/...
+    const seen = new Set();
+    const images = [];
+    $('img[src*="storage.hivetoon"]').each((_, el) => {
+      const src = $(el).attr('src');
+      if (src && src.includes('/series/') && !seen.has(src)) {
+        seen.add(src);
+        images.push(src);
+      }
+    });
+
+    const data = { slug, chapter, images };
+    htChapterCache.set(cacheKey, { data, timestamp: Date.now() });
+    console.log(`[MANHWA CHAPTER] ✅ ${slug}/${chapter} — ${images.length} pages`);
+    res.json(data);
+  } catch (err) {
+    console.error('[MANHWA CHAPTER] Error:', err.message);
+    res.status(502).json({ error: 'Hivetoons chapter fetch failed', message: err.message });
+  }
+});
+
 // ─────────────────────────────────────────────────────
 // Start server
+
 // ─────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`\n🚀 AniStream backend running on http://localhost:${PORT}`);
