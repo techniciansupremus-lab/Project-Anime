@@ -64,6 +64,12 @@ export default function Navbar({ onSearch, activeView, setView, onHome }) {
             Dramas
           </div>
           <div
+            className={`nav-link manhwa-nav-link ${activeView === 'manhwa' || activeView === 'manhwa-detail' || activeView === 'manhwa-read' ? 'active' : ''}`}
+            onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); setView('manhwa'); }}
+          >
+            Manhwa
+          </div>
+          <div
             className={`nav-link ${activeView === 'my-list' ? 'active' : ''}`}
             onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); setView('my-list'); }}
           >

@@ -3,7 +3,7 @@ import { AlertCircle, Info, Play, Star } from 'lucide-react';
 import Navbar from './components/Navbar';
 import AnimeCard from './components/AnimeCard';
 import VideoPlayer from './components/VideoPlayer';
-import { api, animeCategories, recentReleases } from './mockData';
+import { api, API_BASE, animeCategories, recentReleases } from './mockData';
 
 function App() {
   const [view, setView] = useState('home');
@@ -37,6 +37,18 @@ function App() {
   const [dramaSearchQuery, setDramaSearchQuery] = useState('');
   const [dramaSearchResults, setDramaSearchResults] = useState([]);
   const [dramaSearchLoading, setDramaSearchLoading] = useState(false);
+
+  // ── Manhwa state ──
+  const [manhwaHomeData, setManhwaHomeData] = useState(null);
+  const [manhwaHomeLoading, setManhwaHomeLoading] = useState(false);
+  const [selectedManhwa, setSelectedManhwa] = useState(null);
+  const [manhwaDetailLoading, setManhwaDetailLoading] = useState(false);
+  const [currentManhwaChapter, setCurrentManhwaChapter] = useState(null);
+  const [manhwaChapterImages, setManhwaChapterImages] = useState([]);
+  const [manhwaChapterLoading, setManhwaChapterLoading] = useState(false);
+  const [manhwaSearchQuery, setManhwaSearchQuery] = useState('');
+  const [manhwaSearchResults, setManhwaSearchResults] = useState([]);
+  const [manhwaSearchLoading, setManhwaSearchLoading] = useState(false);
 
   const detailRequestRef = useRef(0);
   const watchRequestRef = useRef(0);
@@ -177,18 +189,15 @@ function App() {
   // Load drama home when switching to dramas view
   useEffect(() => {
     if (view !== 'dramas') return;
-    // Re-fetch if data is null/missing or is an error object
     const hasValidData = dramaHomeData && dramaHomeData.korean && Array.isArray(dramaHomeData.korean);
     if (hasValidData) return;
     setDramaHomeLoading(true);
-    fetch('/api/drama/home')
+    fetch(`${API_BASE}/api/drama/home`)
       .then(r => r.json())
       .then(data => {
-        // Check if it's a real data response or an error object
         if (data && Array.isArray(data.korean)) {
           setDramaHomeData(data);
         } else {
-          // API returned an error — keep data null so the retry works
           setDramaHomeData(null);
           console.warn('[Drama Home] API returned error:', data);
         }
@@ -198,6 +207,27 @@ function App() {
         console.warn('[Drama Home] Fetch failed:', err);
         setDramaHomeLoading(false);
         setDramaHomeData(null);
+      });
+  }, [view]);
+
+  // Load manhwa home when switching to manhwa view
+  useEffect(() => {
+    if (view !== 'manhwa') return;
+    if (manhwaHomeData) return;
+    setManhwaHomeLoading(true);
+    fetch(`${API_BASE}/api/manhwa/home`)
+      .then(r => r.json())
+      .then(data => {
+        if (data && Array.isArray(data.popular)) {
+          setManhwaHomeData(data);
+        } else {
+          setManhwaHomeData(null);
+        }
+        setManhwaHomeLoading(false);
+      })
+      .catch(err => {
+        console.warn('[Manhwa Home] Fetch failed:', err);
+        setManhwaHomeLoading(false);
       });
   }, [view]);
 
@@ -255,13 +285,70 @@ function App() {
     window.scrollTo(0, 0);
   };
 
+  const goManhwa = () => {
+    resetSearch();
+    setView('manhwa');
+    setSelectedManhwa(null);
+    setCurrentManhwaChapter(null);
+    setManhwaChapterImages([]);
+    setManhwaSearchQuery('');
+    setManhwaSearchResults([]);
+    window.scrollTo(0, 0);
+  };
+
+  const handleManhwaClick = async (series) => {
+    setSelectedManhwa({ ...series, chapters: [] });
+    setManhwaDetailLoading(true);
+    setView('manhwa-detail');
+    window.scrollTo(0, 0);
+    try {
+      const r = await fetch(`${API_BASE}/api/manhwa/series/${series.slug}`);
+      const data = await r.json();
+      setSelectedManhwa(data);
+    } catch (e) {
+      console.error('Manhwa series load failed', e);
+    } finally {
+      setManhwaDetailLoading(false);
+    }
+  };
+
+  const handleManhwaRead = async (series, chapter) => {
+    setCurrentManhwaChapter(chapter);
+    setManhwaChapterImages([]);
+    setManhwaChapterLoading(true);
+    setView('manhwa-read');
+    window.scrollTo(0, 0);
+    try {
+      const r = await fetch(`${API_BASE}/api/manhwa/chapter/${series.slug}/${chapter.slug}`);
+      const data = await r.json();
+      setManhwaChapterImages(data.images || []);
+    } catch (e) {
+      console.error('Manhwa chapter load failed', e);
+    } finally {
+      setManhwaChapterLoading(false);
+    }
+  };
+
+  const handleManhwaSearch = (q) => {
+    setManhwaSearchQuery(q);
+    if (!q.trim()) { setManhwaSearchResults([]); return; }
+    setManhwaSearchLoading(true);
+    fetch(`${API_BASE}/api/manhwa/search?q=${encodeURIComponent(q)}`)
+      .then(r => r.json())
+      .then(data => {
+        setManhwaSearchResults(Array.isArray(data) ? data : []);
+        setManhwaSearchLoading(false);
+      })
+      .catch(() => { setManhwaSearchResults([]); setManhwaSearchLoading(false); });
+  };
+
   const handleDramaClick = async (drama) => {
     setSelectedDrama({ ...drama, episodes: [] });
     setView('drama-detail');
     setDramaStream(null);
     window.scrollTo(0, 0);
     try {
-      const r = await fetch(`/api/drama/info/${drama.id}`);
+      const r = await fetch(`${API_BASE}/api/drama/info/${drama.id}`);
       const data = await r.json();
       setSelectedDrama({ ...data, thumbnail: data.thumbnail || drama.thumbnail });
     } catch (e) {
@@ -276,7 +363,7 @@ function App() {
     setView('drama-watch');
     window.scrollTo(0, 0);
     try {
-      const r = await fetch(`/api/drama/stream/${episode.id}`);
+      const r = await fetch(`${API_BASE}/api/drama/stream/${episode.id}`);
       const data = await r.json();
       setDramaStream(data);
     } catch (e) {
@@ -291,7 +378,7 @@ function App() {
     setDramaSearchQuery(q);
     if (!q.trim()) { setDramaSearchResults([]); return; }
     setDramaSearchLoading(true);
-    fetch(`/api/drama/search?q=${encodeURIComponent(q)}`)
+    fetch(`${API_BASE}/api/drama/search?q=${encodeURIComponent(q)}`)
       .then(r => r.json())
       .then(data => {
         // KissKH returns { value: [...], Count: N } — extract the array
@@ -321,7 +408,7 @@ function App() {
       searchRequestRef.current = requestId;
 
       const animePromise = api.searchAnime(query).catch(() => []);
-      const dramaPromise = fetch(`/api/drama/search?q=${encodeURIComponent(query)}`)
+      const dramaPromise = fetch(`${API_BASE}/api/drama/search?q=${encodeURIComponent(query)}`)
         .then(r => r.json())
         .then(data => {
           // KissKH returns { value: [...], Count: N } — extract the array
@@ -612,6 +699,39 @@ function App() {
                 loading={dramaStreamLoading}
                 onBack={() => { setView('drama-detail'); window.scrollTo(0,0); }}
                 onEpisodeSelect={(ep) => startWatchingDrama(selectedDrama, ep)}
+              />
+            )}
+
+            {/* ── Manhwa Views ── */}
+            {view === 'manhwa' && (
+              <ManhwaHomeView
+                data={manhwaHomeData}
+                isLoading={manhwaHomeLoading}
+                searchQuery={manhwaSearchQuery}
+                searchResults={manhwaSearchResults}
+                searchLoading={manhwaSearchLoading}
+                onSearch={handleManhwaSearch}
+                onSeriesClick={handleManhwaClick}
+              />
+            )}
+
+            {view === 'manhwa-detail' && selectedManhwa && (
+              <ManhwaDetailView
+                series={selectedManhwa}
+                isLoading={manhwaDetailLoading}
+                onBack={goManhwa}
+                onReadChapter={handleManhwaRead}
+              />
+            )}
+
+            {view === 'manhwa-read' && selectedManhwa && currentManhwaChapter && (
+              <ManhwaReadView
+                series={selectedManhwa}
+                chapter={currentManhwaChapter}
+                images={manhwaChapterImages}
+                isLoading={manhwaChapterLoading}
+                onBack={() => { setView('manhwa-detail'); window.scrollTo(0, 0); }}
+                onChapterSelect={(ch) => handleManhwaRead(selectedManhwa, ch)}
               />
             )}
           </>
@@ -1669,6 +1789,321 @@ function WatchlistView({ items, onAnimeClick, onBackHome }) {
 }
 
 export default App;
+
+// ─────────────────────────────────────────────────────
+// MANHWA COMPONENTS (Hivetoons)
+// ─────────────────────────────────────────────────────
+
+function ManhwaCard({ series, onClick }) {
+  const [imgErr, setImgErr] = React.useState(false);
+  return (
+    <button className="manhwa-card" onClick={onClick}>
+      <div className="manhwa-card-art">
+        {!imgErr ? (
+          <img
+            src={series.cover}
+            alt={series.title}
+            loading="lazy"
+            onError={() => setImgErr(true)}
+          />
+        ) : (
+          <div className="manhwa-card-placeholder">
+            <span>{series.title?.[0] || '?'}</span>
+          </div>
+        )}
+        <div className="manhwa-card-overlay">
+          <div className="manhwa-card-read">📖 Read</div>
+        </div>
+      </div>
+      <div className="manhwa-card-info">
+        <span className="manhwa-card-title">{series.title}</span>
+      </div>
+    </button>
+  );
+}
+
+function ManhwaRow({ title, series, onSeriesClick }) {
+  if (!series || series.length === 0) return null;
+  return (
+    <section className="manhwa-row">
+      <h2 className="manhwa-row-title">{title}</h2>
+      <div className="manhwa-row-slider">
+        {series.map((s, i) => (
+          <ManhwaCard key={s.slug + i} series={s} onClick={() => onSeriesClick(s)} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ManhwaHomeView({ data, isLoading, searchQuery, searchResults, searchLoading, onSearch, onSeriesClick }) {
+  return (
+    <div className="manhwa-home">
+      {/* Search */}
+      <div className="manhwa-search-bar-wrap">
+        <div className="manhwa-search-inner">
+          <span className="manhwa-search-icon">🔍</span>
+          <input
+            className="manhwa-search-input"
+            type="text"
+            placeholder="Search Manhwa, Manga, Manhua..."
+            value={searchQuery}
+            onChange={e => onSearch(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {searchQuery.trim() ? (
+        <div className="container manhwa-search-results">
+          <h2 className="manhwa-row-title">Results for "{searchQuery}"</h2>
+          {searchLoading ? (
+            <div className="manhwa-loading"><div className="loading-spinner" /></div>
+          ) : searchResults.length ? (
+            <div className="manhwa-grid">
+              {searchResults.map((s, i) => <ManhwaCard key={s.slug + i} series={s} onClick={() => onSeriesClick(s)} />)}
+            </div>
+          ) : (
+            <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '3rem 0' }}>No results found.</p>
+          )}
+        </div>
+      ) : isLoading ? (
+        <div className="manhwa-loading" style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="loading-spinner" />
+        </div>
+      ) : !data ? (
+        <div style={{ minHeight: '60vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.2rem' }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem' }}>⚠️ Could not load manhwa catalog.</p>
+          <button className="btn btn-primary" onClick={() => window.location.reload()}>🔄 Retry</button>
+        </div>
+      ) : (
+        <>
+          {/* Hero banner using first popular series */}
+          {data.popular?.[0] && (
+            <div
+              className="manhwa-hero"
+              style={{ backgroundImage: `url(${data.popular[0].cover})` }}
+            >
+              <div className="manhwa-hero-overlay" />
+              <div className="manhwa-hero-content">
+                <div className="manhwa-hero-badge">📚 Featured Manhwa</div>
+                <h1 className="manhwa-hero-title">{data.popular[0].title}</h1>
+                <button
+                  className="btn btn-primary manhwa-hero-btn"
+                  onClick={() => onSeriesClick(data.popular[0])}
+                >
+                  📖 Start Reading
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="manhwa-rows-container">
+            <ManhwaRow title="🔥 Popular Now" series={data.popular} onSeriesClick={onSeriesClick} />
+            <ManhwaRow title="🆕 Latest Updates" series={data.latest} onSeriesClick={onSeriesClick} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ManhwaDetailView({ series, isLoading, onBack, onReadChapter }) {
+  const chapters = Array.isArray(series?.chapters) ? series.chapters : [];
+  const [showAll, setShowAll] = React.useState(false);
+  const displayed = showAll ? chapters : chapters.slice(-50).reverse();
+
+  return (
+    <div className="manhwa-detail">
+      {/* Hero */}
+      <div
+        className="manhwa-detail-hero"
+        style={{ backgroundImage: `url(${series.cover})` }}
+      >
+        <div className="manhwa-hero-overlay" />
+        <div className="manhwa-detail-hero-content">
+          <button className="manhwa-back-btn" onClick={onBack}>← Back</button>
+          <div className="manhwa-detail-meta-row">
+            <img src={series.cover} alt={series.title} className="manhwa-detail-cover" />
+            <div className="manhwa-detail-info">
+              <h1 className="manhwa-detail-title">{series.title}</h1>
+              {series.genres?.length > 0 && (
+                <div className="manhwa-genres">
+                  {series.genres.slice(0, 5).map(g => (
+                    <span key={g} className="manhwa-genre-tag">{g}</span>
+                  ))}
+                </div>
+              )}
+              {chapters.length > 0 && (
+                <button
+                  className="btn btn-primary"
+                  onClick={() => onReadChapter(series, chapters[0])}
+                  style={{ marginTop: '1rem' }}
+                >
+                  📖 Read Chapter 1
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="manhwa-detail-body container">
+        {series.description && (
+          <div className="manhwa-detail-desc">
+            <h3>Synopsis</h3>
+            <p>{series.description}</p>
+          </div>
+        )}
+
+        <div className="manhwa-chapters-section">
+          <h3 className="manhwa-chapters-heading">
+            Chapters <span className="manhwa-ch-count">({chapters.length})</span>
+          </h3>
+
+          {isLoading ? (
+            <div className="manhwa-loading"><div className="loading-spinner" /></div>
+          ) : chapters.length === 0 ? (
+            <p style={{ color: 'var(--text-secondary)' }}>No chapters available.</p>
+          ) : (
+            <>
+              <div className="manhwa-chapters-list">
+                {displayed.map(ch => {
+                  return (
+                    <button
+                      key={ch.slug}
+                      className="manhwa-chapter-row"
+                      onClick={() => onReadChapter(series, ch)}
+                    >
+                      <div className="manhwa-chapter-thumb-container">
+                        {ch.thumbnail ? (
+                          <img
+                            src={ch.thumbnail}
+                            alt={`Chapter ${ch.number}`}
+                            className="manhwa-chapter-thumb"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="manhwa-chapter-thumb-placeholder">📖</div>
+                        )}
+                      </div>
+                      <div className="manhwa-chapter-meta">
+                        <div className="manhwa-chapter-name-row">
+                          <span className="manhwa-chapter-label">Chapter {ch.number}</span>
+                          {ch.title && <span className="manhwa-chapter-sub">&middot; {ch.title}</span>}
+                        </div>
+                        {ch.date && <span className="manhwa-chapter-date">{ch.date}</span>}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              {chapters.length > 50 && (
+                <button
+                  className="manhwa-show-more-btn"
+                  onClick={() => setShowAll(p => !p)}
+                >
+                  {showAll ? 'Show Recent Only' : `Show All ${chapters.length} Chapters`}
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ManhwaReadView({ series, chapter, images, isLoading, onBack, onChapterSelect }) {
+  const chapters = Array.isArray(series?.chapters) ? series.chapters : [];
+  const currentIdx = chapters.findIndex(ch => ch.slug === chapter.slug);
+  const prevChapter = currentIdx > 0 ? chapters[currentIdx - 1] : null;
+  const nextChapter = currentIdx < chapters.length - 1 ? chapters[currentIdx + 1] : null;
+
+  return (
+    <div className="manhwa-reader">
+      {/* Top navigation bar */}
+      <div className="manhwa-reader-header">
+        <button className="manhwa-back-btn" onClick={onBack}>← {series.title}</button>
+        <span className="manhwa-reader-chapter-label">Chapter {chapter.number}</span>
+        <div className="manhwa-reader-nav">
+          {prevChapter && (
+            <button className="manhwa-nav-btn" onClick={() => onChapterSelect(prevChapter)}>
+              ← Prev
+            </button>
+          )}
+          {nextChapter && (
+            <button className="manhwa-nav-btn" onClick={() => onChapterSelect(nextChapter)}>
+              Next →
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Chapter images */}
+      <div className="manhwa-reader-pages">
+        {isLoading ? (
+          <div className="manhwa-loading" style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div>
+              <div className="loading-spinner" style={{ margin: '0 auto' }} />
+              <p style={{ color: 'var(--text-secondary)', marginTop: '1rem', textAlign: 'center' }}>Loading pages...</p>
+            </div>
+          </div>
+        ) : images.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '4rem', color: 'var(--text-secondary)' }}>
+            <p>No pages found for this chapter.</p>
+          </div>
+        ) : (
+          images.map((src, i) => (
+            <img
+              key={i}
+              src={src}
+              alt={`Page ${i + 1}`}
+              className="manhwa-reader-page"
+              loading="lazy"
+            />
+          ))
+        )}
+      </div>
+
+      {/* Bottom navigation */}
+      {!isLoading && images.length > 0 && (
+        <div className="manhwa-reader-footer">
+          {prevChapter && (
+            <button className="manhwa-nav-btn" onClick={() => { onChapterSelect(prevChapter); window.scrollTo(0,0); }}>
+              ← Previous Chapter
+            </button>
+          )}
+          <button className="manhwa-back-btn-plain" onClick={() => { onBack(); }}>
+            Chapter List
+          </button>
+          {nextChapter && (
+            <button className="manhwa-nav-btn" onClick={() => { onChapterSelect(nextChapter); window.scrollTo(0,0); }}>
+              Next Chapter →
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Chapter picker */}
+      {chapters.length > 0 && (
+        <div className="manhwa-reader-picker container">
+          <h3 className="manhwa-chapters-heading">All Chapters</h3>
+          <div className="manhwa-chapters-grid">
+            {chapters.slice().reverse().map(ch => (
+              <button
+                key={ch.slug}
+                className={`manhwa-ch-btn ${ch.slug === chapter.slug ? 'active' : ''}`}
+                onClick={() => { onChapterSelect(ch); window.scrollTo(0, 0); }}
+              >
+                Ch. {ch.number}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ─────────────────────────────────────────────────────
 // DRAMA COMPONENTS

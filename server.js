@@ -4,20 +4,21 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import https from 'https';
 import { ANIME, META } from '@consumet/extensions';
-import puppeteerExtra from 'puppeteer-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { HttpsProxyAgent } from 'https-proxy-agent';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const app = express();
 app.set('trust proxy', true);
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 8080;
 
-app.use(cors({ origin: '*' }));
+app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
+
+// Public base URL the browser should use to reach this server.
+// Behind ngrok/Cloudflare the real protocol + host arrive via X-Forwarded-*.
+function publicHost(req) {
+  const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http')
+    .toString().split(',')[0].trim();
+  return `${proto}://${req.get('host')}`;
+}
 app.use(express.json());
 
 // Disable SSL verification for scraping (needed for anikai.cc)
@@ -35,7 +36,7 @@ const anilistMeta = new META.Anilist(animeUnity);
 // ─────────────────────────────────────────────────────
 // HLS/M3U8 Referrer Bypass Proxy
 // Rewrites both sub-playlists AND .ts segment URLs so
-// the browser only ever talks to localhost:5000.
+// the browser only ever talks to the backend's public URL.
 // ─────────────────────────────────────────────────────
 app.get('/api/m3u8-proxy', async (req, res) => {
   const { url, referer } = req.query;
@@ -57,7 +58,7 @@ app.get('/api/m3u8-proxy', async (req, res) => {
 
     const baseUrl = decodedUrl.substring(0, decodedUrl.lastIndexOf('/') + 1);
 
-    const host = `${req.protocol}://${req.get('host')}`;
+    const host = publicHost(req);
     const rewritten = data.split('\n').map(line => {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith('#')) return line;
@@ -408,7 +409,7 @@ app.get('/api/info/:anilistId', async (req, res) => {
 app.get('/api/gogoanime/watch', async (req, res) => {
   const { title, episode } = req.query;
   const episodeNum = parseInt(episode) || 1;
-  const host = `${req.protocol}://${req.get('host')}`;
+  const host = publicHost(req);
 
   if (!title) {
     return res.status(400).json({ error: 'Missing title parameter' });
@@ -571,7 +572,7 @@ app.get('/api/search', async (req, res) => {
 // ─────────────────────────────────────────────────────
 // KISSKH DRAMA — Config, Headers & Caches
 // ─────────────────────────────────────────────────────
-// KISSKH (and enc-dec) reject requests from cloud/datacenter IPs (e.g. Railway)
+// KISSKH (and enc-dec) reject requests from cloud/datacenter IPs (e.g. Vercel's servers)
 // due to Cloudflare. Locally we hit kisskh.co directly; on hosted deployments
 // set KISSKH_BASE (and optionally ENCDEC_BASE) to a relay on a trusted IP
 // — e.g. a 24/7 phone (Termux) Cloudflare tunnel — so the calls originate
@@ -732,7 +733,7 @@ app.get('/api/drama/info/:dramaId', async (req, res) => {
 // ─────────────────────────────────────────────────────
 app.get('/api/drama/stream/:episodeId', async (req, res) => {
   const { episodeId } = req.params;
-  const host = `${req.protocol}://${req.get('host')}`;
+  const host = publicHost(req);
 
   const cached = dramaStreamCache.get(episodeId);
   if (cached && Date.now() - cached.timestamp < STREAM_TTL) {
@@ -864,16 +865,6 @@ app.get('/api/drama/subtitle', async (req, res) => {
   }
 });
 
-// Serve static assets from Vite's build directory (dist) in production
-app.use(express.static(path.join(__dirname, 'dist')));
-
-// Fallback all SPA routing requests to index.html
-app.use((req, res, next) => {
-  if (req.method === 'GET' && !req.path.startsWith('/api')) {
-    return res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-  }
-  next();
-});
 
 
 // ═════════════════════════════════════════════════════
