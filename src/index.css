@@ -2068,6 +2068,55 @@ body {
   pointer-events: auto;
 }
 
+/* ── Floating center Play/Pause button (mobile-friendly) ── */
+.floating-play-btn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 15;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease, background 0.2s ease, transform 0.15s ease;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.floating-play-btn--visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.floating-play-btn:hover {
+  background: rgba(229, 9, 20, 0.75);
+  border-color: rgba(229, 9, 20, 0.8);
+  transform: translate(-50%, -50%) scale(1.08);
+}
+
+.floating-play-btn:active {
+  transform: translate(-50%, -50%) scale(0.95);
+}
+
+/* Make it bigger on mobile for easier tapping */
+@media (max-width: 768px) {
+  .floating-play-btn {
+    width: 72px;
+    height: 72px;
+  }
+}
+
+
+
 /* â”€â”€ Progress Timeline Scrubber â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .yt-timeline-container {
   height: 16px;

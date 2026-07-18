@@ -293,7 +293,8 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
 
       switch (e.key.toLowerCase()) {
         case ' ':
-        case 'k': e.preventDefault(); togglePlay(); break;
+        case 'k':
+        case 'backspace': e.preventDefault(); togglePlay(); break;
         case 'm': toggleMute(); break;
         case 'f': toggleFullscreen(); break;
         case 'arrowleft': e.preventDefault(); skipTime(-10); break;
@@ -405,7 +406,7 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
         <div className="player-error">{error}</div>
       ) : (
         <>
-          {/* Main Video Element */}
+          {/* Main Video Element — clicks on video itself do NOT toggle play (use the dedicated button) */}
           <video
             ref={videoRef}
             className="player-video"
@@ -419,7 +420,6 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
             onCanPlayThrough={onCanPlay}
             onTimeUpdate={onTimeUpdate}
             onDurationChange={onDurationChange}
-            onClick={togglePlay}
             onDoubleClick={toggleFullscreen}
           >
             {subtitles && subtitles.map((sub, index) => (
@@ -433,6 +433,15 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
               />
             ))}
           </video>
+
+          {/* Persistent floating Play/Pause button — visible when controls show */}
+          <button
+            className={`floating-play-btn ${showControls ? 'floating-play-btn--visible' : ''}`}
+            onClick={togglePlay}
+            aria-label={isPlaying ? 'Pause' : 'Play'}
+          >
+            {isPlaying ? <Pause size={32} fill="white" /> : <Play size={32} fill="white" />}
+          </button>
 
           {/* Buffering spinner overlay */}
           {isBuffering && !error && (
