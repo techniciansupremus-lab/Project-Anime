@@ -2190,7 +2190,9 @@ function DramaCard({ drama, onClick }) {
           </div>
         )}
         <div className="drama-card-overlay">
-          <div className="drama-card-play">â–¶</div>
+          <div className="drama-card-play">
+            <Play size={18} fill="currentColor" />
+          </div>
         </div>
         {drama.episodesCount && (
           <span className="drama-card-ep-badge">{drama.episodesCount} Ep</span>
