@@ -1,36 +1,31 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Tv, Film, BookOpen } from 'lucide-react';
 import './SectionSlider.css';
 
 const SECTIONS = [
   {
     id: 'anime',
     label: 'Anime',
-    emoji: '🎌',
+    icon: Tv,
     sub: 'Series · Movies · New & Popular',
     desc: 'The complete anime universe',
-    gradient: 'linear-gradient(135deg, #e50914 0%, #6a0dad 100%)',
-    glow: 'rgba(229, 9, 20, 0.4)',
     accentColor: '#e50914',
   },
   {
     id: 'drama',
     label: 'Drama',
-    emoji: '🎭',
+    icon: Film,
     sub: 'Korean · Chinese · Japanese',
     desc: 'Stories that move the heart',
-    gradient: 'linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%)',
-    glow: 'rgba(14, 165, 233, 0.4)',
-    accentColor: '#0ea5e9',
+    accentColor: '#e50914',
   },
   {
     id: 'comic',
     label: 'Comic',
-    emoji: '📖',
+    icon: BookOpen,
     sub: 'Manhwa · Manga · Webtoons',
     desc: 'Art you can read panel by panel',
-    gradient: 'linear-gradient(135deg, #10b981 0%, #0d9488 100%)',
-    glow: 'rgba(16, 185, 129, 0.4)',
-    accentColor: '#10b981',
+    accentColor: '#e50914',
   },
 ];
 
@@ -130,8 +125,6 @@ export default function SectionSlider({ activeSection, onSectionChange }) {
                 key={section.id}
                 className={`slider-card ${isActive ? 'slider-card--active' : ''}`}
                 style={{
-                  '--card-gradient': section.gradient,
-                  '--card-glow': section.glow,
                   '--card-accent': section.accentColor,
                   animationDelay: `${i * 0.07}s`,
                 }}
@@ -148,7 +141,9 @@ export default function SectionSlider({ activeSection, onSectionChange }) {
 
                 {/* Content */}
                 <div className="slider-card__content">
-                  <span className="slider-card__emoji">{section.emoji}</span>
+                  <span className="slider-card__icon-container">
+                    <section.icon size={24} className="slider-card__icon" />
+                  </span>
                   <div className="slider-card__text">
                     <span className="slider-card__label">{section.label}</span>
                     <span className="slider-card__sub">{section.sub}</span>
