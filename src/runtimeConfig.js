@@ -1,4 +1,4 @@
-const CONFIG_STORAGE_KEY = 'anistream_api_base';
+const CONFIG_STORAGE_KEY = 'eetnet_api_base';
 
 function cleanApiBase(value) {
   if (typeof value !== 'string') return '';
@@ -65,7 +65,7 @@ export async function loadRuntimeConfig() {
   const queryOverride = readQueryOverride();
   const storedOverride = readStoredOverride();
   const runtimeEndpoint = await readJsonConfig('/api/runtime-config');
-  const staticConfig = await readJsonConfig('/anistream-config.json');
+  const staticConfig = await readJsonConfig('/eetnet-config.json');
   const envBase = cleanApiBase(import.meta.env.VITE_API_BASE);
   const localDevBase = getLocalDevBase();
 
@@ -77,16 +77,16 @@ export async function loadRuntimeConfig() {
     envBase ||
     localDevBase;
 
-  window.__ANISTREAM_CONFIG__ = {
-    ...(window.__ANISTREAM_CONFIG__ || {}),
+  window.__EETNET_CONFIG__ = {
+    ...(window.__EETNET_CONFIG__ || {}),
     API_BASE: cleanApiBase(apiBase),
   };
 
-  return window.__ANISTREAM_CONFIG__;
+  return window.__EETNET_CONFIG__;
 }
 
 export function getApiBase() {
-  const runtimeBase = cleanApiBase(window.__ANISTREAM_CONFIG__?.API_BASE);
+  const runtimeBase = cleanApiBase(window.__EETNET_CONFIG__?.API_BASE);
   const storedBase = readStoredOverride();
   const envBase = cleanApiBase(import.meta.env.VITE_API_BASE);
   return runtimeBase || storedBase || envBase || getLocalDevBase();

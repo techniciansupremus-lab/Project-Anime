@@ -969,7 +969,7 @@ function HomeView({
         )}
 
         <NetflixRow
-          title="Popular on AniStream"
+          title="Popular on EetNet"
           items={popularNow}
           onAnimeClick={onAnimeClick}
         />

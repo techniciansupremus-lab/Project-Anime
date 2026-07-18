@@ -29,7 +29,7 @@ export default function Navbar({ onSearch, activeView, setView, onHome }) {
     <nav className="navbar">
       <div className="container navbar-inner">
         <div className="logo" onClick={handleHomeClick}>
-          AniStream
+          EetNet
         </div>
 
         <div className="nav-links primary-nav">

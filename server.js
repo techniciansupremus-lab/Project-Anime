@@ -327,7 +327,7 @@ app.get('/api/episodes/mal/:malId', async (req, res) => {
     const jikanUrl = `https://api.jikan.moe/v4/anime/${malId}/episodes?page=${page}`;
     const { data } = await axios.get(jikanUrl, {
       timeout: 10000,
-      headers: { 'Accept': 'application/json', 'User-Agent': 'AniStream/1.0' }
+      headers: { 'Accept': 'application/json', 'User-Agent': 'EetNet/1.0' }
     });
 
     const episodes = (data.data || []).map(ep => ({
@@ -365,7 +365,7 @@ app.get('/api/episodes/mal/:malId', async (req, res) => {
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
-    service: 'anistream-backend',
+    service: 'eetnet-backend',
     startedAt: startedAt.toISOString(),
     uptimeSeconds: Math.round(process.uptime()),
     publicBase: publicHost(req),
@@ -412,7 +412,7 @@ app.get('/api/status', async (req, res) => {
   const deep = req.query.deep === '1' || req.query.deep === 'true';
   const probes = [
     probeProvider('jikan', 'https://api.jikan.moe/v4/anime/1/episodes?page=1', {
-      headers: { 'Accept': 'application/json', 'User-Agent': 'AniStream/1.0' },
+      headers: { 'Accept': 'application/json', 'User-Agent': 'EetNet/1.0' },
     }),
     probeProvider('anime-provider', `${ANIMEKAI_BASE}/browser?keyword=naruto`),
     probeProvider('manhwa-provider', `${HIVETOONS_BASE}/`, { headers: HT_HEADERS }),
@@ -1169,7 +1169,7 @@ app.get('/api/manhwa/chapter/:slug/:chapter', async (req, res) => {
 
 // ─────────────────────────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`\n🚀 AniStream backend running on http://localhost:${PORT}`);
+  console.log(`\n🚀 EetNet backend running on http://localhost:${PORT}`);
   console.log(`   PRIMARY:  AnimeKai (HTTP scraper — English subs) ⚡`);
   console.log(`   FALLBACK: AnimeUnity (Consumet — Italian subs)`);
   console.log(`   DRAMA:    KissKH via enc-dec.app (English subs) 🎬`);
