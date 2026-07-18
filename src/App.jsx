@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Info, Play, Star } from 'lucide-react';
 import Navbar from './components/Navbar';
+import SectionSlider from './components/SectionSlider';
 import AnimeCard from './components/AnimeCard';
 import VideoPlayer from './components/VideoPlayer';
 import { api, animeCategories, recentReleases } from './mockData';
@@ -8,6 +9,8 @@ import { apiUrl, getBackendConfigError } from './runtimeConfig';
 
 function App() {
   const [view, setView] = useState('home');
+  // activeSection tracks which major section the user is browsing
+  const [activeSection, setActiveSection] = useState('anime');
   const [featured, setFeatured] = useState([]);
   const [trending, setTrending] = useState([]);
   const [searchResults, setSearchResults] = useState({ anime: [], dramas: [] });
@@ -28,7 +31,7 @@ function App() {
   const [newPopularData, setNewPopularData] = useState({ featured: null, rows: {} });
   const [myList, setMyList] = useState([]);
 
-  // ── Drama state ──
+  // â”€â”€ Drama state â”€â”€
   const [dramaHomeData, setDramaHomeData] = useState(null);
   const [dramaHomeLoading, setDramaHomeLoading] = useState(false);
   const [dramaHomeError, setDramaHomeError] = useState('');
@@ -40,7 +43,7 @@ function App() {
   const [dramaSearchResults, setDramaSearchResults] = useState([]);
   const [dramaSearchLoading, setDramaSearchLoading] = useState(false);
 
-  // ── Manhwa state ──
+  // â”€â”€ Manhwa state â”€â”€
   const [manhwaHomeData, setManhwaHomeData] = useState(null);
   const [manhwaHomeLoading, setManhwaHomeLoading] = useState(false);
   const [manhwaHomeError, setManhwaHomeError] = useState('');
@@ -299,6 +302,7 @@ function App() {
     detailRequestRef.current += 1;
     watchRequestRef.current += 1;
     setView('home');
+    setActiveSection('anime');
     setSelectedAnime(null);
     setCurrentEpisode(null);
     setLoadingSources(false);
@@ -308,6 +312,7 @@ function App() {
   const goDramas = () => {
     resetSearch();
     setView('dramas');
+    setActiveSection('drama');
     setSelectedDrama(null);
     setDramaEpisode(null);
     setDramaStream(null);
@@ -317,12 +322,24 @@ function App() {
   const goManhwa = () => {
     resetSearch();
     setView('manhwa');
+    setActiveSection('comic');
     setSelectedManhwa(null);
     setCurrentManhwaChapter(null);
     setManhwaChapterImages([]);
     setManhwaSearchQuery('');
     setManhwaSearchResults([]);
     window.scrollTo(0, 0);
+  };
+
+  // Called by SectionSlider when user picks Anime / Drama / Comic
+  const handleSectionChange = (sectionId) => {
+    if (sectionId === 'anime') {
+      goHome();
+    } else if (sectionId === 'drama') {
+      goDramas();
+    } else if (sectionId === 'comic') {
+      goManhwa();
+    }
   };
 
   const handleManhwaClick = async (series) => {
@@ -410,7 +427,7 @@ function App() {
     fetch(apiUrl(`/api/drama/search?q=${encodeURIComponent(q)}`))
       .then(r => r.json())
       .then(data => {
-        // KissKH returns { value: [...], Count: N } — extract the array
+        // KissKH returns { value: [...], Count: N } â€” extract the array
         const arr = Array.isArray(data) ? data : (Array.isArray(data?.value) ? data.value : []);
         setDramaSearchResults(arr);
         setDramaSearchLoading(false);
@@ -419,6 +436,19 @@ function App() {
   };
 
   const handleSearch = (query) => {
+    if (activeSection === 'drama') {
+      setSearchQuery('');
+      setView('dramas');
+      handleDramaSearch(query);
+      return;
+    }
+    if (activeSection === 'comic') {
+      setSearchQuery('');
+      setView('manhwa');
+      handleManhwaSearch(query);
+      return;
+    }
+
     setSearchQuery(query);
 
     if (query.trim() === '') {
@@ -440,7 +470,7 @@ function App() {
       const dramaPromise = fetch(apiUrl(`/api/drama/search?q=${encodeURIComponent(query)}`))
         .then(r => r.json())
         .then(data => {
-          // KissKH returns { value: [...], Count: N } — extract the array
+          // KissKH returns { value: [...], Count: N } â€” extract the array
           return Array.isArray(data) ? data : (Array.isArray(data?.value) ? data.value : []);
         })
         .catch(() => []);
@@ -593,7 +623,8 @@ function App() {
 
   return (
     <div className="app-container">
-      <Navbar onSearch={handleSearch} activeView={view} setView={setView} onHome={goHome} />
+      <SectionSlider activeSection={activeSection} onSectionChange={handleSectionChange} />
+      <Navbar onSearch={handleSearch} activeView={view} setView={setView} onHome={goHome} activeSection={activeSection} />
       {pageLoading && view !== 'tv-shows' && view !== 'movies' && view !== 'new-popular' && (
         <GlobalLoader label="Loading anime details..." />
       )}
@@ -699,7 +730,7 @@ function App() {
               />
             )}
 
-            {/* ── Drama Views ── */}
+            {/* â”€â”€ Drama Views â”€â”€ */}
             {view === 'dramas' && (
               <DramaHomeView
                 data={dramaHomeData}
@@ -732,7 +763,7 @@ function App() {
               />
             )}
 
-            {/* ── Manhwa Views ── */}
+            {/* â”€â”€ Manhwa Views â”€â”€ */}
             {view === 'manhwa' && (
               <ManhwaHomeView
                 data={manhwaHomeData}
@@ -850,7 +881,7 @@ function InlineLoader({ label }) {
   );
 }
 
-/* ─── Skeleton Components ─────────────────────────────────────────── */
+/* â”€â”€â”€ Skeleton Components â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function SkeletonHero() {
   return (
     <div className="skeleton-hero">
@@ -1190,7 +1221,7 @@ function DetailView({ anime, franchiseList = [], myList = [], onToggleWatchlist,
                 className={`btn ${myList.some(item => item.id === anime.id) ? 'btn-watchlist-active' : 'btn-secondary'}`}
                 onClick={() => onToggleWatchlist(anime)}
               >
-                {myList.some(item => item.id === anime.id) ? '✓ In My List' : '+ My List'}
+                {myList.some(item => item.id === anime.id) ? 'âœ“ In My List' : '+ My List'}
               </button>
               <button className="btn btn-secondary" onClick={onBackHome}>
                 Back to Home
@@ -1431,7 +1462,7 @@ function WatchView({
             const end = Math.min(p * EPISODES_PER_PART, anime.totalEpisodes || (p * EPISODES_PER_PART));
             seasonOptions.push({
               id: item.id,
-              title: `${item.title} - Part ${p} (Ep ${start}–${end})`,
+              title: `${item.title} - Part ${p} (Ep ${start}â€“${end})`,
               part: p,
               isActive: isActive && selectedPart === p
             });
@@ -1463,7 +1494,7 @@ function WatchView({
         const end = Math.min(p * EPISODES_PER_PART, anime.totalEpisodes || (p * EPISODES_PER_PART));
         seasonOptions.push({
           id: anime.id,
-          title: `Season 1 - Part ${p} (Ep ${start}–${end})`,
+          title: `Season 1 - Part ${p} (Ep ${start}â€“${end})`,
           part: p,
           isActive: selectedPart === p
         });
@@ -1571,7 +1602,7 @@ function WatchView({
                   style={{ minWidth: '180px' }}
                 >
                   <span>{activeLabel}</span>
-                  <span className="btn-arrow">▼</span>
+                  <span className="btn-arrow">â–¼</span>
                 </button>
 
                 {showSeasonDropdown && (
@@ -1658,7 +1689,7 @@ function WatchView({
                         <p className="ep-bento-desc">{dynamicDesc}</p>
                         <div className="ep-bento-meta">
                           {ep.aired && <span>Aired: {ep.aired}</span>}
-                          {ep.score && <span style={{ color: 'var(--accent-primary)' }}>★ {ep.score}/5</span>}
+                          {ep.score && <span style={{ color: 'var(--accent-primary)' }}>â˜… {ep.score}/5</span>}
                         </div>
                       </div>
                     </div>
@@ -1820,9 +1851,9 @@ function WatchlistView({ items, onAnimeClick, onBackHome }) {
 
 export default App;
 
-// ─────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // MANHWA COMPONENTS (Hivetoons)
-// ─────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function ManhwaCard({ series, onClick }) {
   const [imgErr, setImgErr] = React.useState(false);
@@ -1842,7 +1873,7 @@ function ManhwaCard({ series, onClick }) {
           </div>
         )}
         <div className="manhwa-card-overlay">
-          <div className="manhwa-card-read">📖 Read</div>
+          <div className="manhwa-card-read">ðŸ“– Read</div>
         </div>
       </div>
       <div className="manhwa-card-info">
@@ -1872,7 +1903,7 @@ function ManhwaHomeView({ data, error, isLoading, searchQuery, searchResults, se
       {/* Search */}
       <div className="manhwa-search-bar-wrap">
         <div className="manhwa-search-inner">
-          <span className="manhwa-search-icon">🔍</span>
+          <span className="manhwa-search-icon">ðŸ”</span>
           <input
             className="manhwa-search-input"
             type="text"
@@ -1903,9 +1934,9 @@ function ManhwaHomeView({ data, error, isLoading, searchQuery, searchResults, se
       ) : !data ? (
         <div style={{ minHeight: '60vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.2rem' }}>
           <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem', textAlign: 'center', maxWidth: '640px' }}>
-            ⚠️ {error || 'Could not load manhwa catalog.'}
+            âš ï¸ {error || 'Could not load manhwa catalog.'}
           </p>
-          <button className="btn btn-primary" onClick={() => window.location.reload()}>🔄 Retry</button>
+          <button className="btn btn-primary" onClick={() => window.location.reload()}>ðŸ”„ Retry</button>
         </div>
       ) : (
         <>
@@ -1917,21 +1948,21 @@ function ManhwaHomeView({ data, error, isLoading, searchQuery, searchResults, se
             >
               <div className="manhwa-hero-overlay" />
               <div className="manhwa-hero-content">
-                <div className="manhwa-hero-badge">📚 Featured Manhwa</div>
+                <div className="manhwa-hero-badge">ðŸ“š Featured Manhwa</div>
                 <h1 className="manhwa-hero-title">{data.popular[0].title}</h1>
                 <button
                   className="btn btn-primary manhwa-hero-btn"
                   onClick={() => onSeriesClick(data.popular[0])}
                 >
-                  📖 Start Reading
+                  ðŸ“– Start Reading
                 </button>
               </div>
             </div>
           )}
 
           <div className="manhwa-rows-container">
-            <ManhwaRow title="🔥 Popular Now" series={data.popular} onSeriesClick={onSeriesClick} />
-            <ManhwaRow title="🆕 Latest Updates" series={data.latest} onSeriesClick={onSeriesClick} />
+            <ManhwaRow title="ðŸ”¥ Popular Now" series={data.popular} onSeriesClick={onSeriesClick} />
+            <ManhwaRow title="ðŸ†• Latest Updates" series={data.latest} onSeriesClick={onSeriesClick} />
           </div>
         </>
       )}
@@ -1953,7 +1984,7 @@ function ManhwaDetailView({ series, isLoading, onBack, onReadChapter }) {
       >
         <div className="manhwa-hero-overlay" />
         <div className="manhwa-detail-hero-content">
-          <button className="manhwa-back-btn" onClick={onBack}>← Back</button>
+          <button className="manhwa-back-btn" onClick={onBack}>â† Back</button>
           <div className="manhwa-detail-meta-row">
             <img src={series.cover} alt={series.title} className="manhwa-detail-cover" />
             <div className="manhwa-detail-info">
@@ -1971,7 +2002,7 @@ function ManhwaDetailView({ series, isLoading, onBack, onReadChapter }) {
                   onClick={() => onReadChapter(series, chapters[0])}
                   style={{ marginTop: '1rem' }}
                 >
-                  📖 Read Chapter 1
+                  ðŸ“– Read Chapter 1
                 </button>
               )}
             </div>
@@ -2015,7 +2046,7 @@ function ManhwaDetailView({ series, isLoading, onBack, onReadChapter }) {
                             loading="lazy"
                           />
                         ) : (
-                          <div className="manhwa-chapter-thumb-placeholder">📖</div>
+                          <div className="manhwa-chapter-thumb-placeholder">ðŸ“–</div>
                         )}
                       </div>
                       <div className="manhwa-chapter-meta">
@@ -2055,17 +2086,17 @@ function ManhwaReadView({ series, chapter, images, isLoading, onBack, onChapterS
     <div className="manhwa-reader">
       {/* Top navigation bar */}
       <div className="manhwa-reader-header">
-        <button className="manhwa-back-btn" onClick={onBack}>← {series.title}</button>
+        <button className="manhwa-back-btn" onClick={onBack}>â† {series.title}</button>
         <span className="manhwa-reader-chapter-label">Chapter {chapter.number}</span>
         <div className="manhwa-reader-nav">
           {prevChapter && (
             <button className="manhwa-nav-btn" onClick={() => onChapterSelect(prevChapter)}>
-              ← Prev
+              â† Prev
             </button>
           )}
           {nextChapter && (
             <button className="manhwa-nav-btn" onClick={() => onChapterSelect(nextChapter)}>
-              Next →
+              Next â†’
             </button>
           )}
         </div>
@@ -2102,7 +2133,7 @@ function ManhwaReadView({ series, chapter, images, isLoading, onBack, onChapterS
         <div className="manhwa-reader-footer">
           {prevChapter && (
             <button className="manhwa-nav-btn" onClick={() => { onChapterSelect(prevChapter); window.scrollTo(0,0); }}>
-              ← Previous Chapter
+              â† Previous Chapter
             </button>
           )}
           <button className="manhwa-back-btn-plain" onClick={() => { onBack(); }}>
@@ -2110,7 +2141,7 @@ function ManhwaReadView({ series, chapter, images, isLoading, onBack, onChapterS
           </button>
           {nextChapter && (
             <button className="manhwa-nav-btn" onClick={() => { onChapterSelect(nextChapter); window.scrollTo(0,0); }}>
-              Next Chapter →
+              Next Chapter â†’
             </button>
           )}
         </div>
@@ -2137,9 +2168,9 @@ function ManhwaReadView({ series, chapter, images, isLoading, onBack, onChapterS
   );
 }
 
-// ─────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // DRAMA COMPONENTS
-// ─────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function DramaCard({ drama, onClick }) {
   const [imgErr, setImgErr] = React.useState(false);
@@ -2159,7 +2190,7 @@ function DramaCard({ drama, onClick }) {
           </div>
         )}
         <div className="drama-card-overlay">
-          <div className="drama-card-play">▶</div>
+          <div className="drama-card-play">â–¶</div>
         </div>
         {drama.episodesCount && (
           <span className="drama-card-ep-badge">{drama.episodesCount} Ep</span>
@@ -2222,13 +2253,13 @@ function DramaHomeView({ data, error, isLoading, searchQuery, searchResults, sea
       ) : !data || !Array.isArray(data.korean) ? (
         <div style={{ minHeight: '60vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.2rem' }}>
           <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem', textAlign: 'center', maxWidth: '640px' }}>
-            ⚠️ {error || 'Could not load drama catalog. Check that the backend is online.'}
+            âš ï¸ {error || 'Could not load drama catalog. Check that the backend is online.'}
           </p>
           <button
             className="btn btn-primary"
             onClick={() => window.location.reload()}
           >
-            🔄 Retry
+            ðŸ”„ Retry
           </button>
         </div>
       ) : (
@@ -2238,7 +2269,7 @@ function DramaHomeView({ data, error, isLoading, searchQuery, searchResults, sea
             <div className="drama-hero" style={{ backgroundImage: `url(${featured.thumbnail})` }}>
               <div className="drama-hero-overlay" />
               <div className="drama-hero-content">
-                <div className="drama-hero-badge">🎬 Featured Drama</div>
+                <div className="drama-hero-badge">ðŸŽ¬ Featured Drama</div>
                 <h1 className="drama-hero-title">{featured.title}</h1>
                 <button className="btn btn-primary drama-hero-btn" onClick={() => onDramaClick(featured)}>
                   <Play size={20} fill="currentColor" /> Watch Now
@@ -2249,10 +2280,10 @@ function DramaHomeView({ data, error, isLoading, searchQuery, searchResults, sea
 
           <div className="drama-rows-container">
             <DramaRow title="Featured" dramas={data?.show || []} onDramaClick={onDramaClick} />
-            <DramaRow title="🇰🇷 Most Popular Korean Dramas" dramas={data?.korean || []} onDramaClick={onDramaClick} />
-            <DramaRow title="🇨🇳 Most Popular Chinese Dramas" dramas={data?.chinese || []} onDramaClick={onDramaClick} />
-            <DramaRow title="⭐ Top Rated" dramas={data?.topRating || []} onDramaClick={onDramaClick} />
-            <DramaRow title="🆕 Recently Updated" dramas={data?.lastUpdate || []} onDramaClick={onDramaClick} />
+            <DramaRow title="ðŸ‡°ðŸ‡· Most Popular Korean Dramas" dramas={data?.korean || []} onDramaClick={onDramaClick} />
+            <DramaRow title="ðŸ‡¨ðŸ‡³ Most Popular Chinese Dramas" dramas={data?.chinese || []} onDramaClick={onDramaClick} />
+            <DramaRow title="â­ Top Rated" dramas={data?.topRating || []} onDramaClick={onDramaClick} />
+            <DramaRow title="ðŸ†• Recently Updated" dramas={data?.lastUpdate || []} onDramaClick={onDramaClick} />
           </div>
         </>
       )}
@@ -2271,11 +2302,11 @@ function DramaDetailView({ drama, onBack, onWatchEpisode }) {
       <div className="drama-detail-hero" style={{ backgroundImage: `url(${drama.thumbnail})` }}>
         <div className="drama-hero-overlay" />
         <div className="drama-detail-hero-content">
-          <button className="drama-back-btn" onClick={onBack}>← Back</button>
+          <button className="drama-back-btn" onClick={onBack}>â† Back</button>
           <h1 className="drama-detail-title">{drama.title}</h1>
           {drama.releaseDate && (
             <span className="drama-detail-meta">
-              {new Date(drama.releaseDate).getFullYear()} · {drama.country} · {drama.status}
+              {new Date(drama.releaseDate).getFullYear()} Â· {drama.country} Â· {drama.status}
             </span>
           )}
           {episodes.length > 0 && (
@@ -2357,7 +2388,7 @@ function DramaWatchView({ drama, episode, stream, loading, onBack, onEpisodeSele
   return (
     <div className="drama-watch">
       <div className="drama-watch-header">
-        <button className="drama-back-btn" onClick={onBack}>← {drama.title}</button>
+        <button className="drama-back-btn" onClick={onBack}>â† {drama.title}</button>
         <span className="drama-watch-ep-label">Episode {episode.number}</span>
       </div>
 

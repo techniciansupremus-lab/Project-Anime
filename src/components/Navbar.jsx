@@ -1,8 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Bell, ChevronDown, Search } from 'lucide-react';
 
-export default function Navbar({ onSearch, activeView, setView, onHome }) {
+export default function Navbar({ onSearch, activeView, setView, onHome, activeSection = 'anime' }) {
   const [searchVal, setSearchVal] = useState('');
+
+  // Sync searchVal state when section changes or search is cleared externally
+  useEffect(() => {
+    setSearchVal('');
+  }, [activeSection]);
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
@@ -17,12 +22,30 @@ export default function Navbar({ onSearch, activeView, setView, onHome }) {
 
   const handleHomeClick = () => {
     setSearchVal('');
-    if (onHome) {
-      onHome();
-      return;
-    }
     if (onSearch) onSearch('');
-    setView('home');
+    
+    if (activeSection === 'drama') {
+      setView('dramas');
+    } else if (activeSection === 'comic') {
+      setView('manhwa');
+    } else {
+      if (onHome) {
+        onHome();
+      } else {
+        setView('home');
+      }
+    }
+  };
+
+  const getSearchPlaceholder = () => {
+    switch (activeSection) {
+      case 'drama':
+        return 'Search dramas, actors...';
+      case 'comic':
+        return 'Search manhwa, comics...';
+      default:
+        return 'Search anime titles, genres...';
+    }
   };
 
   return (
@@ -30,58 +53,75 @@ export default function Navbar({ onSearch, activeView, setView, onHome }) {
       <div className="container navbar-inner">
         <div className="logo" onClick={handleHomeClick}>
           EetNet
+          <span className={`section-badge section-badge--${activeSection}`}>
+            {activeSection === 'comic' ? 'Comic' : activeSection === 'drama' ? 'Drama' : 'Anime'}
+          </span>
         </div>
 
         <div className="nav-links primary-nav">
-          <div
-            className={`nav-link ${activeView === 'home' ? 'active' : ''}`}
-            onClick={handleHomeClick}
-          >
-            Home
-          </div>
-          <div
-            className={`nav-link ${activeView === 'tv-shows' ? 'active' : ''}`}
-            onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); setView('tv-shows'); }}
-          >
-            TV Shows
-          </div>
-          <div
-            className={`nav-link ${activeView === 'movies' ? 'active' : ''}`}
-            onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); setView('movies'); }}
-          >
-            Movies
-          </div>
-          <div
-            className={`nav-link ${activeView === 'new-popular' ? 'active' : ''}`}
-            onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); setView('new-popular'); }}
-          >
-            New & Popular
-          </div>
-          <div
-            className={`nav-link drama-nav-link ${activeView === 'dramas' || activeView === 'drama-detail' || activeView === 'drama-watch' ? 'active' : ''}`}
-            onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); setView('dramas'); }}
-          >
-            Dramas
-          </div>
-          <div
-            className={`nav-link manhwa-nav-link ${activeView === 'manhwa' || activeView === 'manhwa-detail' || activeView === 'manhwa-read' ? 'active' : ''}`}
-            onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); setView('manhwa'); }}
-          >
-            Manhwa
-          </div>
-          <div
-            className={`nav-link ${activeView === 'my-list' ? 'active' : ''}`}
-            onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); setView('my-list'); }}
-          >
-            My List
-          </div>
+          {activeSection === 'anime' && (
+            <>
+              <div
+                className={`nav-link ${activeView === 'home' ? 'active' : ''}`}
+                onClick={handleHomeClick}
+              >
+                Home
+              </div>
+              <div
+                className={`nav-link ${activeView === 'tv-shows' ? 'active' : ''}`}
+                onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); setView('tv-shows'); }}
+              >
+                TV Shows
+              </div>
+              <div
+                className={`nav-link ${activeView === 'movies' ? 'active' : ''}`}
+                onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); setView('movies'); }}
+              >
+                Movies
+              </div>
+              <div
+                className={`nav-link ${activeView === 'new-popular' ? 'active' : ''}`}
+                onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); setView('new-popular'); }}
+              >
+                New & Popular
+              </div>
+              <div
+                className={`nav-link ${activeView === 'my-list' ? 'active' : ''}`}
+                onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); setView('my-list'); }}
+              >
+                My List
+              </div>
+            </>
+          )}
+
+          {activeSection === 'drama' && (
+            <>
+              <div
+                className={`nav-link ${activeView === 'dramas' ? 'active' : ''}`}
+                onClick={handleHomeClick}
+              >
+                Drama Home
+              </div>
+            </>
+          )}
+
+          {activeSection === 'comic' && (
+            <>
+              <div
+                className={`nav-link ${activeView === 'manhwa' ? 'active' : ''}`}
+                onClick={handleHomeClick}
+              >
+                Comic Home
+              </div>
+            </>
+          )}
         </div>
 
         <form onSubmit={handleSearchSubmit} className="search-bar">
           <Search size={18} className="search-icon" />
           <input 
             type="text" 
-            placeholder="Titles, genres..." 
+            placeholder={getSearchPlaceholder()} 
             value={searchVal}
             onChange={handleInputChange}
           />
@@ -98,3 +138,4 @@ export default function Navbar({ onSearch, activeView, setView, onHome }) {
     </nav>
   );
 }
+
