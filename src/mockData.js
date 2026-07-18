@@ -134,6 +134,15 @@ export const api = {
     return [];
   },
 
+  // Top 10 famous anime of all time
+  getTop10Famous: async () => {
+    const data = await fetchAniList(`
+      query { Page(page: 1, perPage: 10) { media(type: ANIME, sort: POPULARITY_DESC) { ${MEDIA_FRAGMENT} } } }
+    `);
+    if (data?.Page?.media) return data.Page.media.map(mapMediaToCard);
+    return [];
+  },
+
   // Featured anime for the hero carousel
   getFeatured: async () => {
     const data = await fetchAniList(`

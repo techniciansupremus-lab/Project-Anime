@@ -13,6 +13,7 @@ function App() {
   const [activeSection, setActiveSection] = useState('anime');
   const [featured, setFeatured] = useState([]);
   const [trending, setTrending] = useState([]);
+  const [top10Famous, setTop10Famous] = useState([]);
   const [searchResults, setSearchResults] = useState({ anime: [], dramas: [] });
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
@@ -81,6 +82,9 @@ function App() {
     });
     api.getAnimeList().then((items) => {
       if (mounted) setTrending(items);
+    });
+    api.getTop10Famous().then((items) => {
+      if (mounted) setTop10Famous(items);
     });
 
     return () => {
@@ -647,6 +651,7 @@ function App() {
                 featured={featured}
                 activeCategory={activeCategory}
                 filteredTrending={filteredTrending}
+                top10Famous={top10Famous}
                 setActiveCategory={setActiveCategory}
                 onAnimeClick={handleAnimeClick}
                 onStartWatching={startWatching}
@@ -933,18 +938,64 @@ function CategorySkeleton() {
   );
 }
 
+function Top10Row({ title, items, onAnimeClick }) {
+  if (!items || items.length === 0) return null;
+
+  return (
+    <section className="netflix-row top10-row-section">
+      <div className="section-header">
+        <h2 className="section-title">{title}</h2>
+      </div>
+      <div className="top10-slider">
+        {items.slice(0, 10).map((anime, index) => (
+          <Top10Tile
+            key={`top10-${anime.id}`}
+            anime={anime}
+            rank={index + 1}
+            onClick={() => onAnimeClick(anime.id)}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function Top10Tile({ anime, rank, onClick }) {
+  return (
+    <button className="top10-tile" onClick={onClick}>
+      <div className="top10-rank-container">
+        <span className="top10-rank-number">{rank}</span>
+      </div>
+      <div className="top10-card">
+        <div className="top10-card-img-wrapper">
+          <img src={anime.coverImage} alt={anime.title} loading="lazy" />
+        </div>
+        <div className="top10-card-overlay">
+          <span className="top10-card-rating">★ {anime.rating}</span>
+          <span className="top10-card-title">{anime.title}</span>
+          <span className="top10-card-type">{anime.type}</span>
+        </div>
+      </div>
+    </button>
+  );
+}
+
 function HomeView({
   activeFeatured,
   featured,
   activeCategory,
   filteredTrending,
+  top10Famous,
   setActiveCategory,
   onAnimeClick,
   onStartWatching
 }) {
   const continueWatching = featured.filter((anime) => anime.id !== activeFeatured?.id).slice(0, 5);
   const popularNow = filteredTrending.slice(0, 10);
-  const genrePicks = filteredTrending.slice(6, 16);
+
+  const spotlightItem = filteredTrending.find(a => a.id !== activeFeatured?.id) || filteredTrending[0];
+  const bentoItems = filteredTrending.filter(a => a.id !== activeFeatured?.id && a.id !== spotlightItem?.id).slice(0, 4);
+  const classics = filteredTrending.filter(a => a.id !== activeFeatured?.id && a.id !== spotlightItem?.id && !bentoItems.some(b => b.id === a.id)).slice(0, 5);
 
   return (
     <div className="netflix-home">
@@ -1028,47 +1079,75 @@ function HomeView({
           </div>
         </div>
 
-        <NetflixRow
-          title={activeCategory === 'All' ? 'Trending Now' : `${activeCategory} Picks`}
-          items={filteredTrending}
+        {/* Custom Premium Top 10 Famous Anime */}
+        <Top10Row
+          title="Top 10 Famous Anime"
+          items={top10Famous && top10Famous.length > 0 ? top10Famous : filteredTrending}
           onAnimeClick={onAnimeClick}
-          ranked
         />
 
-        {genrePicks.length > 0 && (
-          <NetflixRow
-            title="Because You Watch Anime"
-            items={genrePicks}
-            onAnimeClick={onAnimeClick}
-          />
-        )}
-
-        {recentReleases.length > 0 && (
-          <div className="anime-row">
+        {/* Bento Grid layout for bottom sections */}
+        {spotlightItem && (
+          <div className="bento-section">
             <div className="section-header">
-              <h2 className="section-title">Recent Releases</h2>
+              <h2 className="section-title">Spotlight &amp; Recommendations</h2>
             </div>
-            <div className="recent-grid">
-              {recentReleases.map((rel) => (
-                <div
-                  key={`${rel.id}-${rel.episodeNumber}`}
-                  className="recent-card"
-                  onClick={() => onAnimeClick(rel.id)}
-                >
-                  <div className="recent-img-wrapper">
-                    <img src={rel.coverImage} alt={rel.title} className="recent-img" />
+            <div className="bento-grid">
+              {/* Large Bento Card (Spotlight) */}
+              <div className="bento-card bento-card--large" onClick={() => onAnimeClick(spotlightItem.id)}>
+                <div className="bento-card__bg" style={{ backgroundImage: `url(${spotlightItem.bannerImage || spotlightItem.coverImage})` }} />
+                <div className="bento-card__overlay" />
+                <div className="bento-card__content">
+                  <div className="bento-badge">Spotlight Pick</div>
+                  <h3 className="bento-title">{spotlightItem.title}</h3>
+                  <div className="bento-meta">
+                    <span className="bento-rating">★ {spotlightItem.rating}</span>
+                    <span className="bento-type">{spotlightItem.type}</span>
                   </div>
-                  <div className="recent-info">
-                    <h4 className="recent-title">{rel.title}</h4>
-                    <div className="recent-ep">Episode {rel.episodeNumber}</div>
-                    <div className="recent-meta">
-                      <span>{rel.type}</span>
-                      <span>-</span>
-                      <span>{rel.timeAgo}</span>
+                  {spotlightItem.genres && (
+                    <div className="bento-genres">
+                      {spotlightItem.genres.slice(0, 3).map(g => (
+                        <span key={g} className="bento-genre-tag">{g}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Medium Bento Cards Container */}
+              <div className="bento-medium-wrapper">
+                {bentoItems.map((item) => (
+                  <div key={item.id} className="bento-card bento-card--medium" onClick={() => onAnimeClick(item.id)}>
+                    <img src={item.coverImage} alt={item.title} className="bento-card__img" loading="lazy" />
+                    <div className="bento-card__info">
+                      <h4 className="bento-card__title">{item.title}</h4>
+                      <div className="bento-card__meta">
+                        <span className="bento-card__rating">★ {item.rating}</span>
+                        <span className="bento-card__type">{item.type}</span>
+                      </div>
                     </div>
                   </div>
+                ))}
+              </div>
+
+              {/* Sidebar/Favorites List Bento Card */}
+              {classics.length > 0 && (
+                <div className="bento-card bento-card--list">
+                  <h4 className="bento-list__header">Top Picks For You</h4>
+                  <div className="bento-list__items">
+                    {classics.map((item, idx) => (
+                      <div key={item.id} className="bento-list__item" onClick={() => onAnimeClick(item.id)}>
+                        <span className="bento-list__index">{idx + 1}</span>
+                        <img src={item.coverImage} alt={item.title} className="bento-list__thumb" loading="lazy" />
+                        <div className="bento-list__details">
+                          <span className="bento-list__title">{item.title}</span>
+                          <span className="bento-list__meta">★ {item.rating} · {item.type}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              ))}
+              )}
             </div>
           </div>
         )}
