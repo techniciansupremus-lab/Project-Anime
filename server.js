@@ -4,11 +4,11 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import https from 'https';
 import { ANIME, META } from '@consumet/extensions';
-import { HttpsProxyAgent } from 'https-proxy-agent';
 
 const app = express();
 app.set('trust proxy', true);
 const PORT = process.env.PORT || 8080;
+const startedAt = new Date();
 
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
 
@@ -24,6 +24,14 @@ app.use(express.json());
 // Disable SSL verification for scraping (needed for anikai.cc)
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+
+function safeOrigin(value) {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return value || '';
+  }
+}
 
 // ─────────────────────────────────────────────────────
 // Providers:
@@ -355,10 +363,82 @@ app.get('/api/episodes/mal/:malId', async (req, res) => {
 // Health check
 // ─────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
-
   res.json({
     status: 'ok',
-    providers: ['animekai-scraper (English sub/dub)', 'animeunity-consumet (fallback)']
+    service: 'anistream-backend',
+    startedAt: startedAt.toISOString(),
+    uptimeSeconds: Math.round(process.uptime()),
+    publicBase: publicHost(req),
+    port: Number(PORT),
+    corsOrigin: process.env.CORS_ORIGIN || '*',
+    providers: {
+      anime: ['animekai-scraper (English sub/dub)', 'animeunity-consumet (fallback)'],
+      drama: 'kisskh',
+      manhwa: 'hivetoons'
+    },
+    config: {
+      kisskhBase: safeOrigin(KISSKH_BASE),
+      encdecBase: safeOrigin(ENCDEC_BASE),
+      manhwaBase: safeOrigin(HIVETOONS_BASE)
+    }
+  });
+});
+
+async function probeProvider(name, url, options = {}) {
+  const started = Date.now();
+  try {
+    const response = await axios.get(url, {
+      timeout: options.timeout || 8000,
+      headers: options.headers || AXIOS_OPTS.headers,
+      validateStatus: status => status < 500,
+    });
+    return {
+      name,
+      ok: response.status >= 200 && response.status < 400,
+      status: response.status,
+      ms: Date.now() - started,
+    };
+  } catch (err) {
+    return {
+      name,
+      ok: false,
+      error: err.code || err.message,
+      ms: Date.now() - started,
+    };
+  }
+}
+
+app.get('/api/status', async (req, res) => {
+  const deep = req.query.deep === '1' || req.query.deep === 'true';
+  const probes = [
+    probeProvider('jikan', 'https://api.jikan.moe/v4/anime/1/episodes?page=1', {
+      headers: { 'Accept': 'application/json', 'User-Agent': 'AniStream/1.0' },
+    }),
+    probeProvider('anime-provider', `${ANIMEKAI_BASE}/browser?keyword=naruto`),
+    probeProvider('manhwa-provider', `${HIVETOONS_BASE}/`, { headers: HT_HEADERS }),
+    probeProvider('drama-key-provider', `${ENCDEC_BASE}/api/enc-kisskh?text=1&type=vid`, {
+      headers: { 'Accept': 'application/json' },
+    }),
+  ];
+
+  if (deep) {
+    probes.push(probeProvider('drama-catalog-provider', `${KISSKH_BASE}/api/DramaList/Show`, {
+      headers: {
+        'User-Agent': AXIOS_OPTS.headers['User-Agent'],
+        'Accept': 'application/json, text/plain, */*',
+      },
+    }));
+  }
+
+  const results = await Promise.all(probes);
+  const ok = results.every(item => item.ok);
+
+  res.status(ok ? 200 : 207).json({
+    status: ok ? 'ok' : 'degraded',
+    checkedAt: new Date().toISOString(),
+    publicBase: publicHost(req),
+    deep,
+    results,
   });
 });
 
@@ -588,7 +668,7 @@ const dramaInfoCache   = new Map(); // key: dramaId      → { data, timestamp }
 const dramaStreamCache = new Map(); // key: episodeId    → { data, timestamp }
 
 // Helper: GET a KissKH URL
-async function kissKhGet(url, retried = false) {
+async function kissKhGet(url) {
   const res = await axios.get(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -1107,4 +1187,3 @@ app.listen(PORT, () => {
   console.log(`     GET /api/m3u8-proxy?url=<url>                — HLS manifest proxy`);
   console.log(`     GET /api/ts-proxy?url=<url>                  — HLS segment proxy\n`);
 });
-

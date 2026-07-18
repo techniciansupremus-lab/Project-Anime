@@ -3,7 +3,8 @@ import { AlertCircle, Info, Play, Star } from 'lucide-react';
 import Navbar from './components/Navbar';
 import AnimeCard from './components/AnimeCard';
 import VideoPlayer from './components/VideoPlayer';
-import { api, API_BASE, animeCategories, recentReleases } from './mockData';
+import { api, animeCategories, recentReleases } from './mockData';
+import { apiUrl, getBackendConfigError } from './runtimeConfig';
 
 function App() {
   const [view, setView] = useState('home');
@@ -30,6 +31,7 @@ function App() {
   // ── Drama state ──
   const [dramaHomeData, setDramaHomeData] = useState(null);
   const [dramaHomeLoading, setDramaHomeLoading] = useState(false);
+  const [dramaHomeError, setDramaHomeError] = useState('');
   const [selectedDrama, setSelectedDrama] = useState(null);
   const [dramaEpisode, setDramaEpisode] = useState(null);
   const [dramaStream, setDramaStream] = useState(null);
@@ -41,6 +43,7 @@ function App() {
   // ── Manhwa state ──
   const [manhwaHomeData, setManhwaHomeData] = useState(null);
   const [manhwaHomeLoading, setManhwaHomeLoading] = useState(false);
+  const [manhwaHomeError, setManhwaHomeError] = useState('');
   const [selectedManhwa, setSelectedManhwa] = useState(null);
   const [manhwaDetailLoading, setManhwaDetailLoading] = useState(false);
   const [currentManhwaChapter, setCurrentManhwaChapter] = useState(null);
@@ -191,14 +194,26 @@ function App() {
     if (view !== 'dramas') return;
     const hasValidData = dramaHomeData && dramaHomeData.korean && Array.isArray(dramaHomeData.korean);
     if (hasValidData) return;
+    const configError = getBackendConfigError();
+    if (configError) {
+      setDramaHomeError(configError);
+      setDramaHomeData(null);
+      return;
+    }
     setDramaHomeLoading(true);
-    fetch(`${API_BASE}/api/drama/home`)
-      .then(r => r.json())
+    setDramaHomeError('');
+    fetch(apiUrl('/api/drama/home'))
+      .then(async r => {
+        const data = await r.json().catch(() => null);
+        if (!r.ok) throw new Error(data?.message || data?.error || `Backend returned ${r.status}`);
+        return data;
+      })
       .then(data => {
         if (data && Array.isArray(data.korean)) {
           setDramaHomeData(data);
         } else {
           setDramaHomeData(null);
+          setDramaHomeError('Drama backend returned an unexpected response.');
           console.warn('[Drama Home] API returned error:', data);
         }
         setDramaHomeLoading(false);
@@ -207,6 +222,7 @@ function App() {
         console.warn('[Drama Home] Fetch failed:', err);
         setDramaHomeLoading(false);
         setDramaHomeData(null);
+        setDramaHomeError(err.message || 'Could not reach the backend.');
       });
   }, [view]);
 
@@ -214,20 +230,33 @@ function App() {
   useEffect(() => {
     if (view !== 'manhwa') return;
     if (manhwaHomeData) return;
+    const configError = getBackendConfigError();
+    if (configError) {
+      setManhwaHomeError(configError);
+      setManhwaHomeData(null);
+      return;
+    }
     setManhwaHomeLoading(true);
-    fetch(`${API_BASE}/api/manhwa/home`)
-      .then(r => r.json())
+    setManhwaHomeError('');
+    fetch(apiUrl('/api/manhwa/home'))
+      .then(async r => {
+        const data = await r.json().catch(() => null);
+        if (!r.ok) throw new Error(data?.message || data?.error || `Backend returned ${r.status}`);
+        return data;
+      })
       .then(data => {
         if (data && Array.isArray(data.popular)) {
           setManhwaHomeData(data);
         } else {
           setManhwaHomeData(null);
+          setManhwaHomeError('Manhwa backend returned an unexpected response.');
         }
         setManhwaHomeLoading(false);
       })
       .catch(err => {
         console.warn('[Manhwa Home] Fetch failed:', err);
         setManhwaHomeLoading(false);
+        setManhwaHomeError(err.message || 'Could not reach the backend.');
       });
   }, [view]);
 
@@ -302,7 +331,7 @@ function App() {
     setView('manhwa-detail');
     window.scrollTo(0, 0);
     try {
-      const r = await fetch(`${API_BASE}/api/manhwa/series/${series.slug}`);
+      const r = await fetch(apiUrl(`/api/manhwa/series/${series.slug}`));
       const data = await r.json();
       setSelectedManhwa(data);
     } catch (e) {
@@ -319,7 +348,7 @@ function App() {
     setView('manhwa-read');
     window.scrollTo(0, 0);
     try {
-      const r = await fetch(`${API_BASE}/api/manhwa/chapter/${series.slug}/${chapter.slug}`);
+      const r = await fetch(apiUrl(`/api/manhwa/chapter/${series.slug}/${chapter.slug}`));
       const data = await r.json();
       setManhwaChapterImages(data.images || []);
     } catch (e) {
@@ -333,7 +362,7 @@ function App() {
     setManhwaSearchQuery(q);
     if (!q.trim()) { setManhwaSearchResults([]); return; }
     setManhwaSearchLoading(true);
-    fetch(`${API_BASE}/api/manhwa/search?q=${encodeURIComponent(q)}`)
+    fetch(apiUrl(`/api/manhwa/search?q=${encodeURIComponent(q)}`))
       .then(r => r.json())
       .then(data => {
         setManhwaSearchResults(Array.isArray(data) ? data : []);
@@ -348,7 +377,7 @@ function App() {
     setDramaStream(null);
     window.scrollTo(0, 0);
     try {
-      const r = await fetch(`${API_BASE}/api/drama/info/${drama.id}`);
+      const r = await fetch(apiUrl(`/api/drama/info/${drama.id}`));
       const data = await r.json();
       setSelectedDrama({ ...data, thumbnail: data.thumbnail || drama.thumbnail });
     } catch (e) {
@@ -363,7 +392,7 @@ function App() {
     setView('drama-watch');
     window.scrollTo(0, 0);
     try {
-      const r = await fetch(`${API_BASE}/api/drama/stream/${episode.id}`);
+      const r = await fetch(apiUrl(`/api/drama/stream/${episode.id}`));
       const data = await r.json();
       setDramaStream(data);
     } catch (e) {
@@ -378,7 +407,7 @@ function App() {
     setDramaSearchQuery(q);
     if (!q.trim()) { setDramaSearchResults([]); return; }
     setDramaSearchLoading(true);
-    fetch(`${API_BASE}/api/drama/search?q=${encodeURIComponent(q)}`)
+    fetch(apiUrl(`/api/drama/search?q=${encodeURIComponent(q)}`))
       .then(r => r.json())
       .then(data => {
         // KissKH returns { value: [...], Count: N } — extract the array
@@ -408,7 +437,7 @@ function App() {
       searchRequestRef.current = requestId;
 
       const animePromise = api.searchAnime(query).catch(() => []);
-      const dramaPromise = fetch(`${API_BASE}/api/drama/search?q=${encodeURIComponent(query)}`)
+      const dramaPromise = fetch(apiUrl(`/api/drama/search?q=${encodeURIComponent(query)}`))
         .then(r => r.json())
         .then(data => {
           // KissKH returns { value: [...], Count: N } — extract the array
@@ -674,6 +703,7 @@ function App() {
             {view === 'dramas' && (
               <DramaHomeView
                 data={dramaHomeData}
+                error={dramaHomeError}
                 isLoading={dramaHomeLoading}
                 searchQuery={dramaSearchQuery}
                 searchResults={dramaSearchResults}
@@ -706,6 +736,7 @@ function App() {
             {view === 'manhwa' && (
               <ManhwaHomeView
                 data={manhwaHomeData}
+                error={manhwaHomeError}
                 isLoading={manhwaHomeLoading}
                 searchQuery={manhwaSearchQuery}
                 searchResults={manhwaSearchResults}
@@ -1685,7 +1716,6 @@ function ProviderWarning({ error }) {
 }
 
 function CategoryGridView({
-  title,
   viewName,
   featuredItem,
   genresData = {},
@@ -1836,7 +1866,7 @@ function ManhwaRow({ title, series, onSeriesClick }) {
   );
 }
 
-function ManhwaHomeView({ data, isLoading, searchQuery, searchResults, searchLoading, onSearch, onSeriesClick }) {
+function ManhwaHomeView({ data, error, isLoading, searchQuery, searchResults, searchLoading, onSearch, onSeriesClick }) {
   return (
     <div className="manhwa-home">
       {/* Search */}
@@ -1872,7 +1902,9 @@ function ManhwaHomeView({ data, isLoading, searchQuery, searchResults, searchLoa
         </div>
       ) : !data ? (
         <div style={{ minHeight: '60vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.2rem' }}>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem' }}>⚠️ Could not load manhwa catalog.</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem', textAlign: 'center', maxWidth: '640px' }}>
+            ⚠️ {error || 'Could not load manhwa catalog.'}
+          </p>
           <button className="btn btn-primary" onClick={() => window.location.reload()}>🔄 Retry</button>
         </div>
       ) : (
@@ -2154,9 +2186,8 @@ function DramaRow({ title, dramas, onDramaClick }) {
   );
 }
 
-function DramaHomeView({ data, isLoading, searchQuery, searchResults, searchLoading, onSearch, onDramaClick }) {
+function DramaHomeView({ data, error, isLoading, searchQuery, searchResults, searchLoading, onSearch, onDramaClick }) {
   const featured = data?.show?.[0];
-  const [imgErr, setImgErr] = React.useState(false);
 
   return (
     <div className="drama-home">
@@ -2190,7 +2221,9 @@ function DramaHomeView({ data, isLoading, searchQuery, searchResults, searchLoad
         </div>
       ) : !data || !Array.isArray(data.korean) ? (
         <div style={{ minHeight: '60vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.2rem' }}>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem' }}>⚠️ Could not load drama catalog. The server may still be warming up.</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem', textAlign: 'center', maxWidth: '640px' }}>
+            ⚠️ {error || 'Could not load drama catalog. Check that the backend is online.'}
+          </p>
           <button
             className="btn btn-primary"
             onClick={() => window.location.reload()}

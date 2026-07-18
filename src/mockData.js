@@ -1,6 +1,7 @@
+import { apiUrl, getBackendConfigError } from './runtimeConfig';
+
 const ANILIST_API = 'https://graphql.anilist.co';
-export const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8080').replace(/\/$/, '');
-const BACKEND_API = `${API_BASE}/api`;
+const backendApi = (path) => apiUrl(`/api${path.startsWith('/') ? path : `/${path}`}`);
 
 export const animeCategories = [
   "Action", "Adventure", "Fantasy", "Sci-Fi", "Romance", "Shounen", "Drama", "Slice of Life", "Mystery"
@@ -199,7 +200,7 @@ export const api = {
     if (anime.malId) {
       try {
         console.log(`[API] Fetching Jikan episode list for MAL ID ${anime.malId} (page 1)...`);
-        const jikanRes = await fetch(`${BACKEND_API}/episodes/mal/${anime.malId}?page=1`);
+        const jikanRes = await fetch(backendApi(`/episodes/mal/${anime.malId}?page=1`));
         if (jikanRes.ok) {
           const jikanData = await jikanRes.json();
           if (jikanData.episodes && jikanData.episodes.length > 0) {
@@ -231,7 +232,7 @@ export const api = {
     // 2. Try AnimeUnity/Consumet for episode list (has provider episode IDs for streaming)
     try {
       console.log(`[API] Fetching episode list from backend for AniList ID ${id}...`);
-      const backendRes = await fetch(`${BACKEND_API}/info/${id}`);
+      const backendRes = await fetch(backendApi(`/info/${id}`));
       
       if (backendRes.ok) {
         const backendData = await backendRes.json();
@@ -275,7 +276,7 @@ export const api = {
   getEpisodePage: async (malId, page) => {
     if (!malId) return null;
     try {
-      const res = await fetch(`${BACKEND_API}/episodes/mal/${malId}?page=${page}`);
+      const res = await fetch(backendApi(`/episodes/mal/${malId}?page=${page}`));
       if (!res.ok) return null;
       const data = await res.json();
       return data; // { episodes, pagination }
@@ -296,12 +297,22 @@ export const api = {
 
   // Fetch streaming sources for an episode
   getEpisodeSources: async (episodeId, animeTitle, japaneseTitle, episodeNumber) => {
+    const configError = getBackendConfigError();
+    if (configError) {
+      return {
+        provider: 'unavailable',
+        sources: [],
+        subtitles: [],
+        error: configError
+      };
+    }
+
     // 1. Try AnimeKai Primary Provider (English Subbed) — direct HLS extraction
     const titleToSearch = animeTitle || japaneseTitle;
     if (titleToSearch) {
       try {
         console.log(`[API] Fetching AnimeKai stream for title: "${titleToSearch}" Episode ${episodeNumber}`);
-        const response = await fetch(`${BACKEND_API}/gogoanime/watch?title=${encodeURIComponent(titleToSearch)}&episode=${episodeNumber}`);
+        const response = await fetch(backendApi(`/gogoanime/watch?title=${encodeURIComponent(titleToSearch)}&episode=${episodeNumber}`));
         if (response.ok) {
           const data = await response.json();
           // Backend returns type:'hls' (direct stream) or type:'iframe' (fallback)
@@ -332,7 +343,7 @@ export const api = {
     if (episodeId) {
       try {
         console.log(`[API] Fetching AnimeUnity stream for episode ID: ${episodeId}`);
-        const response = await fetch(`${BACKEND_API}/watch/${encodeURIComponent(episodeId)}`);
+        const response = await fetch(backendApi(`/watch/${encodeURIComponent(episodeId)}`));
         if (response.ok) {
           const data = await response.json();
           if (data.sources && data.sources.length > 0) {
