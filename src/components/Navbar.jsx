@@ -52,7 +52,7 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
     <nav className="navbar">
       <div className="container navbar-inner">
         <div className="logo" onClick={handleHomeClick}>
-          EetNet
+          <img src="/logo.png" alt="EetNet Logo" className="logo-img" />
           <span className={`section-badge section-badge--${activeSection}`}>
             {activeSection === 'comic' ? 'Comic' : activeSection === 'drama' ? 'Drama' : 'Anime'}
           </span>
