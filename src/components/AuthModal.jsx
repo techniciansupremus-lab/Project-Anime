@@ -2,6 +2,40 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, Eye, EyeOff, Mail, Lock, User, AlertCircle, CheckCircle, Loader } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 
+/* ── Extract a human-readable error string from any Supabase error ── */
+function getErrorMessage(error) {
+  if (!error) return 'An unknown error occurred.';
+  // Handle string errors
+  if (typeof error === 'string' && error.trim()) return error;
+  // Handle empty objects like {} returned by Supabase rate limiting
+  if (typeof error === 'object' && Object.keys(error).length === 0) {
+    return 'Too many attempts. Please wait a minute and try again.';
+  }
+  // Handle Supabase AuthError objects
+  if (error.message && typeof error.message === 'string' && error.message.trim() && error.message !== '{}') {
+    const msg = error.message.toLowerCase();
+    if (msg.includes('rate limit') || msg.includes('too many requests') || msg === '{}')
+      return 'Too many attempts. Please wait a minute and try again.';
+    if (msg.includes('email not confirmed'))
+      return 'Please confirm your email first. Check your inbox!';
+    if (msg.includes('user already registered') || msg.includes('already been registered'))
+      return 'This email is already registered. Try signing in instead.';
+    if (msg.includes('invalid login credentials') || msg.includes('invalid email or password'))
+      return 'Incorrect email or password. Please try again.';
+    if (msg.includes('email address') && msg.includes('invalid'))
+      return 'Please enter a valid email address.';
+    if (msg.includes('signup') && msg.includes('disabled'))
+      return 'New signups are temporarily disabled. Please try later.';
+    return error.message;
+  }
+  // If message IS literally "{}" string
+  if (error.message === '{}' || JSON.stringify(error) === '{}') {
+    return 'Too many attempts. Please wait a minute and try again.';
+  }
+  // Fallback
+  return 'Something went wrong. Please try again.';
+}
+
 /* ── Password Strength Checker ── */
 function getPasswordStrength(password) {
   if (!password) return { score: 0, label: '', color: '' };
@@ -96,7 +130,7 @@ export default function AuthModal({ onClose }) {
 
     setLoading(false);
     if (error) {
-      setMessage({ type: 'error', text: error.message || 'Invalid email or password.' });
+      setMessage({ type: 'error', text: getErrorMessage(error) });
     } else {
       setMessage({ type: 'success', text: 'Welcome back! Signing you in…' });
       setTimeout(onClose, 1000);
@@ -123,7 +157,7 @@ export default function AuthModal({ onClose }) {
 
     setLoading(false);
     if (error) {
-      setMessage({ type: 'error', text: error.message || 'Registration failed. Try again.' });
+      setMessage({ type: 'error', text: getErrorMessage(error) });
     } else {
       setMessage({ type: 'success', text: 'Account created! Check your email to confirm, then sign in.' });
       setTimeout(() => switchTab('login'), 2500);
@@ -136,7 +170,7 @@ export default function AuthModal({ onClose }) {
       provider: 'google',
       options: { redirectTo: window.location.origin }
     });
-    if (error) { setMessage({ type: 'error', text: error.message }); setLoading(false); }
+    if (error) { setMessage({ type: 'error', text: getErrorMessage(error) }); setLoading(false); }
   };
 
   const handleDiscordAuth = async () => {
@@ -145,7 +179,7 @@ export default function AuthModal({ onClose }) {
       provider: 'discord',
       options: { redirectTo: window.location.origin }
     });
-    if (error) { setMessage({ type: 'error', text: error.message }); setLoading(false); }
+    if (error) { setMessage({ type: 'error', text: getErrorMessage(error) }); setLoading(false); }
   };
 
   /* ── Overlay click to close ── */

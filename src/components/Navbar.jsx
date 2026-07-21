@@ -105,7 +105,10 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
               </div>
               <div
                 className={`nav-link ${activeView === 'my-list' ? 'active' : ''}`}
-                onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); setView('my-list'); }}
+                onClick={() => {
+                  if (!user) { if (onSignIn) onSignIn(); return; }
+                  setSearchVal(''); if (onSearch) onSearch(''); setView('my-list');
+                }}
               >
                 My List
               </div>

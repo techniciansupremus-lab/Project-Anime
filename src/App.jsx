@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertCircle, Info, Play, Star } from 'lucide-react';
+import { AlertCircle, Info, Play, Star, X } from 'lucide-react';
 import Navbar from './components/Navbar';
 import SectionSlider from './components/SectionSlider';
 import AnimeCard from './components/AnimeCard';
@@ -65,6 +65,38 @@ function App() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [watchHistory, setWatchHistory] = useState([]);
+
+  // ── Welcome & Toast Notification states ──
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [toast, setToast] = useState({ visible: false, message: '', type: 'info' });
+  const toastTimeoutRef = useRef(null);
+
+  const showToast = (message, type = 'info') => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    setToast({ visible: true, message, type });
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast(prev => ({ ...prev, visible: false }));
+    }, 4000);
+  };
+
+  // Welcome banner for first time visitors
+  useEffect(() => {
+    // Check if user is logged in already. If not logged in and first time:
+    const isFirstTime = !localStorage.getItem('eetnet_welcomed');
+    if (isFirstTime && !user) {
+      // Small delay to let page load look smooth
+      const timer = setTimeout(() => {
+        setShowWelcome(true);
+        // Hide after 8 seconds
+        setTimeout(() => {
+          setShowWelcome(false);
+          localStorage.setItem('eetnet_welcomed', 'true');
+        }, 8000);
+      }, 1500);
+
+      return () => clearTimeout(timer);
+    }
+  }, [user]);
 
   const detailRequestRef = useRef(0);
   const watchRequestRef = useRef(0);
@@ -423,6 +455,13 @@ function App() {
   }, [view]);
 
   const toggleWatchlist = async (animeItem) => {
+    // Require login to use watchlist
+    if (!user) {
+      setShowAuthModal(true);
+      showToast('Sign in to save titles to your watchlist! 🎬', 'info');
+      return;
+    }
+
     let exists = myList.some((item) => item.id === animeItem.id);
     let updated;
 
@@ -1052,6 +1091,22 @@ function App() {
       {showAuthModal && (
         <AuthModal onClose={() => setShowAuthModal(false)} />
       )}
+
+      {/* ── Welcome Banner ── */}
+      <div className={`welcome-banner ${showWelcome ? 'visible' : ''}`}>
+        <div className="welcome-banner-content">
+          <span>👋 First time here? Sign in to save your watchlist and sync your watch history!</span>
+          <button className="welcome-banner-btn" onClick={() => { setShowWelcome(false); setShowAuthModal(true); }}>Sign In</button>
+        </div>
+        <button className="welcome-banner-close" onClick={() => setShowWelcome(false)} aria-label="Close welcome message">
+          <X size={18} />
+        </button>
+      </div>
+
+      {/* ── Toast Notifications ── */}
+      <div className={`toast-notification toast-notification--${toast.type} ${toast.visible ? 'visible' : ''}`}>
+        <div className="toast-notification-content">{toast.message}</div>
+      </div>
     </div>
   );
 }
