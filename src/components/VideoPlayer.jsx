@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Hls from 'hls.js';
-import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Tv, Globe, Subtitles } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Tv, Globe, Subtitles, Settings } from 'lucide-react';
 
 export default function VideoPlayer({ source, poster, subtitles, malId, episodeNumber }) {
   const containerRef = useRef(null);
@@ -21,6 +21,12 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
   const [bufferPercent, setBufferPercent] = useState(0);
   const [ccActive, setCcActive] = useState(true);
   const [rippleAction, setRippleAction] = useState(null);
+
+  // ── Quality state ──────────────────────────────────────────────────────────
+  const [qualityLevels, setQualityLevels] = useState([]); // [{ label, height, index }]
+  const [currentQuality, setCurrentQuality] = useState(-1); // -1 = Auto
+  const [showQualityMenu, setShowQualityMenu] = useState(false);
+  const qualityMenuRef = useRef(null);
 
   // AniSkip state
   const [skipTimes, setSkipTimes] = useState(null); // { op: {start, end}, ed: {start, end} }
@@ -122,6 +128,8 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
 
     if (source?.isM3U8 && Hls.isSupported()) {
       // ── HLS.js path (Chrome, Firefox, Android, desktop) ──
+      setQualityLevels([]);
+      setCurrentQuality(-1);
       const hls = new Hls({
         maxMaxBufferLength: 60,
         enableWorker: true,
@@ -133,6 +141,20 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
         fragLoadingRetryDelay: 1000,
       });
       hlsRef.current = hls;
+
+      // Populate quality levels once manifest is parsed
+      hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
+        const levels = data.levels.map((lvl, idx) => ({
+          index: idx,
+          height: lvl.height || 0,
+          label: lvl.height ? `${lvl.height}p` : `Level ${idx + 1}`,
+          bitrate: lvl.bitrate || 0,
+        }));
+        // Sort highest quality first
+        levels.sort((a, b) => b.height - a.height);
+        setQualityLevels(levels);
+        setCurrentQuality(-1); // Start on Auto
+      });
 
       hls.loadSource(streamUrl);
       hls.attachMedia(video);
@@ -284,6 +306,31 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
     resetControlsTimeout();
   };
 
+  // ── Quality switching ──────────────────────────────────────────────────────
+  const handleQualityChange = (levelIndex) => {
+    const hls = hlsRef.current;
+    if (!hls) return;
+    hls.currentLevel = levelIndex; // -1 = Auto ABR, 0..N = fixed level
+    setCurrentQuality(levelIndex);
+    setShowQualityMenu(false);
+    resetControlsTimeout();
+  };
+
+  // Close quality menu on outside click
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (qualityMenuRef.current && !qualityMenuRef.current.contains(e.target)) {
+        setShowQualityMenu(false);
+      }
+    };
+    if (showQualityMenu) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showQualityMenu]);
+
+  const activeQualityLabel = currentQuality === -1
+    ? 'Auto'
+    : (qualityLevels.find(l => l.index === currentQuality)?.label || 'Auto');
+
   // ── Keyboard Shortcuts ────────────────────────────────────────────────────
   useEffect(() => {
     if (isIframe) return;
@@ -318,6 +365,7 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
           });
           break;
         case 'c': setCcActive(prev => !prev); break;
+        case 'q': setShowQualityMenu(prev => !prev); break;
         default: break;
       }
     };
@@ -553,6 +601,50 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
                   >
                     <Subtitles size={20} color={ccActive ? 'var(--accent-primary)' : 'white'} />
                   </button>
+                )}
+
+                {/* Quality selector — only shown when HLS levels are available */}
+                {qualityLevels.length > 1 && (
+                  <div className="yt-quality-wrap" ref={qualityMenuRef}>
+                    <button
+                      className={`yt-control-btn quality-btn ${showQualityMenu ? 'active' : ''}`}
+                      onClick={() => { setShowQualityMenu(p => !p); resetControlsTimeout(); }}
+                      aria-label="Quality settings"
+                      title="Quality (Q)"
+                    >
+                      <Settings size={18} />
+                      <span className="quality-badge">{activeQualityLabel}</span>
+                    </button>
+
+                    {showQualityMenu && (
+                      <div className="quality-menu">
+                        <div className="quality-menu-header">Quality</div>
+
+                        {/* Auto option */}
+                        <button
+                          className={`quality-option ${currentQuality === -1 ? 'active' : ''}`}
+                          onClick={() => handleQualityChange(-1)}
+                        >
+                          <span className="quality-option-label">Auto</span>
+                          {currentQuality === -1 && <span className="quality-check">✓</span>}
+                        </button>
+
+                        {qualityLevels.map(lvl => (
+                          <button
+                            key={lvl.index}
+                            className={`quality-option ${currentQuality === lvl.index ? 'active' : ''}`}
+                            onClick={() => handleQualityChange(lvl.index)}
+                          >
+                            <span className="quality-option-label">
+                              {lvl.label}
+                              {lvl.height >= 1080 && <span className="quality-hd-tag">HD</span>}
+                            </span>
+                            {currentQuality === lvl.index && <span className="quality-check">✓</span>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 <button className="yt-control-btn" onClick={togglePiP} aria-label="Picture in Picture">

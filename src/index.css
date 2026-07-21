@@ -2431,6 +2431,117 @@ body {
   opacity: 1;
 }
 
+/* ═══════════════════════════════════════════════════════════
+   QUALITY SELECTOR
+   ═══════════════════════════════════════════════════════════ */
+
+.yt-quality-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* Settings gear + "720p" label badge */
+.quality-btn {
+  display: flex !important;
+  align-items: center;
+  gap: 4px;
+}
+
+.quality-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.85);
+  letter-spacing: 0.02em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* Floating quality menu — opens above the button */
+.quality-menu {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: 0;
+  background: rgba(18, 18, 18, 0.97);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  min-width: 145px;
+  padding: 6px;
+  z-index: 200;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.7);
+  animation: quality-menu-in 0.15s ease;
+}
+
+@keyframes quality-menu-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)   scale(1);    }
+}
+
+.quality-menu-header {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255,255,255,0.4);
+  padding: 4px 8px 6px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  margin-bottom: 4px;
+}
+
+.quality-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.85);
+  font-family: var(--font-sans);
+  font-size: 0.88rem;
+  font-weight: 500;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  text-align: left;
+}
+
+.quality-option:hover {
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+}
+
+.quality-option.active {
+  background: rgba(229, 9, 20, 0.18);
+  color: #fff;
+  font-weight: 700;
+}
+
+.quality-option-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.quality-hd-tag {
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  background: linear-gradient(135deg, #e50914, #b20710);
+  color: white;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.quality-check {
+  font-size: 0.85rem;
+  color: var(--accent-primary);
+  font-weight: 700;
+}
+
+
+
 /* Watchlist active button state */
 .btn-watchlist-active {
   background: var(--accent-gradient) !important;
