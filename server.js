@@ -216,8 +216,25 @@ async function extractDirectStream(embedUrl) {
   }
 }
 
-async function animeKaiSearch(title) {
-  console.log(`[ANIMEKAI] Searching: "${title}"`);
+/**
+ * Score how well a result name matches the target title (0 = no match, higher = better).
+ * Prefers: exact match > starts-with > includes. Penalizes results that have a season
+ * keyword that conflicts with the expected season.
+ */
+function titleMatchScore(resultName, targetTitle) {
+  const r = resultName.toLowerCase().trim();
+  const t = targetTitle.toLowerCase().trim();
+  if (r === t) return 100;
+  if (r.startsWith(t)) return 80;
+  if (r.includes(t)) return 60;
+  // Partial word match
+  const words = t.split(/\s+/);
+  const matchedWords = words.filter(w => w.length > 2 && r.includes(w));
+  return matchedWords.length > 0 ? (matchedWords.length / words.length) * 40 : 0;
+}
+
+async function animeKaiSearch(title, seasonNum = null) {
+  console.log(`[ANIMEKAI] Searching: "${title}"${seasonNum ? ` (Season ${seasonNum})` : ''}`);
 
   const performSearch = async (query) => {
     try {
@@ -239,34 +256,85 @@ async function animeKaiSearch(title) {
     }
   };
 
-  // Try 1: Original title
-  let results = await performSearch(title);
-  if (results.length > 0) {
-    console.log(`[ANIMEKAI] Best match (original): "${results[0].name}" → /${results[0].slug}`);
-    return results[0].slug;
-  }
+  /**
+   * Pick the best matching slug from an array of results.
+   * When seasonNum is provided, prefer results that mention that season;
+   * penalise results that mention a different season number.
+   */
+  const pickBest = (results, targetTitle) => {
+    if (results.length === 0) return null;
+    const scored = results.map(r => {
+      let score = titleMatchScore(r.name, targetTitle);
+      if (seasonNum !== null) {
+        const nameLC = r.name.toLowerCase();
+        // Boost if the result explicitly names the right season
+        const seasonPatterns = [
+          new RegExp(`season\\s*${seasonNum}\\b`, 'i'),
+          new RegExp(`\\b${seasonNum}(st|nd|rd|th)\\s+season\\b`, 'i'),
+          new RegExp(`part\\s*${seasonNum}\\b`, 'i'),
+        ];
+        if (seasonPatterns.some(p => p.test(nameLC))) score += 30;
+        // Penalise if a *different* season number is mentioned
+        const otherSeasonMatch = nameLC.match(/season\s*(\d+)/i) || nameLC.match(/(\d+)(?:st|nd|rd|th)\s+season/i);
+        if (otherSeasonMatch) {
+          const foundSeason = parseInt(otherSeasonMatch[1]);
+          if (foundSeason !== seasonNum) score -= 50;
+        }
+        // Season 1 is rarely labelled, so don't penalise unlabelled results for S1
+        if (seasonNum === 1 && !nameLC.match(/season\s*\d/i)) score += 10;
+      }
+      return { ...r, score };
+    });
+    scored.sort((a, b) => b.score - a.score);
+    console.log(`[ANIMEKAI] Scored results:`, scored.slice(0, 3).map(r => `"${r.name}" (${r.score})`).join(', '));
+    return scored[0].slug;
+  };
 
-  // Try 2: Clean trailing dots, hyphens, colons, and parentheses (e.g., "Your Name." -> "Your Name")
-  const sanitized = title.replace(/[.\-–—:,\s]+$/, '').replace(/\([^)]*\)/g, '').trim();
-  if (sanitized && sanitized !== title) {
-    console.log(`[ANIMEKAI] No match for original. Trying sanitized query: "${sanitized}"`);
-    results = await performSearch(sanitized);
-    if (results.length > 0) {
-      console.log(`[ANIMEKAI] Best match (sanitized): "${results[0].name}" → /${results[0].slug}`);
-      return results[0].slug;
+  // Try 1: Season-qualified title (e.g., "Jujutsu Kaisen Season 2") when season > 1
+  if (seasonNum && seasonNum > 1) {
+    const seasonQuery = `${title} Season ${seasonNum}`;
+    console.log(`[ANIMEKAI] Trying season-qualified query: "${seasonQuery}"`);
+    let results = await performSearch(seasonQuery);
+    const best = pickBest(results, seasonQuery);
+    if (best) {
+      console.log(`[ANIMEKAI] Best match (season-qualified): slug=${best}`);
+      return best;
     }
   }
 
-  // Try 3: Split on colon/hyphen and search for the main title prefix (e.g., "Frieren: Beyond..." -> "Frieren")
-  const parts = sanitized.split(/[:\-–—]/);
+  // Try 2: Original title — pick best match
+  let results = await performSearch(title);
+  {
+    const best = pickBest(results, title);
+    if (best) {
+      console.log(`[ANIMEKAI] Best match (original title): slug=${best}`);
+      return best;
+    }
+  }
+
+  // Try 3: Sanitised title (strip trailing punctuation & parentheses)
+  const sanitized = title.replace(/[.\-\u2013\u2014:,\s]+$/, '').replace(/\([^)]*\)/g, '').trim();
+  if (sanitized && sanitized !== title) {
+    console.log(`[ANIMEKAI] Trying sanitised query: "${sanitized}"`);
+    results = await performSearch(sanitized);
+    const best = pickBest(results, sanitized);
+    if (best) {
+      console.log(`[ANIMEKAI] Best match (sanitised): slug=${best}`);
+      return best;
+    }
+  }
+
+  // Try 4: Base title (before colon/hyphen)
+  const parts = sanitized.split(/[:\-\u2013\u2014]/);
   if (parts.length > 1) {
     const base = parts[0].trim();
     if (base && base !== sanitized) {
-      console.log(`[ANIMEKAI] No match for sanitized. Trying base title: "${base}"`);
+      console.log(`[ANIMEKAI] Trying base title: "${base}"`);
       results = await performSearch(base);
-      if (results.length > 0) {
-        console.log(`[ANIMEKAI] Best match (base): "${results[0].name}" → /${results[0].slug}`);
-        return results[0].slug;
+      const best = pickBest(results, base);
+      if (best) {
+        console.log(`[ANIMEKAI] Best match (base): slug=${best}`);
+        return best;
       }
     }
   }
@@ -487,32 +555,36 @@ app.get('/api/info/:anilistId', async (req, res) => {
 // Returns embed URLs from third-party players (no domain whitelisting)
 // ─────────────────────────────────────────────────────
 app.get('/api/gogoanime/watch', async (req, res) => {
-  const { title, episode } = req.query;
+  const { title, episode, season } = req.query;
   const episodeNum = parseInt(episode) || 1;
+  const seasonNum = season ? parseInt(season) : null;
   const host = publicHost(req);
 
   if (!title) {
     return res.status(400).json({ error: 'Missing title parameter' });
   }
 
-  console.log(`\n[ANIMEKAI] Request: "${title}" Episode ${episodeNum}`);
+  console.log(`\n[ANIMEKAI] Request: "${title}" S${seasonNum ?? '?'} E${episodeNum}`);
+
+  // Cache key includes season so Season 1 and Season 2 get separate slugs
+  const cacheKey = seasonNum && seasonNum > 1 ? `${title}::s${seasonNum}` : title;
 
   try {
     // Check cache
-    let cached = animeCache.get(title);
+    let cached = animeCache.get(cacheKey);
     const now = Date.now();
 
     if (!cached || now - cached.timestamp > CACHE_TTL) {
-      const slug = await animeKaiSearch(title);
+      const slug = await animeKaiSearch(title, seasonNum);
       if (!slug) {
-        console.warn(`[ANIMEKAI] No results for "${title}"`);
+        console.warn(`[ANIMEKAI] No results for "${title}" (season ${seasonNum})`);
         return res.status(404).json({ error: `Anime "${title}" not found on AnimeKai` });
       }
       cached = { slug, timestamp: now };
-      animeCache.set(title, cached);
-      console.log(`[ANIMEKAI] Cached: "${title}" → ${slug}`);
+      animeCache.set(cacheKey, cached);
+      console.log(`[ANIMEKAI] Cached [${cacheKey}] → ${slug}`);
     } else {
-      console.log(`[ANIMEKAI] Cache hit: "${title}" → ${cached.slug}`);
+      console.log(`[ANIMEKAI] Cache hit [${cacheKey}] → ${cached.slug}`);
     }
 
     const servers = await animeKaiGetEpisodeEmbeds(cached.slug, episodeNum);

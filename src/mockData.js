@@ -305,7 +305,7 @@ export const api = {
   },
 
   // Fetch streaming sources for an episode
-  getEpisodeSources: async (episodeId, animeTitle, japaneseTitle, episodeNumber) => {
+  getEpisodeSources: async (episodeId, animeTitle, japaneseTitle, episodeNumber, seasonNum = null) => {
     const configError = getBackendConfigError();
     if (configError) {
       return {
@@ -320,8 +320,9 @@ export const api = {
     const titleToSearch = animeTitle || japaneseTitle;
     if (titleToSearch) {
       try {
-        console.log(`[API] Fetching AnimeKai stream for title: "${titleToSearch}" Episode ${episodeNumber}`);
-        const response = await fetch(backendApi(`/gogoanime/watch?title=${encodeURIComponent(titleToSearch)}&episode=${episodeNumber}`));
+        const seasonParam = seasonNum ? `&season=${seasonNum}` : '';
+        console.log(`[API] Fetching AnimeKai stream for title: "${titleToSearch}" S${seasonNum ?? '?'} E${episodeNumber}`);
+        const response = await fetch(backendApi(`/gogoanime/watch?title=${encodeURIComponent(titleToSearch)}&episode=${episodeNumber}${seasonParam}`));
         if (response.ok) {
           const data = await response.json();
           // Backend returns type:'hls' (direct stream) or type:'iframe' (fallback)

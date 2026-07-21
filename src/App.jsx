@@ -848,11 +848,16 @@ function App() {
     }
 
     try {
+      // Compute season number from franchise position (Season 1 = index 0, Season 2 = index 1, etc.)
+      const franchiseIndex = franchiseList.findIndex(item => item.id === anime.id.toString() || item.id === anime.id);
+      const seasonNum = franchiseIndex !== -1 ? franchiseIndex + 1 : 1;
+
       const result = await api.getEpisodeSources(
         episode.id,
         anime.title,
         anime.japaneseTitle,
-        episodeNum
+        episodeNum,
+        seasonNum
       );
 
       if (requestId !== watchRequestRef.current) return;
