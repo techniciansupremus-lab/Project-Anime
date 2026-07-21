@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertCircle, Info, Play, Star, X } from 'lucide-react';
+import { AlertCircle, Info, Play, Star, X, ArrowLeft, Flame, Trophy, Sparkles, Compass, History, Tv } from 'lucide-react';
 import Navbar from './components/Navbar';
 import SectionSlider from './components/SectionSlider';
 import AnimeCard from './components/AnimeCard';
@@ -10,7 +10,10 @@ import { apiUrl, getBackendConfigError } from './runtimeConfig';
 import { supabase } from './supabaseClient';
 
 function App() {
-  const [view, setView] = useState('home');
+  const [view, setRawView] = useState('home');
+  // Wrapper to allow setView call compatibility
+  const setView = (v) => setRawView(v);
+
   // activeSection tracks which major section the user is browsing
   const [activeSection, setActiveSection] = useState('anime');
   const [featured, setFeatured] = useState([]);
@@ -59,6 +62,17 @@ function App() {
   const [manhwaSearchResults, setManhwaSearchResults] = useState([]);
   const [manhwaSearchLoading, setManhwaSearchLoading] = useState(false);
 
+  // ── Movies state ──
+  const [moviesHomeData, setMoviesHomeData] = useState(null);
+  const [moviesHomeLoading, setMoviesHomeLoading] = useState(false);
+  const [moviesHomeError, setMoviesHomeError] = useState('');
+  const [selectedMovie, setSelectedMovie] = useState(null);
+  const [selectedMovieLoading, setSelectedMovieLoading] = useState(false);
+  const [movieSearchQuery, setMovieSearchQuery] = useState('');
+  const [movieSearchResults, setMovieSearchResults] = useState([]);
+  const [movieSearchLoading, setMovieSearchLoading] = useState(false);
+  const [movieActiveCategory, setMovieActiveCategory] = useState('All');
+
   // ── Auth & Sync states ──
   const [session, setSession] = useState(null);
   const [user, setUser] = useState(null);
@@ -70,6 +84,113 @@ function App() {
   const [showWelcome, setShowWelcome] = useState(false);
   const [toast, setToast] = useState({ visible: false, message: '', type: 'info' });
   const toastTimeoutRef = useRef(null);
+
+  const isPopStateRef = useRef(false);
+
+  // Hook to handle Browser Back / Forward buttons (popstate)
+  useEffect(() => {
+    if (!window.history.state) {
+      window.history.replaceState({
+        view: 'home',
+        selectedAnime: null,
+        currentEpisode: null,
+        selectedDrama: null,
+        dramaEpisode: null,
+        dramaStream: null,
+        selectedManhwa: null,
+        currentManhwaChapter: null,
+        manhwaChapterImages: [],
+        activeSection: 'anime'
+      }, '');
+    }
+
+    const handlePopState = (event) => {
+      if (event.state) {
+        const state = event.state;
+        isPopStateRef.current = true;
+
+        setRawView(state.view || 'home');
+        setSelectedAnime(state.selectedAnime || null);
+        setCurrentEpisode(state.currentEpisode || null);
+        setSelectedDrama(state.selectedDrama || null);
+        setDramaEpisode(state.dramaEpisode || null);
+        setSelectedManhwa(state.selectedManhwa || null);
+        setCurrentManhwaChapter(state.currentManhwaChapter || null);
+        if (state.activeSection) setActiveSection(state.activeSection);
+        
+        // Clear search queries when navigating back to generic pages
+        setSearchQuery('');
+        setSearchResults({ anime: [], dramas: [] });
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Hook to push views to browser history stack
+  useEffect(() => {
+    if (isPopStateRef.current) {
+      isPopStateRef.current = false;
+      return;
+    }
+
+    // Clean serializable state object
+    const stateObj = {
+      view,
+      activeSection,
+      selectedAnime: (view === 'detail' || view === 'watch') && selectedAnime ? {
+        id: selectedAnime.id,
+        title: selectedAnime.title,
+        japaneseTitle: selectedAnime.japaneseTitle,
+        coverImage: selectedAnime.coverImage,
+        bannerImage: selectedAnime.bannerImage,
+        description: selectedAnime.description,
+        rating: selectedAnime.rating,
+        type: selectedAnime.type,
+        status: selectedAnime.status,
+        genres: selectedAnime.genres,
+        totalEpisodes: selectedAnime.totalEpisodes,
+        episodes: selectedAnime.episodes,
+        episodePagination: selectedAnime.episodePagination,
+        malId: selectedAnime.malId,
+        relations: selectedAnime.relations
+      } : null,
+      currentEpisode: view === 'watch' && currentEpisode ? {
+        number: currentEpisode.number,
+        title: currentEpisode.title,
+        sources: currentEpisode.sources,
+        subtitles: currentEpisode.subtitles,
+        iframeSrc: currentEpisode.iframeSrc,
+        provider: currentEpisode.provider,
+        error: currentEpisode.error
+      } : null,
+      selectedDrama: (view === 'drama-detail' || view === 'drama-watch') && selectedDrama ? selectedDrama : null,
+      dramaEpisode: view === 'drama-watch' && dramaEpisode ? dramaEpisode : null,
+      selectedManhwa: (view === 'manhwa-detail' || view === 'manhwa-read') && selectedManhwa ? selectedManhwa : null,
+      currentManhwaChapter: view === 'manhwa-read' && currentManhwaChapter ? currentManhwaChapter : null,
+    };
+
+    const currentState = window.history.state;
+    
+    // Check if we are updating state for the same page view
+    const isSameView = currentState && currentState.view === view;
+    const isSameAnime = currentState && currentState.selectedAnime && selectedAnime && currentState.selectedAnime.id === selectedAnime.id;
+    const isSameEpisode = currentState && currentState.currentEpisode && currentEpisode && currentState.currentEpisode.number === currentEpisode.number;
+    const isSameDrama = currentState && currentState.selectedDrama && selectedDrama && currentState.selectedDrama.id === selectedDrama.id;
+    const isSameManhwa = currentState && currentState.selectedManhwa && selectedManhwa && currentState.selectedManhwa.slug === selectedManhwa.slug;
+
+    const shouldReplace = isSameView && (
+      isSameAnime || isSameEpisode || isSameDrama || isSameManhwa || 
+      ['home', 'dramas', 'manhwa', 'tv-shows', 'movies', 'new-popular', 'my-list'].includes(view)
+    );
+
+    if (shouldReplace) {
+      window.history.replaceState(stateObj, '');
+    } else {
+      window.history.pushState(stateObj, '');
+    }
+  }, [view, selectedAnime?.id, currentEpisode?.number, selectedDrama?.id, dramaEpisode?.id, selectedManhwa?.slug, currentManhwaChapter?.slug]);
 
   const showToast = (message, type = 'info') => {
     if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
@@ -454,6 +575,40 @@ function App() {
       });
   }, [view]);
 
+  // Load movies home when switching to movies view
+  useEffect(() => {
+    if (view !== 'movies') return;
+    if (moviesHomeData) return;
+    const configError = getBackendConfigError();
+    if (configError) {
+      setMoviesHomeError(configError);
+      setMoviesHomeData(null);
+      return;
+    }
+    setMoviesHomeLoading(true);
+    setMoviesHomeError('');
+    fetch(apiUrl('/api/movies/home'))
+      .then(async r => {
+        const data = await r.json().catch(() => null);
+        if (!r.ok) throw new Error(data?.message || data?.error || `Backend returned ${r.status}`);
+        return data;
+      })
+      .then(data => {
+        if (data && Array.isArray(data.bollywood)) {
+          setMoviesHomeData(data);
+        } else {
+          setMoviesHomeData(null);
+          setMoviesHomeError('Movies backend returned an unexpected response.');
+        }
+        setMoviesHomeLoading(false);
+      })
+      .catch(err => {
+        console.warn('[Movies Home] Fetch failed:', err);
+        setMoviesHomeLoading(false);
+        setMoviesHomeError(err.message || 'Could not reach the backend.');
+      });
+  }, [view]);
+
   const toggleWatchlist = async (animeItem) => {
     // Require login to use watchlist
     if (!user) {
@@ -589,6 +744,16 @@ function App() {
     window.scrollTo(0, 0);
   };
 
+  const goMovies = () => {
+    resetSearch();
+    setView('movies');
+    setActiveSection('movies');
+    setSelectedMovie(null);
+    setMovieSearchQuery('');
+    setMovieSearchResults([]);
+    window.scrollTo(0, 0);
+  };
+
   const goManhwa = () => {
     resetSearch();
     setView('manhwa');
@@ -601,12 +766,14 @@ function App() {
     window.scrollTo(0, 0);
   };
 
-  // Called by SectionSlider when user picks Anime / Drama / Comic
+  // Called by SectionSlider when user picks Anime / Drama / Comic / Movies
   const handleSectionChange = (sectionId) => {
     if (sectionId === 'anime') {
       goHome();
     } else if (sectionId === 'drama') {
       goDramas();
+    } else if (sectionId === 'movies') {
+      goMovies();
     } else if (sectionId === 'comic') {
       goManhwa();
     }
@@ -707,11 +874,46 @@ function App() {
       .catch(() => { setDramaSearchResults([]); setDramaSearchLoading(false); });
   };
 
+  const handleMovieClick = async (movie) => {
+    setSelectedMovie({ ...movie });
+    setView('movie-detail');
+    setSelectedMovieLoading(true);
+    window.scrollTo(0, 0);
+    try {
+      const r = await fetch(apiUrl(`/api/movies/info/${movie.id}`));
+      const data = await r.json();
+      setSelectedMovie({ ...data, coverImage: data.coverImage || movie.coverImage, bannerImage: data.bannerImage || movie.bannerImage });
+    } catch (e) {
+      console.error('Movie info load failed', e);
+    } finally {
+      setSelectedMovieLoading(false);
+    }
+  };
+
+  const handleMovieSearch = (q) => {
+    setMovieSearchQuery(q);
+    if (!q.trim()) { setMovieSearchResults([]); return; }
+    setMovieSearchLoading(true);
+    fetch(apiUrl(`/api/movies/search?q=${encodeURIComponent(q)}`))
+      .then(r => r.json())
+      .then(data => {
+        setMovieSearchResults(Array.isArray(data) ? data : []);
+        setMovieSearchLoading(false);
+      })
+      .catch(() => { setMovieSearchResults([]); setMovieSearchLoading(false); });
+  };
+
   const handleSearch = (query) => {
     if (activeSection === 'drama') {
       setSearchQuery('');
       setView('dramas');
       handleDramaSearch(query);
+      return;
+    }
+    if (activeSection === 'movies') {
+      setSearchQuery('');
+      setView('movies');
+      handleMovieSearch(query);
       return;
     }
     if (activeSection === 'comic') {
@@ -848,16 +1050,18 @@ function App() {
     }
 
     try {
-      // Compute season number from franchise position (Season 1 = index 0, Season 2 = index 1, etc.)
+      // Pass anime.id (AniList ID) directly for HiAnime primary lookup.
+      // Also compute seasonNum for AnimeKai title-search fallback.
       const franchiseIndex = franchiseList.findIndex(item => item.id === anime.id.toString() || item.id === anime.id);
-      const seasonNum = franchiseIndex !== -1 ? franchiseIndex + 1 : 1;
+      const seasonNum = franchiseIndex !== -1 ? (franchiseIndex + 1) : 1;
 
       const result = await api.getEpisodeSources(
         episode.id,
         anime.title,
         anime.japaneseTitle,
         episodeNum,
-        seasonNum
+        anime.id,   // 5th arg: AniList ID for HiAnime
+        seasonNum   // 6th arg: Season number for AnimeKai fallback
       );
 
       if (requestId !== watchRequestRef.current) return;
@@ -911,6 +1115,18 @@ function App() {
         onSignIn={() => setShowAuthModal(true)}
         onSignOut={async () => { await supabase.auth.signOut(); }}
       />
+      {/* ── Global Floating Back Button ── */}
+      {['detail', 'watch', 'drama-detail', 'drama-watch', 'movie-detail', 'movie-watch', 'manhwa-detail', 'manhwa-read'].includes(view) && (
+        <button 
+          className="global-back-btn" 
+          onClick={() => window.history.back()}
+          title="Go Back"
+        >
+          <ArrowLeft size={16} />
+          <span>Back</span>
+        </button>
+      )}
+
       {pageLoading && view !== 'tv-shows' && view !== 'movies' && view !== 'new-popular' && (
         <GlobalLoader label="Loading anime details..." />
       )}
@@ -955,17 +1171,6 @@ function App() {
               />
             )}
 
-            {view === 'movies' && (
-              <CategoryGridView
-                title="Movies"
-                viewName="movies"
-                featuredItem={moviesData.featured}
-                genresData={moviesData.genres}
-                onAnimeClick={handleAnimeClick}
-                onStartWatching={startWatching}
-                isLoading={pageLoading}
-              />
-            )}
 
             {view === 'new-popular' && (
               <CategoryGridView
@@ -1086,6 +1291,39 @@ function App() {
                 isLoading={manhwaChapterLoading}
                 onBack={() => { setView('manhwa-detail'); window.scrollTo(0, 0); }}
                 onChapterSelect={(ch) => handleManhwaRead(selectedManhwa, ch)}
+              />
+            )}
+
+            {/* ── Movie Views ── */}
+            {view === 'movies' && activeSection === 'movies' && (
+              <MovieHomeView
+                data={moviesHomeData}
+                error={moviesHomeError}
+                isLoading={moviesHomeLoading}
+                activeCategory={movieActiveCategory}
+                setActiveCategory={setMovieActiveCategory}
+                searchQuery={movieSearchQuery}
+                searchResults={movieSearchResults}
+                searchLoading={movieSearchLoading}
+                onSearch={handleMovieSearch}
+                onMovieClick={handleMovieClick}
+              />
+            )}
+
+            {view === 'movie-detail' && selectedMovie && (
+              <MovieDetailView
+                movie={selectedMovie}
+                isLoading={selectedMovieLoading}
+                onBack={goMovies}
+                onWatch={() => { setView('movie-watch'); window.scrollTo(0, 0); }}
+              />
+            )}
+
+            {view === 'movie-watch' && selectedMovie && (
+              <MovieWatchView
+                movie={selectedMovie}
+                onBack={() => { setView('movie-detail'); window.scrollTo(0, 0); }}
+                onProgress={(prog) => handleWatchProgress(selectedMovie, { id: 'full', number: 1 }, 'movie', prog)}
               />
             )}
           </>
@@ -1254,9 +1492,12 @@ function Top10Row({ title, items, onAnimeClick }) {
   if (!items || items.length === 0) return null;
 
   return (
-    <section className="netflix-row top10-row-section">
-      <div className="section-header">
-        <h2 className="section-title">{title}</h2>
+    <section className="hv-section top10-row-section">
+      <div className="hv-section-header">
+        <h2 className="hv-section-title">
+          <Trophy className="hv-icon" size={20} style={{ color: 'var(--accent-primary)' }} /> {title}
+        </h2>
+        <span className="hv-section-line" />
       </div>
       <div className="top10-slider">
         {items.slice(0, 10).map((anime, index) => (
@@ -1281,6 +1522,7 @@ function Top10Tile({ anime, rank, onClick }) {
       <div className="top10-card">
         <div className="top10-card-img-wrapper">
           <img src={anime.coverImage} alt={anime.title} loading="lazy" />
+          <div className="top10-card-glow" />
         </div>
         <div className="top10-card-overlay">
           <span className="top10-card-rating">★ {anime.rating}</span>
@@ -1305,7 +1547,7 @@ function HomeView({
   onDramaClick,
   onManhwaClick
 }) {
-  // Build Continue Watching from real user watch history, formatted for NetflixRow
+  // Build Continue Watching from real user watch history
   const continueWatching = watchHistory.slice(0, 10).map(h => ({
     id: h.media_id || h.id,
     title: h.title,
@@ -1319,10 +1561,9 @@ function HomeView({
     progressPercent: (h.duration_seconds > 0)
       ? Math.min(100, Math.round((h.progress_seconds / h.duration_seconds) * 100))
       : 0,
-    _historyRef: h  // store original for click routing
+    _historyRef: h
   }));
 
-  // Handler that routes to the correct view based on media type
   const handleContinueWatchingClick = (item) => {
     const h = item._historyRef;
     if (!h) return;
@@ -1336,113 +1577,138 @@ function HomeView({
   };
 
   const popularNow = filteredTrending.slice(0, 10);
-
   const spotlightItem = filteredTrending.find(a => a.id !== activeFeatured?.id) || filteredTrending[0];
   const bentoItems = filteredTrending.filter(a => a.id !== activeFeatured?.id && a.id !== spotlightItem?.id).slice(0, 4);
   const classics = filteredTrending.filter(a => a.id !== activeFeatured?.id && a.id !== spotlightItem?.id && !bentoItems.some(b => b.id === a.id)).slice(0, 5);
 
   return (
     <div className="netflix-home">
+      {/* ── Cinematic Hero ── */}
       {activeFeatured && (
         <div
           className="hero netflix-hero"
           style={{ backgroundImage: `url(${activeFeatured.bannerImage})` }}
         >
-          <div className="hero-overlay"></div>
+          <div className="hero-overlay" />
+          <div className="hero-scanline" />
           <div className="container hero-shell">
             <div className="hero-content">
-              <div className="netflix-series-mark">
-                <span>N</span>
-                <strong>Series</strong>
+              <div className="hero-eyebrow">
+                <span className="hero-eyebrow-badge">N</span>
+                <span className="hero-eyebrow-text">Series</span>
+                <span className="hero-eyebrow-dot">•</span>
+                <span className="hero-live-tag">Live</span>
               </div>
+
               <h1 className="hero-title">{activeFeatured.title}</h1>
+
+              <div className="hero-genre-pills">
+                {(activeFeatured.genres || []).slice(0, 4).map(g => (
+                  <span key={g} className="hero-genre-pill">{g}</span>
+                ))}
+              </div>
 
               <div className="hero-meta">
                 <span className="top-ten-badge">Top 10</span>
                 <span className="hero-rank">#1 in TV Shows Today</span>
-                <span>
-                  <Star size={16} fill="var(--accent-primary)" style={{ color: 'var(--accent-primary)' }} />
+                <span className="hero-star">
+                  <Star size={14} fill="var(--accent-primary)" style={{ color: 'var(--accent-primary)' }} />
                   {activeFeatured.rating}
                 </span>
-                <span>{activeFeatured.type}</span>
-                <span>{activeFeatured.duration}</span>
-                <span>{activeFeatured.status}</span>
+                <span className="hero-meta-tag">{activeFeatured.type}</span>
+                <span className="hero-meta-tag">{activeFeatured.status}</span>
               </div>
 
               <p className="hero-desc">{activeFeatured.description}</p>
 
               <div className="btn-group">
-                <button className="btn btn-primary" onClick={() => onStartWatching(activeFeatured, 1)}>
-                  <Play size={22} fill="currentColor" /> Play
+                <button className="btn btn-primary hero-btn-play" onClick={() => onStartWatching(activeFeatured, 1)}>
+                  <Play size={20} fill="currentColor" /> Play Now
                 </button>
-                <button className="btn btn-secondary" onClick={() => onAnimeClick(activeFeatured.id)}>
-                  <Info size={22} /> More Info
+                <button className="btn btn-secondary hero-btn-info" onClick={() => onAnimeClick(activeFeatured.id)}>
+                  <Info size={20} /> More Info
                 </button>
               </div>
             </div>
           </div>
+
+          {/* Carousel dots */}
+          {featured.length > 1 && (
+            <div className="hero-carousel-dots">
+              {featured.slice(0, 5).map((_, i) => (
+                <span key={i} className={`hero-dot ${activeFeatured?.id === featured[i]?.id ? 'active' : ''}`} />
+              ))}
+            </div>
+          )}
         </div>
       )}
 
       <div className="netflix-rows">
+        {/* Continue Watching */}
         {continueWatching.length > 0 && (
           <NetflixRow
             title="Continue Watching"
+            icon={<History className="hv-icon" size={20} style={{ color: 'var(--accent-primary)' }} />}
             items={continueWatching}
             onAnimeClick={handleContinueWatchingClick}
             progress
           />
         )}
 
+        {/* Popular */}
         <NetflixRow
           title="Popular on EetNet"
+          icon={<Flame className="hv-icon" size={20} style={{ color: '#f97316' }} />}
           items={popularNow}
           onAnimeClick={(a) => onAnimeClick(a.id ?? a)}
         />
 
+        {/* Genre Filter */}
         <div className="category-row netflix-category-row">
-          <div className="section-header">
-            <h2 className="section-title">Browse by Genre</h2>
+          <div className="hv-section-header">
+            <h2 className="hv-section-title">
+              <Compass className="hv-icon" size={20} style={{ color: '#a855f7' }} /> Browse by Genre
+            </h2>
+            <span className="hv-section-line" />
           </div>
           <div className="categories-container">
             <button
               className={`category-pill ${activeCategory === 'All' ? 'active' : ''}`}
               onClick={() => setActiveCategory('All')}
-            >
-              All
-            </button>
+            >All</button>
             {animeCategories.map((cat) => (
               <button
                 key={cat}
                 className={`category-pill ${activeCategory === cat ? 'active' : ''}`}
                 onClick={() => setActiveCategory(cat)}
-              >
-                {cat}
-              </button>
+              >{cat}</button>
             ))}
           </div>
         </div>
 
-        {/* Custom Premium Top 10 Famous Anime */}
+        {/* Top 10 */}
         <Top10Row
           title="Top 10 Famous Anime"
           items={top10Famous && top10Famous.length > 0 ? top10Famous : filteredTrending}
           onAnimeClick={onAnimeClick}
         />
 
-        {/* Bento Grid layout for bottom sections */}
+        {/* Bento Grid */}
         {spotlightItem && (
           <div className="bento-section">
-            <div className="section-header">
-              <h2 className="section-title">Spotlight &amp; Recommendations</h2>
+            <div className="hv-section-header">
+              <h2 className="hv-section-title">
+                <Sparkles className="hv-icon" size={20} style={{ color: '#eab308' }} /> Spotlight &amp; Recommendations
+              </h2>
+              <span className="hv-section-line" />
             </div>
             <div className="bento-grid">
-              {/* Large Bento Card (Spotlight) */}
+              {/* Large Spotlight card */}
               <div className="bento-card bento-card--large" onClick={() => onAnimeClick(spotlightItem.id)}>
                 <div className="bento-card__bg" style={{ backgroundImage: `url(${spotlightItem.bannerImage || spotlightItem.coverImage})` }} />
                 <div className="bento-card__overlay" />
                 <div className="bento-card__content">
-                  <div className="bento-badge">Spotlight Pick</div>
+                  <div className="bento-badge">✦ Spotlight Pick</div>
                   <h3 className="bento-title">{spotlightItem.title}</h3>
                   <div className="bento-meta">
                     <span className="bento-rating">★ {spotlightItem.rating}</span>
@@ -1455,10 +1721,13 @@ function HomeView({
                       ))}
                     </div>
                   )}
+                  <button className="bento-play-btn">
+                    <Play size={14} fill="currentColor" /> Watch Now
+                  </button>
                 </div>
               </div>
 
-              {/* Medium Bento Cards Container */}
+              {/* Medium mosaic cards */}
               <div className="bento-medium-wrapper">
                 {bentoItems.map((item) => (
                   <div key={item.id} className="bento-card bento-card--medium" onClick={() => onAnimeClick(item.id)}>
@@ -1470,14 +1739,20 @@ function HomeView({
                         <span className="bento-card__type">{item.type}</span>
                       </div>
                     </div>
+                    <div className="bento-card__hover-overlay">
+                      <Play size={28} fill="white" style={{ color: 'white' }} />
+                    </div>
                   </div>
                 ))}
               </div>
 
-              {/* Sidebar/Favorites List Bento Card */}
+              {/* Sidebar list */}
               {classics.length > 0 && (
                 <div className="bento-card bento-card--list">
-                  <h4 className="bento-list__header">Top Picks For You</h4>
+                  <h4 className="bento-list__header">
+                    <span>Top Picks For You</span>
+                    <span className="bento-list__header-line" />
+                  </h4>
                   <div className="bento-list__items">
                     {classics.map((item, idx) => (
                       <div key={item.id} className="bento-list__item" onClick={() => onAnimeClick(item.id)}>
@@ -1487,6 +1762,7 @@ function HomeView({
                           <span className="bento-list__title">{item.title}</span>
                           <span className="bento-list__meta">★ {item.rating} · {item.type}</span>
                         </div>
+                        <span className="bento-list__arrow">›</span>
                       </div>
                     ))}
                   </div>
@@ -1500,13 +1776,16 @@ function HomeView({
   );
 }
 
-function NetflixRow({ title, items, onAnimeClick, progress = false, ranked = false }) {
+function NetflixRow({ title, icon, items, onAnimeClick, progress = false, ranked = false }) {
   if (!items || items.length === 0) return null;
 
   return (
-    <section className="netflix-row">
-      <div className="section-header">
-        <h2 className="section-title">{title}</h2>
+    <section className="hv-section netflix-row">
+      <div className="hv-section-header">
+        <h2 className="hv-section-title">
+          {icon && <span className="hv-title-accent">{icon}</span>} {title}
+        </h2>
+        <span className="hv-section-line" />
       </div>
       <div className={`netflix-slider ${ranked ? 'ranked-row' : ''}`}>
         {items.map((anime, index) => (
@@ -1533,10 +1812,16 @@ function NetflixTile({ anime, rank, progress, onClick }) {
       <span className="tile-art">
         <img src={anime.bannerImage || anime.coverImage} alt={anime.title} loading="lazy" />
         <span className="tile-logo-mark">N</span>
+        <span className="tile-hover-overlay">
+          <span className="tile-hover-play"><Play size={20} fill="white" style={{ color: 'white' }} /></span>
+        </span>
         {progress !== null && (
           <span className="watch-progress">
-            <span style={{ width: `${progress}%` }}></span>
+            <span style={{ width: `${progress}%` }} />
           </span>
+        )}
+        {anime.rating && anime.rating !== 'N/A' && (
+          <span className="tile-rating-badge">★ {anime.rating}</span>
         )}
       </span>
       <span className="tile-info">
@@ -1546,6 +1831,9 @@ function NetflixTile({ anime, rank, progress, onClick }) {
     </button>
   );
 }
+
+
+
 
 function DetailView({ anime, franchiseList = [], myList = [], onToggleWatchlist, onAnimeSelect, onBackHome, onStartWatching }) {
   const EPISODES_PER_PART = 100;
@@ -2597,8 +2885,8 @@ function ManhwaReadView({ series, chapter, images, isLoading, onBack, onChapterS
 function DramaCard({ drama, onClick }) {
   const [imgErr, setImgErr] = React.useState(false);
   return (
-    <button className="drama-card" onClick={onClick}>
-      <div className="drama-card-art">
+    <button className="netflix-tile drama-tile" onClick={onClick}>
+      <span className="tile-art">
         {!imgErr ? (
           <img
             src={drama.thumbnail}
@@ -2611,28 +2899,33 @@ function DramaCard({ drama, onClick }) {
             <span>{drama.title?.[0] || '?'}</span>
           </div>
         )}
-        <div className="drama-card-overlay">
-          <div className="drama-card-play">
-            <Play size={18} fill="currentColor" />
-          </div>
-        </div>
+        <span className="tile-logo-mark">EN</span>
+        <span className="tile-hover-overlay">
+          <span className="tile-hover-play"><Play size={20} fill="white" style={{ color: 'white' }} /></span>
+        </span>
         {drama.episodesCount && (
-          <span className="drama-card-ep-badge">{drama.episodesCount} Ep</span>
+          <span className="tile-rating-badge" style={{ color: '#fff' }}>{drama.episodesCount} Ep</span>
         )}
-      </div>
-      <div className="drama-card-info">
-        <span className="drama-card-title">{drama.title}</span>
-      </div>
+      </span>
+      <span className="tile-info">
+        <strong>{drama.title}</strong>
+        <small>{drama.country || 'Drama'} · {drama.status || 'Ongoing'}</small>
+      </span>
     </button>
   );
 }
 
-function DramaRow({ title, dramas, onDramaClick }) {
+function DramaRow({ title, icon, dramas, onDramaClick }) {
   if (!dramas || dramas.length === 0) return null;
   return (
-    <section className="drama-row">
-      <h2 className="drama-row-title">{title}</h2>
-      <div className="drama-row-slider">
+    <section className="hv-section netflix-row">
+      <div className="hv-section-header">
+        <h2 className="hv-section-title">
+          {icon && <span className="hv-title-accent">{icon}</span>} {title}
+        </h2>
+        <span className="hv-section-line" />
+      </div>
+      <div className="netflix-slider">
         {dramas.map(d => (
           <DramaCard key={d.id} drama={d} onClick={() => onDramaClick(d)} />
         ))}
@@ -2645,7 +2938,7 @@ function DramaHomeView({ data, error, isLoading, searchQuery, searchResults, sea
   const featured = data?.show?.[0];
 
   return (
-    <div className="drama-home">
+    <div className="netflix-home drama-home">
       {/* Search bar */}
       <div className="drama-search-bar-wrap">
         <input
@@ -2658,12 +2951,19 @@ function DramaHomeView({ data, error, isLoading, searchQuery, searchResults, sea
       </div>
 
       {searchQuery.trim() ? (
-        <div className="container drama-search-results">
-          <h2 className="drama-row-title">Results for "{searchQuery}"</h2>
+        <div className="container drama-search-results" style={{ marginTop: '2rem' }}>
+          <div className="hv-section-header">
+            <h2 className="hv-section-title">
+              <Sparkles className="hv-icon" size={20} style={{ color: '#eab308' }} /> Results for "{searchQuery}"
+            </h2>
+            <span className="hv-section-line" />
+          </div>
           {searchLoading ? (
-            <div className="drama-loading"><InlineLoader /></div>
+            <div className="drama-loading" style={{ minHeight: '30vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <InlineLoader />
+            </div>
           ) : searchResults.length ? (
-            <div className="drama-grid">
+            <div className="netflix-slider" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gridAutoFlow: 'initial', gap: '1.5rem' }}>
               {searchResults.map(d => <DramaCard key={d.id} drama={d} onClick={() => onDramaClick(d)} />)}
             </div>
           ) : (
@@ -2672,7 +2972,10 @@ function DramaHomeView({ data, error, isLoading, searchQuery, searchResults, sea
         </div>
       ) : isLoading ? (
         <div className="drama-loading" style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <InlineLoader />
+          <div className="blob-loader-wrap">
+            <div className="blob-loader" />
+            <p className="blob-loader-text">Loading catalog...</p>
+          </div>
         </div>
       ) : !data || !Array.isArray(data.korean) ? (
         <div style={{ minHeight: '60vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.2rem' }}>
@@ -2688,26 +2991,74 @@ function DramaHomeView({ data, error, isLoading, searchQuery, searchResults, sea
         </div>
       ) : (
         <>
-          {/* Featured Banner */}
+          {/* Cinematic Drama Hero */}
           {featured && (
-            <div className="drama-hero" style={{ backgroundImage: `url(${featured.thumbnail})` }}>
-              <div className="drama-hero-overlay" />
-              <div className="drama-hero-content">
-                <div className="drama-hero-badge">Featured Drama</div>
-                <h1 className="drama-hero-title">{featured.title}</h1>
-                <button className="btn btn-primary drama-hero-btn" onClick={() => onDramaClick(featured)}>
-                  <Play size={20} fill="currentColor" /> Watch Now
-                </button>
+            <div
+              className="hero netflix-hero drama-hero"
+              style={{ backgroundImage: `url(${featured.thumbnail})` }}
+            >
+              <div className="hero-overlay" />
+              <div className="hero-scanline" />
+              <div className="container hero-shell">
+                <div className="hero-content">
+                  <div className="hero-eyebrow">
+                    <span className="hero-eyebrow-badge" style={{ background: '#3b82f6' }}>D</span>
+                    <span className="hero-eyebrow-text">Drama</span>
+                    <span className="hero-eyebrow-dot">•</span>
+                    <span className="hero-live-tag" style={{ background: 'rgba(59, 130, 246, 0.15)', borderColor: 'rgba(59, 130, 246, 0.5)', color: '#60a5fa' }}>Popular</span>
+                  </div>
+
+                  <h1 className="hero-title">{featured.title}</h1>
+
+                  <div className="hero-meta">
+                    <span className="top-ten-badge" style={{ background: '#3b82f6' }}>TRENDING</span>
+                    <span className="hero-rank">#1 in Asian Shows Today</span>
+                    {featured.episodesCount && (
+                      <span className="hero-meta-tag">{featured.episodesCount} Episodes</span>
+                    )}
+                  </div>
+
+                  <div className="btn-group">
+                    <button className="btn btn-primary hero-btn-play" onClick={() => onDramaClick(featured)}>
+                      <Play size={20} fill="currentColor" /> Play Now
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
 
-          <div className="drama-rows-container">
-            <DramaRow title="Featured" dramas={data?.show || []} onDramaClick={onDramaClick} />
-            <DramaRow title="Most Popular Korean Dramas" dramas={data?.korean || []} onDramaClick={onDramaClick} />
-            <DramaRow title="Most Popular Chinese Dramas" dramas={data?.chinese || []} onDramaClick={onDramaClick} />
-            <DramaRow title="Top Rated" dramas={data?.topRating || []} onDramaClick={onDramaClick} />
-            <DramaRow title="Recently Updated" dramas={data?.lastUpdate || []} onDramaClick={onDramaClick} />
+          <div className="netflix-rows">
+            <DramaRow
+              title="Featured"
+              icon={<Sparkles className="hv-icon" size={20} style={{ color: '#eab308' }} />}
+              dramas={data?.show || []}
+              onDramaClick={onDramaClick}
+            />
+            <DramaRow
+              title="Most Popular Korean Dramas"
+              icon={<Flame className="hv-icon" size={20} style={{ color: '#f97316' }} />}
+              dramas={data?.korean || []}
+              onDramaClick={onDramaClick}
+            />
+            <DramaRow
+              title="Most Popular Chinese Dramas"
+              icon={<Tv className="hv-icon" size={20} style={{ color: '#3b82f6' }} />}
+              dramas={data?.chinese || []}
+              onDramaClick={onDramaClick}
+            />
+            <DramaRow
+              title="Top Rated"
+              icon={<Trophy className="hv-icon" size={20} style={{ color: 'var(--accent-primary)' }} />}
+              dramas={data?.topRating || []}
+              onDramaClick={onDramaClick}
+            />
+            <DramaRow
+              title="Recently Updated"
+              icon={<History className="hv-icon" size={20} style={{ color: '#06b6d4' }} />}
+              dramas={data?.lastUpdate || []}
+              onDramaClick={onDramaClick}
+            />
           </div>
         </>
       )}
@@ -2880,6 +3231,374 @@ function DramaWatchView({ drama, episode, stream, loading, onBack, onEpisodeSele
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────
+// MOVIE COMPONENTS
+// ─────────────────────────────────────────────────────
+
+function MovieCard({ movie, onClick }) {
+  const [imgErr, setImgErr] = React.useState(false);
+  return (
+    <button className="netflix-tile movie-tile" onClick={onClick}>
+      <span className="tile-art">
+        {!imgErr && movie.coverImage ? (
+          <img
+            src={movie.coverImage}
+            alt={movie.title}
+            loading="lazy"
+            onError={() => setImgErr(true)}
+          />
+        ) : (
+          <div className="drama-card-placeholder">
+            <span>{movie.title?.[0] || '?'}</span>
+          </div>
+        )}
+        <span className="tile-logo-mark">EN</span>
+        <span className="tile-hover-overlay">
+          <span className="tile-hover-play"><Play size={20} fill="white" style={{ color: 'white' }} /></span>
+        </span>
+        {movie.rating && (
+          <span className="tile-rating-badge" style={{ color: '#fff' }}>★ {movie.rating}</span>
+        )}
+      </span>
+      <span className="tile-info">
+        <strong>{movie.title}</strong>
+        <small>{movie.releaseDate ? movie.releaseDate.split('-')[0] : 'Movie'} · {movie.genres?.[0] || 'Cinema'}</small>
+      </span>
+    </button>
+  );
+}
+
+function MovieRow({ title, icon, movies, onMovieClick }) {
+  if (!movies || movies.length === 0) return null;
+  return (
+    <section className="hv-section netflix-row">
+      <div className="hv-section-header">
+        <h2 className="hv-section-title">
+          {icon && <span className="hv-title-accent">{icon}</span>} {title}
+        </h2>
+        <span className="hv-section-line" />
+      </div>
+      <div className="netflix-slider">
+        {movies.map(m => (
+          <MovieCard key={m.id} movie={m} onClick={() => onMovieClick(m)} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function MovieHomeView({
+  data,
+  error,
+  isLoading,
+  activeCategory,
+  setActiveCategory,
+  searchQuery,
+  searchResults,
+  searchLoading,
+  onSearch,
+  onMovieClick
+}) {
+  const featured = data?.featured || data?.bollywood?.[0];
+
+  const categories = ['All', 'Bollywood', 'Hollywood Hindi Dubbed', 'Bollywood Classics'];
+
+  let displayedBollywood = data?.bollywood || [];
+  let displayedHollywood = data?.hollywood || [];
+  let displayedClassics = data?.classics || [];
+
+  if (activeCategory === 'Bollywood') {
+    displayedHollywood = [];
+    displayedClassics = [];
+  } else if (activeCategory === 'Hollywood Hindi Dubbed') {
+    displayedBollywood = [];
+    displayedClassics = [];
+  } else if (activeCategory === 'Bollywood Classics') {
+    displayedBollywood = [];
+    displayedHollywood = [];
+  }
+
+  return (
+    <div className="netflix-home movie-home">
+      {/* Search bar */}
+      <div className="drama-search-bar-wrap">
+        <input
+          className="drama-search-input"
+          type="text"
+          placeholder="Search Bollywood, Hollywood Hindi Dubbed, Classics..."
+          value={searchQuery}
+          onChange={e => onSearch(e.target.value)}
+        />
+      </div>
+
+      {searchQuery.trim() ? (
+        <div className="container drama-search-results" style={{ marginTop: '2rem' }}>
+          <div className="hv-section-header">
+            <h2 className="hv-section-title">
+              <Sparkles className="hv-icon" size={20} style={{ color: '#eab308' }} /> Results for "{searchQuery}"
+            </h2>
+            <span className="hv-section-line" />
+          </div>
+          {searchLoading ? (
+            <div className="drama-loading" style={{ minHeight: '30vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <InlineLoader />
+            </div>
+          ) : searchResults.length ? (
+            <div className="netflix-slider" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gridAutoFlow: 'initial', gap: '1.5rem' }}>
+              {searchResults.map(m => <MovieCard key={m.id} movie={m} onClick={() => onMovieClick(m)} />)}
+            </div>
+          ) : (
+            <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '3rem 0' }}>No movies found.</p>
+          )}
+        </div>
+      ) : isLoading ? (
+        <div className="drama-loading" style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="blob-loader-wrap">
+            <div className="blob-loader" />
+            <p className="blob-loader-text">Loading movie catalog...</p>
+          </div>
+        </div>
+      ) : !data || !Array.isArray(data.bollywood) ? (
+        <div style={{ minHeight: '60vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.2rem' }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem', textAlign: 'center', maxWidth: '640px' }}>
+            {error || 'Could not load movie catalog. Check connection or backend status.'}
+          </p>
+          <button className="btn btn-primary" onClick={() => window.location.reload()}>Retry</button>
+        </div>
+      ) : (
+        <>
+          {/* Hero Header */}
+          {featured && (
+            <div className="hero netflix-hero movie-hero" style={{ backgroundImage: `url(${featured.bannerImage || featured.coverImage})` }}>
+              <div className="hero-overlay" />
+              <div className="hero-scanline" />
+              <div className="container hero-shell">
+                <div className="hero-content">
+                  <div className="hero-eyebrow">
+                    <span className="hero-eyebrow-badge" style={{ background: '#e50914' }}>M</span>
+                    <span className="hero-eyebrow-text">Movie Spotlight</span>
+                    <span className="hero-eyebrow-dot">•</span>
+                    <span className="hero-live-tag" style={{ background: 'rgba(229, 9, 20, 0.15)', borderColor: 'rgba(229, 9, 20, 0.5)', color: '#ef4444' }}>FEATURED</span>
+                  </div>
+
+                  <h1 className="hero-title">{featured.title}</h1>
+
+                  <div className="hero-meta">
+                    <span className="top-ten-badge" style={{ background: '#e50914' }}>BLOCKBUSTER</span>
+                    <span className="hero-rank">#1 Popular Cinema</span>
+                    {featured.rating && (
+                      <span className="hero-star">
+                        <Star size={14} fill="var(--accent-primary)" style={{ color: 'var(--accent-primary)' }} />
+                        {featured.rating}
+                      </span>
+                    )}
+                    {featured.releaseDate && (
+                      <span className="hero-meta-tag">{featured.releaseDate.split('-')[0]}</span>
+                    )}
+                  </div>
+
+                  {featured.description && <p className="hero-desc">{featured.description}</p>}
+
+                  <div className="btn-group">
+                    <button className="btn btn-primary hero-btn-play" onClick={() => onMovieClick(featured)}>
+                      <Play size={20} fill="currentColor" /> Watch Movie
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="netflix-rows">
+            {/* Category Filter Pills */}
+            <div className="category-row netflix-category-row">
+              <div className="hv-section-header">
+                <h2 className="hv-section-title">
+                  <Compass className="hv-icon" size={20} style={{ color: '#a855f7' }} /> Cinema Categories
+                </h2>
+                <span className="hv-section-line" />
+              </div>
+              <div className="categories-container">
+                {categories.map((cat) => (
+                  <button
+                    key={cat}
+                    className={`category-pill ${activeCategory === cat ? 'active' : ''}`}
+                    onClick={() => setActiveCategory(cat)}
+                  >{cat}</button>
+                ))}
+              </div>
+            </div>
+
+            {displayedBollywood.length > 0 && (
+              <MovieRow
+                title="Popular Bollywood Hits"
+                icon={<Flame className="hv-icon" size={20} style={{ color: '#f97316' }} />}
+                movies={displayedBollywood}
+                onMovieClick={onMovieClick}
+              />
+            )}
+
+            {displayedHollywood.length > 0 && (
+              <MovieRow
+                title="Hollywood Hindi Dubbed"
+                icon={<Tv className="hv-icon" size={20} style={{ color: '#3b82f6' }} />}
+                movies={displayedHollywood}
+                onMovieClick={onMovieClick}
+              />
+            )}
+
+            {displayedClassics.length > 0 && (
+              <MovieRow
+                title="Bollywood Classics & Niche Old"
+                icon={<Trophy className="hv-icon" size={20} style={{ color: 'var(--accent-primary)' }} />}
+                movies={displayedClassics}
+                onMovieClick={onMovieClick}
+              />
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function MovieDetailView({ movie, isLoading, onBack, onWatch }) {
+  return (
+    <div className="drama-detail movie-detail">
+      <div className="drama-detail-hero" style={{ backgroundImage: `url(${movie.bannerImage || movie.coverImage})` }}>
+        <div className="drama-hero-overlay" />
+        <div className="drama-detail-hero-content">
+          <button className="drama-back-btn" onClick={onBack}>← Back</button>
+          <h1 className="drama-detail-title">{movie.title}</h1>
+          <span className="drama-detail-meta">
+            {movie.releaseDate ? movie.releaseDate.split('-')[0] : 'Movie'} · ★ {movie.rating || 'N/A'} {movie.runtime ? `· ${movie.runtime} mins` : ''}
+          </span>
+          <button className="btn btn-primary" onClick={onWatch}>
+            <Play size={20} fill="currentColor" /> Play Movie
+          </button>
+        </div>
+      </div>
+
+      <div className="drama-detail-body container">
+        {movie.description && (
+          <div className="drama-detail-desc">
+            <h3>Synopsis</h3>
+            <p>{movie.description}</p>
+          </div>
+        )}
+
+        {movie.genres && movie.genres.length > 0 && (
+          <div className="bento-genres" style={{ marginTop: '1rem' }}>
+            {movie.genres.map(g => (
+              <span key={g} className="bento-genre-tag">{g}</span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MovieWatchView({ movie, onBack, onProgress }) {
+  const [movieData, setMovieData] = React.useState(movie);
+
+  // Dynamically resolve IMDb ID if not already present on the movie object
+  React.useEffect(() => {
+    if (!movie.imdbId && movie.id) {
+      fetch(apiUrl(`/api/movies/info/${movie.id}`))
+        .then(r => r.json())
+        .then(data => {
+          if (data && data.imdbId) {
+            setMovieData(prev => ({ ...prev, imdbId: data.imdbId }));
+          }
+        })
+        .catch(() => {});
+    }
+  }, [movie.id]);
+
+  const tmdbId = movieData.id;
+  const imdbId = movieData.imdbId;
+  const activeId = imdbId || tmdbId;
+
+  // Verified high-availability movie embed providers (supporting IMDb & TMDB fallbacks)
+  const servers = [
+    {
+      id: 'vidsrc-me',
+      name: 'Server 1 (VidSrc Pro - HD)',
+      getUrl: () => imdbId ? `https://vidsrc.me/embed/movie?imdb=${imdbId}` : `https://vidsrc.me/embed/movie?tmdb=${tmdbId}`
+    },
+    {
+      id: 'vidsrc-to',
+      name: 'Server 2 (VidSrc TO)',
+      getUrl: () => `https://vidsrc.to/embed/movie/${activeId}`
+    },
+    {
+      id: 'vidsrc-in',
+      name: 'Server 3 (VidSrc IN)',
+      getUrl: () => `https://vidsrc.in/embed/movie/${activeId}`
+    },
+    {
+      id: 'vidsrc-pm',
+      name: 'Server 4 (VidSrc PM)',
+      getUrl: () => `https://vidsrc.pm/embed/movie/${activeId}`
+    },
+    {
+      id: 'autoembed',
+      name: 'Server 5 (AutoEmbed)',
+      getUrl: () => `https://autoembed.co/movie/tmdb/${tmdbId}`
+    },
+    {
+      id: '2embed',
+      name: 'Server 6 (2Embed)',
+      getUrl: () => `https://www.2embed.cc/embed/${tmdbId}`
+    }
+  ];
+
+  const [activeServer, setActiveServer] = React.useState(servers[0]);
+
+  // Track progress periodically
+  React.useEffect(() => {
+    const timer = setInterval(() => {
+      if (onProgress) onProgress({ progress_seconds: 100, duration_seconds: 100 });
+    }, 15000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <div className="drama-watch movie-watch">
+      <div className="drama-watch-header">
+        <button className="drama-back-btn" onClick={onBack}>← {movie.title}</button>
+        <span className="drama-watch-ep-label">Full Movie</span>
+      </div>
+
+      <div className="drama-player-wrap" style={{ aspectRatio: '16/9', background: '#000' }}>
+        <iframe
+          src={activeServer.getUrl()}
+          title={movie.title}
+          style={{ width: '100%', height: '100%', border: 'none' }}
+          allowFullScreen
+          allow="autoplay; encrypted-media; picture-in-picture"
+          sandbox="allow-scripts allow-same-origin allow-forms"
+        />
+      </div>
+
+      {/* Server selector */}
+      <div className="drama-sub-selector" style={{ marginTop: '1.5rem' }}>
+        <span className="drama-sub-label">Select Server / Source:</span>
+        {servers.map(s => (
+          <button
+            key={s.id}
+            className={`drama-sub-btn ${activeServer.id === s.id ? 'active' : ''}`}
+            onClick={() => setActiveServer(s)}
+          >
+            {s.name}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

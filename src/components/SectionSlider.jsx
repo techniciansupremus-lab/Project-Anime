@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Tv, Film, BookOpen } from 'lucide-react';
+import { Tv, Film, BookOpen, Clapperboard } from 'lucide-react';
 import './SectionSlider.css';
 
 const SECTIONS = [
@@ -17,6 +17,14 @@ const SECTIONS = [
     icon: Film,
     sub: 'Korean · Chinese · Japanese',
     desc: 'Stories that move the heart',
+    accentColor: '#e50914',
+  },
+  {
+    id: 'movies',
+    label: 'Movies',
+    icon: Clapperboard,
+    sub: 'Bollywood · Hollywood Hindi · Classics',
+    desc: 'The best of Indian and global cinema',
     accentColor: '#e50914',
   },
   {

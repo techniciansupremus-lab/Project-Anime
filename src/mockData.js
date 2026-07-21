@@ -76,6 +76,9 @@ function mapMediaToDetail(media) {
     status: media.status || "Completed",
     genres: media.genres || [],
     totalEpisodes: totalEps,
+    season: media.season || null,
+    seasonYear: media.seasonYear || null,
+    synonyms: media.synonyms || [],
     // Episodes will be populated from Jikan / backend provider
     episodes: null
   };
@@ -95,6 +98,9 @@ const MEDIA_FRAGMENT = `
   description
   duration
   status
+  season
+  seasonYear
+  synonyms
   nextAiringEpisode { episode }
   relations {
     edges {
@@ -225,6 +231,27 @@ export const api = {
               thumbnail: anime.bannerImage || anime.coverImage,
               sources: []
             }));
+
+            // Pad missing aired episodes if AniList totalEpisodes is higher than Jikan's list
+            const currentCount = anime.episodes.length;
+            const targetCount = Math.max(anime.totalEpisodes || 0, currentCount);
+            if (targetCount > currentCount) {
+              console.log(`[API] Padding ${targetCount - currentCount} missing episode(s) up to Episode ${targetCount}`);
+              for (let i = currentCount + 1; i <= targetCount; i++) {
+                anime.episodes.push({
+                  id: null,
+                  number: i,
+                  title: `Episode ${i}`,
+                  aired: null,
+                  score: null,
+                  filler: false,
+                  recap: false,
+                  thumbnail: anime.bannerImage || anime.coverImage,
+                  sources: []
+                });
+              }
+            }
+
             anime.episodePagination = jikanData.pagination;
             // If Jikan reports more pages, reflect real total count
             if (jikanData.pagination.lastPage > 1) {
@@ -305,7 +332,9 @@ export const api = {
   },
 
   // Fetch streaming sources for an episode
-  getEpisodeSources: async (episodeId, animeTitle, japaneseTitle, episodeNumber, seasonNum = null) => {
+  // anilistId: AniList ID (for HiAnime primary lookup)
+  // seasonNum: season number (for AnimeKai fallback filtering)
+  getEpisodeSources: async (episodeId, animeTitle, japaneseTitle, episodeNumber, anilistId = null, seasonNum = null) => {
     const configError = getBackendConfigError();
     if (configError) {
       return {
@@ -316,18 +345,51 @@ export const api = {
       };
     }
 
-    // 1. Try AnimeKai Primary Provider (English Subbed) — direct HLS extraction
+    // ═══════════════════════════════════════════════
+    // PROVIDER 1 (PRIMARY): HiAnime via AniList ID
+    // Deterministic: AniList ID → exact season page
+    // Episode numbers are season-relative (ep 1 = S1E1)
+    // Zero title-search ambiguity.
+    // ═══════════════════════════════════════════════
+    if (anilistId) {
+      try {
+        console.log(`[API] HiAnime primary: AniList ID ${anilistId} Episode ${episodeNumber}`);
+        const response = await fetch(
+          backendApi(`/hianime/watch?anilistId=${encodeURIComponent(anilistId)}&episode=${episodeNumber}`)
+        );
+        if (response.ok) {
+          const data = await response.json();
+          if (data.sources && data.sources.length > 0) {
+            console.log(`[API] ✅ HiAnime: ${data.sources.length} source(s)`);
+            return {
+              provider: 'hianime',
+              type: 'hls',
+              sources: data.sources,
+              subtitles: data.subtitles || [],
+            };
+          }
+        }
+      } catch (err) {
+        console.warn(`[API] HiAnime fetch failed, falling back to AnimeKai:`, err.message);
+      }
+    }
+
+    // ═══════════════════════════════════════════════
+    // PROVIDER 2 (FALLBACK): AnimeKai title search
+    // Used when HiAnime is unavailable.
+    // ═══════════════════════════════════════════════
     const titleToSearch = animeTitle || japaneseTitle;
     if (titleToSearch) {
       try {
         const seasonParam = seasonNum ? `&season=${seasonNum}` : '';
-        console.log(`[API] Fetching AnimeKai stream for title: "${titleToSearch}" S${seasonNum ?? '?'} E${episodeNumber}`);
-        const response = await fetch(backendApi(`/gogoanime/watch?title=${encodeURIComponent(titleToSearch)}&episode=${episodeNumber}${seasonParam}`));
+        console.log(`[API] AnimeKai fallback: "${titleToSearch}" S${seasonNum ?? '?'} E${episodeNumber}`);
+        const response = await fetch(
+          backendApi(`/gogoanime/watch?title=${encodeURIComponent(titleToSearch)}&episode=${episodeNumber}${seasonParam}`)
+        );
         if (response.ok) {
           const data = await response.json();
-          // Backend returns type:'hls' (direct stream) or type:'iframe' (fallback)
           if (data.type === 'hls' && data.streamUrl) {
-            console.log(`[API] ✅ AnimeKai direct HLS stream:`, data.streamUrl);
+            console.log(`[API] ✅ AnimeKai HLS stream`);
             return {
               provider: data.provider,
               type: 'hls',
@@ -340,7 +402,7 @@ export const api = {
             };
           }
           if (data.type === 'iframe' && data.iframeSrc) {
-            console.log(`[API] AnimeKai iframe fallback:`, data.iframeSrc);
+            console.log(`[API] AnimeKai iframe fallback`);
             return data;
           }
         }
@@ -349,14 +411,17 @@ export const api = {
       }
     }
 
-    // 2. Try AnimeUnity Fallback Provider (Italian Subbed)
+    // ═══════════════════════════════════════════════
+    // PROVIDER 3 (LAST RESORT): AnimeUnity via Consumet
+    // ═══════════════════════════════════════════════
     if (episodeId) {
       try {
-        console.log(`[API] Fetching AnimeUnity stream for episode ID: ${episodeId}`);
+        console.log(`[API] AnimeUnity last resort for episode ID: ${episodeId}`);
         const response = await fetch(backendApi(`/watch/${encodeURIComponent(episodeId)}`));
         if (response.ok) {
           const data = await response.json();
           if (data.sources && data.sources.length > 0) {
+            console.log(`[API] ✅ AnimeUnity sources found`);
             return data;
           }
         }
@@ -370,7 +435,7 @@ export const api = {
       provider: 'unavailable',
       sources: [],
       subtitles: [],
-      error: 'No playable source was found for this episode. Try another anime or episode.'
+      error: 'No playable source was found for this episode. Try another episode.'
     };
   },
 

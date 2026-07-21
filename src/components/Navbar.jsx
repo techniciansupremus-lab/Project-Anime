@@ -39,6 +39,8 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
     
     if (activeSection === 'drama') {
       setView('dramas');
+    } else if (activeSection === 'movies') {
+      setView('movies');
     } else if (activeSection === 'comic') {
       setView('manhwa');
     } else {
@@ -54,6 +56,8 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
     switch (activeSection) {
       case 'drama':
         return 'Search dramas, actors...';
+      case 'movies':
+        return 'Search movies, Bollywood...';
       case 'comic':
         return 'Search manhwa, comics...';
       default:
@@ -72,7 +76,7 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
         <div className="logo" onClick={handleHomeClick}>
           <img src="/logo.png" alt="EetNet Logo" className="logo-img" />
           <span className={`section-badge section-badge--${activeSection}`}>
-            {activeSection === 'comic' ? 'Comic' : activeSection === 'drama' ? 'Drama' : 'Anime'}
+            {activeSection === 'comic' ? 'Comic' : activeSection === 'drama' ? 'Drama' : activeSection === 'movies' ? 'Movies' : 'Anime'}
           </span>
         </div>
 
@@ -122,6 +126,17 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
                 onClick={handleHomeClick}
               >
                 Drama Home
+              </div>
+            </>
+          )}
+
+          {activeSection === 'movies' && (
+            <>
+              <div
+                className={`nav-link ${activeView === 'movies' ? 'active' : ''}`}
+                onClick={handleHomeClick}
+              >
+                Movies Home
               </div>
             </>
           )}

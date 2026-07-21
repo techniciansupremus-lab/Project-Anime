@@ -35,11 +35,20 @@ function safeOrigin(value) {
 
 // ─────────────────────────────────────────────────────
 // Providers:
-//   PRIMARY:  AnimeKai (anikai.cc) — English subs, multiple embed servers
-//   FALLBACK: AnimeUnity (via Consumet) — Italian subs (last resort)
+//   PRIMARY:  HiAnime via META.Anilist (AniList ID → exact season/episode)
+//   SECONDARY: AnimeKai (anikai.cc) — title-search English subs
+//   FALLBACK: AnimeUnity (via Consumet) — last resort
 // ─────────────────────────────────────────────────────
 const animeUnity = new ANIME.AnimeUnity();
 const anilistMeta = new META.Anilist(animeUnity);
+
+// HiAnime provider — maps AniList ID → HiAnime ID → correct season page
+const hianime = new ANIME.Hianime();
+const anilistHianime = new META.Anilist(hianime);
+
+// HiAnime episode list cache: anilistId → { episodes, timestamp }
+const hiAnimeEpCache = new Map();
+const HIANIME_TTL = 30 * 60 * 1000; // 30 minutes
 
 // ─────────────────────────────────────────────────────
 // HLS/M3U8 Referrer Bypass Proxy
@@ -163,9 +172,13 @@ const AXIOS_OPTS = {
   }
 };
 
-// Cache: title -> { slug, timestamp }
+// Cache: title::sN → { slug, timestamp }
 const animeCache = new Map();
 const CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+// Stream URL cache: "slug::epN" → { streamData, timestamp }
+const streamCache = new Map();
+const STREAM_CACHE_TTL = 20 * 60 * 1000; // 20 minutes
 
 // ─────────────────────────────────────────────────────
 // Jikan episode cache: "malId:page" -> { data, timestamp }
@@ -216,21 +229,52 @@ async function extractDirectStream(embedUrl) {
   }
 }
 
+/* ── Extract clean title without (TV), (Sub), (Dub), etc. ── */
+function cleanAnimeTitle(t) {
+  return t.toLowerCase()
+    .replace(/\s*\((tv|sub|dub|uncensored|media)\)/gi, '')
+    .replace(/\s*\(season\s*\d+\)/gi, '')
+    .trim();
+}
+
 /**
  * Score how well a result name matches the target title (0 = no match, higher = better).
- * Prefers: exact match > starts-with > includes. Penalizes results that have a season
- * keyword that conflicts with the expected season.
+ * Prefers: exact match > (TV) suffix match > base title > starts-with.
+ * Heavily penalizes sequel keywords (Season 2, 3rd Season, Part 2, etc.) when the target
+ * query is a plain base title.
  */
 function titleMatchScore(resultName, targetTitle) {
   const r = resultName.toLowerCase().trim();
   const t = targetTitle.toLowerCase().trim();
-  if (r === t) return 100;
-  if (r.startsWith(t)) return 80;
-  if (r.includes(t)) return 60;
-  // Partial word match
-  const words = t.split(/\s+/);
-  const matchedWords = words.filter(w => w.length > 2 && r.includes(w));
-  return matchedWords.length > 0 ? (matchedWords.length / words.length) * 40 : 0;
+  const rClean = cleanAnimeTitle(resultName);
+  const tClean = cleanAnimeTitle(targetTitle);
+
+  // 1. Exact match (e.g. "jujutsu kaisen" == "jujutsu kaisen")
+  if (r === t || rClean === tClean) return 100;
+
+  // 2. Sequel / Season detection in result name
+  const isSequel = /\b(season\s*\d|\d+(st|nd|rd|th)\s+season|part\s*\d|cour\s*\d|movie|movie\s*\d)\b/i.test(r) ||
+                   /\b(culling game|shibuya|mugen train|entertainment district|swordsmith|hashira)\b/i.test(r);
+
+  // 3. Target query detection: does the search query specify a season/sequel?
+  const targetHasSequel = /\b(season\s*\d|\d+(st|nd|rd|th)\s+season|part\s*\d)\b/i.test(t);
+
+  // If result has sequel keywords but target query DOES NOT specify a sequel → heavy penalty!
+  // (Prevents "Jujutsu Kaisen 3rd Season" from winning when searching "Jujutsu Kaisen")
+  let score = 50;
+  if (rClean.startsWith(tClean)) {
+    score = 80;
+  } else if (rClean.includes(tClean)) {
+    score = 60;
+  }
+
+  if (isSequel && !targetHasSequel) {
+    score -= 45; // Drop score so Season 1 / Base title always wins!
+  } else if (isSequel && targetHasSequel) {
+    score += 20; // Target asked for sequel, reward sequel matches
+  }
+
+  return Math.max(0, score);
 }
 
 async function animeKaiSearch(title, seasonNum = null) {
@@ -440,7 +484,7 @@ app.get('/api/health', (req, res) => {
     port: Number(PORT),
     corsOrigin: process.env.CORS_ORIGIN || '*',
     providers: {
-      anime: ['animekai-scraper (English sub/dub)', 'animeunity-consumet (fallback)'],
+      anime: ['hianime-consumet (AniList ID primary)', 'animekai-scraper (title fallback)', 'animeunity-consumet (last resort)'],
       drama: 'kisskh',
       manhwa: 'hivetoons'
     },
@@ -450,6 +494,82 @@ app.get('/api/health', (req, res) => {
       manhwaBase: safeOrigin(HIVETOONS_BASE)
     }
   });
+});
+
+// ─────────────────────────────────────────────────────
+// HiAnime watch — PRIMARY stream provider
+// Uses AniList ID for deterministic season-correct lookup.
+// No title search = no season ambiguity.
+// GET /api/hianime/watch?anilistId=N&episode=N
+// ─────────────────────────────────────────────────────
+app.get('/api/hianime/watch', async (req, res) => {
+  const { anilistId, episode } = req.query;
+  const episodeNum = parseInt(episode) || 1;
+
+  if (!anilistId) {
+    return res.status(400).json({ error: 'Missing anilistId parameter' });
+  }
+
+  console.log(`\n[HIANIME] Request: AniList ID ${anilistId} → Episode ${episodeNum}`);
+
+  try {
+    // Check episode list cache
+    let epList = null;
+    const cached = hiAnimeEpCache.get(anilistId);
+    if (cached && Date.now() - cached.timestamp < HIANIME_TTL) {
+      epList = cached.episodes;
+      console.log(`[HIANIME] Cache hit: ${epList.length} episodes for AniList ID ${anilistId}`);
+    } else {
+      // Fetch anime info by AniList ID — consumet resolves to exact HiAnime season page
+      // Wrap in a 3-second timeout — HiAnime is behind Cloudflare and often returns 522.
+      // Fail fast so we fall through to AnimeKai instead of waiting 10-12 seconds.
+      console.log(`[HIANIME] Fetching anime info for AniList ID ${anilistId}...`);
+      const fetchWithTimeout = Promise.race([
+        anilistHianime.fetchAnimeInfo(anilistId, true),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('HiAnime timeout (3s) — falling back to AnimeKai')), 3000)
+        )
+      ]);
+      const info = await fetchWithTimeout;
+      if (!info || !info.episodes || info.episodes.length === 0) {
+        console.warn(`[HIANIME] No episodes found for AniList ID ${anilistId}`);
+        return res.status(404).json({ error: `No episodes found on HiAnime for AniList ID ${anilistId}` });
+      }
+      epList = info.episodes;
+      hiAnimeEpCache.set(anilistId, { episodes: epList, timestamp: Date.now() });
+      console.log(`[HIANIME] Fetched ${epList.length} episodes (cached for 30min)`);
+    }
+
+    // Find episode by number (season-relative, ep 1 = this season's episode 1)
+    const ep = epList.find(e => e.number === episodeNum);
+    if (!ep) {
+      console.warn(`[HIANIME] Episode ${episodeNum} not found. Available: ${epList.map(e => e.number).join(', ')}`);
+      return res.status(404).json({ error: `Episode ${episodeNum} not found on HiAnime` });
+    }
+
+    console.log(`[HIANIME] Found episode: ID=${ep.id} Title=${ep.title || '?'}`);
+
+    // Fetch stream sources for this specific episode ID
+    const sources = await anilistHianime.fetchEpisodeSources(ep.id);
+    if (!sources || !sources.sources || sources.sources.length === 0) {
+      console.warn(`[HIANIME] No sources for episode ID ${ep.id}`);
+      return res.status(404).json({ error: `No stream sources found for this episode` });
+    }
+
+    console.log(`[HIANIME] ✅ Episode ${episodeNum} — ${sources.sources.length} source(s) found`);
+    return res.json({
+      provider: 'hianime',
+      type: 'hls',
+      sources: sources.sources,
+      subtitles: sources.subtitles || [],
+      episode: episodeNum,
+      episodeTitle: ep.title || null
+    });
+
+  } catch (err) {
+    console.error(`[HIANIME] Error for AniList ID ${anilistId}:`, err.message);
+    return res.status(500).json({ error: 'HiAnime lookup failed', message: err.message });
+  }
 });
 
 async function probeProvider(name, url, options = {}) {
@@ -564,10 +684,18 @@ app.get('/api/gogoanime/watch', async (req, res) => {
     return res.status(400).json({ error: 'Missing title parameter' });
   }
 
-  console.log(`\n[ANIMEKAI] Request: "${title}" S${seasonNum ?? '?'} E${episodeNum}`);
+app.get('/api/cache/clear', (req, res) => {
+  animeCache.clear();
+  hiAnimeEpCache.clear();
+  jikanCache.clear();
+  streamCache.clear();
+  console.log('[CACHE] All server caches cleared successfully!');
+  res.json({ message: 'All caches cleared successfully!' });
+});
 
-  // Cache key includes season so Season 1 and Season 2 get separate slugs
-  const cacheKey = seasonNum && seasonNum > 1 ? `${title}::s${seasonNum}` : title;
+// Cache key always includes season (defaults to 1 if unspecified)
+  const effectiveSeason = seasonNum || 1;
+  const cacheKey = `${title.toUpperCase().trim()}::s${effectiveSeason}`;
 
   try {
     // Check cache
@@ -615,19 +743,55 @@ app.get('/api/gogoanime/watch', async (req, res) => {
       return res.status(404).json({ error: `No streams found for episode ${episodeNum}` });
     }
 
-    // Try each candidate embed URL — extract direct HLS stream
+    // Check stream cache first — avoid re-extracting the HLS URL on repeat clicks
+    const streamCacheKey = `${cached.slug}::ep${episodeNum}`;
+    const cachedStream = streamCache.get(streamCacheKey);
+    if (cachedStream && Date.now() - cachedStream.timestamp < STREAM_CACHE_TTL) {
+      console.log(`[ANIMEKAI] ⚡ Stream cache hit for ${streamCacheKey}`);
+      const s = cachedStream.data;
+      return res.json({
+        provider: 'animekai',
+        type: 'hls',
+        streamUrl: `${host}/api/m3u8-proxy?url=${encodeURIComponent(s.streamUrl)}&referer=${encodeURIComponent(s.headers.Referer)}`,
+        subtitleUrl: s.subtitleUrl,
+        headers: s.headers,
+        episode: episodeNum,
+        language: s.language,
+        server: s.server,
+        cached: true
+      });
+    }
+
+    // Try top-3 sub servers in PARALLEL — take whichever resolves first
     let directStream = null;
     let chosenLanguage = 'English Sub';
     let chosenServer = 'unknown';
 
-    for (const candidate of candidates) {
-      console.log(`[ANIMEKAI] Trying server: ${candidate.server} (${candidate.language})`);
-      const extracted = await extractDirectStream(candidate.embedUrl);
-      if (extracted) {
-        directStream = extracted;
-        chosenLanguage = candidate.language;
-        chosenServer = candidate.server;
-        break;
+    const top3 = candidates.slice(0, 3);
+    try {
+      const result = await Promise.any(
+        top3.map(async (candidate) => {
+          const extracted = await extractDirectStream(candidate.embedUrl);
+          if (!extracted) throw new Error(`${candidate.server} failed`);
+          return { extracted, language: candidate.language, server: candidate.server };
+        })
+      );
+      directStream = result.extracted;
+      chosenLanguage = result.language;
+      chosenServer = result.server;
+      console.log(`[ANIMEKAI] ⚡ Parallel winner: ${chosenServer}`);
+    } catch {
+      // All top-3 parallel attempts failed — try remaining candidates sequentially
+      console.warn(`[ANIMEKAI] Parallel top-3 failed, trying remaining candidates...`);
+      for (const candidate of candidates.slice(3)) {
+        console.log(`[ANIMEKAI] Trying fallback server: ${candidate.server}`);
+        const extracted = await extractDirectStream(candidate.embedUrl);
+        if (extracted) {
+          directStream = extracted;
+          chosenLanguage = candidate.language;
+          chosenServer = candidate.server;
+          break;
+        }
       }
     }
 
@@ -646,6 +810,19 @@ app.get('/api/gogoanime/watch', async (req, res) => {
     }
 
     console.log(`[ANIMEKAI] ✅ Episode ${episodeNum} direct HLS stream ready — ${chosenLanguage} via ${chosenServer}`);
+
+    // Cache the stream URL for 20 minutes so repeat clicks are instant
+    streamCache.set(streamCacheKey, {
+      data: {
+        streamUrl: directStream.streamUrl,
+        subtitleUrl: directStream.subtitleUrl,
+        headers: directStream.headers,
+        language: chosenLanguage,
+        server: chosenServer
+      },
+      timestamp: Date.now()
+    });
+
     res.json({
       provider: 'animekai',
       type: 'hls',
@@ -1233,6 +1410,143 @@ app.get('/api/manhwa/chapter/:slug/:chapter', async (req, res) => {
   } catch (err) {
     console.error('[MANHWA CHAPTER] Error:', err.message);
     res.status(502).json({ error: 'Hivetoons chapter fetch failed', message: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────
+// MOVIES SECTION (TMDB API + Embed providers)
+// ─────────────────────────────────────────────────────
+const TMDB_API_KEY = '4e44d9029b1270a757cddc766a1bcb63';
+const TMDB_BASE = 'https://api.themoviedb.org/3';
+
+const tmdbAxios = axios.create({
+  headers: {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+    'Accept': 'application/json'
+  }
+});
+
+const TMDB_GENRES = {
+  28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy", 80: "Crime",
+  99: "Documentary", 18: "Drama", 10751: "Family", 14: "Fantasy", 36: "History",
+  27: "Horror", 10402: "Music", 9648: "Mystery", 10749: "Romance", 878: "Sci-Fi",
+  10770: "TV Movie", 53: "Thriller", 10752: "War", 37: "Western"
+};
+
+function getTmdbUrl(path, params = {}) {
+  const urlParams = new URLSearchParams({
+    api_key: TMDB_API_KEY,
+    ...params
+  });
+  return `${TMDB_BASE}${path}?${urlParams.toString()}`;
+}
+
+function mapTmdbMovie(m) {
+  if (!m) return null;
+  return {
+    id: m.id,
+    title: m.title || m.original_title,
+    coverImage: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : null,
+    bannerImage: m.backdrop_path ? `https://image.tmdb.org/t/p/w1280${m.backdrop_path}` : (m.poster_path ? `https://image.tmdb.org/t/p/w1280${m.poster_path}` : null),
+    rating: typeof m.vote_average === 'number' ? m.vote_average.toFixed(1) : 'N/A',
+    type: 'movie',
+    releaseDate: m.release_date,
+    description: m.overview || '',
+    genres: (m.genre_ids || []).map(id => TMDB_GENRES[id]).filter(Boolean)
+  };
+}
+
+function mapTmdbMovieDetail(m) {
+  if (!m) return null;
+  return {
+    id: m.id,
+    title: m.title || m.original_title,
+    imdbId: m.imdb_id,
+    coverImage: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : null,
+    bannerImage: m.backdrop_path ? `https://image.tmdb.org/t/p/w1280${m.backdrop_path}` : (m.poster_path ? `https://image.tmdb.org/t/p/w1280${m.poster_path}` : null),
+    rating: typeof m.vote_average === 'number' ? m.vote_average.toFixed(1) : 'N/A',
+    type: 'movie',
+    releaseDate: m.release_date,
+    description: m.overview || '',
+    runtime: m.runtime || 0,
+    genres: (m.genres || []).map(g => g.name),
+    status: m.status || 'Released'
+  };
+}
+
+// GET /api/movies/home
+app.get('/api/movies/home', async (req, res) => {
+  try {
+    // 1. Fetch Bollywood Hits (Hindi language)
+    const bollywoodRes = await fetch(getTmdbUrl('/discover/movie', {
+      with_original_language: 'hi',
+      sort_by: 'popularity.desc',
+      page: 1
+    })).then(r => r.json());
+
+    // 2. Fetch Hollywood Hits (English language popular movies)
+    const hollywoodRes = await fetch(getTmdbUrl('/discover/movie', {
+      with_original_language: 'en',
+      sort_by: 'popularity.desc',
+      'vote_count.gte': 100,
+      page: 1
+    })).then(r => r.json());
+
+    // 3. Fetch Bollywood Classics (Hindi language movies released before 2010)
+    const classicsRes = await fetch(getTmdbUrl('/discover/movie', {
+      with_original_language: 'hi',
+      sort_by: 'popularity.desc',
+      'primary_release_date.lte': '2010-01-01',
+      'vote_count.gte': 30,
+      page: 1
+    })).then(r => r.json());
+
+    const bollywood = (bollywoodRes?.results || []).map(mapTmdbMovie).filter(Boolean);
+    const hollywood = (hollywoodRes?.results || []).map(mapTmdbMovie).filter(Boolean);
+    const classics = (classicsRes?.results || []).map(mapTmdbMovie).filter(Boolean);
+
+    // Construct featured movie (top trending or most popular Bollywood movie)
+    const featured = bollywood[0] || hollywood[0];
+
+    res.json({
+      featured,
+      bollywood,
+      hollywood,
+      classics
+    });
+  } catch (err) {
+    console.error('[MOVIES HOME] Error:', err.message);
+    res.status(502).json({ error: 'TMDB fetch failed', message: err.message });
+  }
+});
+
+// GET /api/movies/search?q=<query>
+app.get('/api/movies/search', async (req, res) => {
+  const { q } = req.query;
+  if (!q) return res.status(400).json({ error: 'Missing query param q' });
+
+  try {
+    const data = await fetch(getTmdbUrl('/search/movie', {
+      query: q,
+      page: 1
+    })).then(r => r.json());
+    const mapped = (data?.results || []).map(mapTmdbMovie).filter(Boolean);
+    res.json(mapped);
+  } catch (err) {
+    console.error('[MOVIES SEARCH] Error:', err.message);
+    res.status(502).json({ error: 'TMDB search failed', message: err.message });
+  }
+});
+
+// GET /api/movies/info/:id
+app.get('/api/movies/info/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const data = await fetch(getTmdbUrl(`/movie/${id}`)).then(r => r.json());
+    res.json(mapTmdbMovieDetail(data));
+  } catch (err) {
+    console.error('[MOVIES INFO] Error:', err.message);
+    res.status(502).json({ error: 'TMDB movie info failed', message: err.message });
   }
 });
 
