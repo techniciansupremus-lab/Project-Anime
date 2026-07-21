@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Hls from 'hls.js';
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Tv, Globe, Subtitles, Settings, RotateCcw, RotateCw } from 'lucide-react';
 
-export default function VideoPlayer({ source, poster, subtitles, malId, episodeNumber }) {
+export default function VideoPlayer({ source, poster, subtitles, malId, episodeNumber, title, type, onProgress }) {
   const containerRef = useRef(null);
   const videoRef = useRef(null);
   const hlsRef = useRef(null);
@@ -246,6 +246,19 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
   const onDurationChange = () => {
     if (videoRef.current) setDuration(videoRef.current.duration);
   };
+
+  const lastReportedTimeRef = useRef(0);
+  useEffect(() => {
+    if (!onProgress || !duration) return;
+    const diff = Math.abs(currentTime - lastReportedTimeRef.current);
+    if (diff >= 10 || (duration > 0 && Math.abs(currentTime - duration) < 1 && lastReportedTimeRef.current !== currentTime)) {
+      lastReportedTimeRef.current = currentTime;
+      onProgress({
+        progressSeconds: Math.floor(currentTime),
+        durationSeconds: Math.floor(duration)
+      });
+    }
+  }, [currentTime, duration, onProgress]);
 
   // ── Video Actions ─────────────────────────────────────────────────────────
   const triggerRipple = (type) => {

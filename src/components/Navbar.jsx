@@ -1,13 +1,26 @@
-import React, { useState, useEffect } from 'react';
-import { Bell, ChevronDown, Search } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Bell, ChevronDown, Search, LogOut, User, Bookmark, History, X } from 'lucide-react';
 
-export default function Navbar({ onSearch, activeView, setView, onHome, activeSection = 'anime' }) {
+export default function Navbar({ onSearch, activeView, setView, onHome, activeSection = 'anime', user, onSignIn, onSignOut }) {
   const [searchVal, setSearchVal] = useState('');
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef(null);
 
   // Sync searchVal state when section changes or search is cleared externally
   useEffect(() => {
     setSearchVal('');
   }, [activeSection]);
+
+  // Close profile dropdown on outside click
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (profileRef.current && !profileRef.current.contains(e.target)) {
+        setProfileOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
@@ -48,6 +61,11 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
     }
   };
 
+  // Derive user display name / avatar letter
+  const displayName = user?.user_metadata?.username || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User';
+  const avatarLetter = displayName.charAt(0).toUpperCase();
+  const avatarUrl = user?.user_metadata?.avatar_url || null;
+
   return (
     <nav className="navbar">
       <div className="container navbar-inner">
@@ -83,7 +101,7 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
                 className={`nav-link ${activeView === 'new-popular' ? 'active' : ''}`}
                 onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); setView('new-popular'); }}
               >
-                New & Popular
+                New &amp; Popular
               </div>
               <div
                 className={`nav-link ${activeView === 'my-list' ? 'active' : ''}`}
@@ -129,13 +147,65 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
 
         <div className="nav-actions">
           <Bell size={19} />
-          <div className="profile-chip">
-            <span>A</span>
-            <ChevronDown size={15} />
-          </div>
+
+          {user ? (
+            /* ── Logged-in profile chip ── */
+            <div className="profile-chip-wrapper" ref={profileRef}>
+              <button
+                id="profile-chip-btn"
+                className="profile-chip"
+                onClick={() => setProfileOpen(v => !v)}
+                aria-expanded={profileOpen}
+                aria-label="Open profile menu"
+              >
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={displayName} className="avatar-img" />
+                ) : (
+                  <span className="avatar-letter">{avatarLetter}</span>
+                )}
+                <ChevronDown size={15} className={`chevron ${profileOpen ? 'open' : ''}`} />
+              </button>
+
+              {profileOpen && (
+                <div className="profile-dropdown" role="menu">
+                  <div className="profile-dropdown-header">
+                    <div className="profile-dropdown-avatar">
+                      {avatarUrl ? (
+                        <img src={avatarUrl} alt={displayName} />
+                      ) : (
+                        <span>{avatarLetter}</span>
+                      )}
+                    </div>
+                    <div className="profile-dropdown-info">
+                      <strong>{displayName}</strong>
+                      <small>{user.email}</small>
+                    </div>
+                  </div>
+                  <div className="profile-dropdown-divider" />
+                  <button className="profile-dropdown-item" onClick={() => { setProfileOpen(false); setView('my-list'); }}>
+                    <Bookmark size={15} /> My Watchlist
+                  </button>
+                  <button className="profile-dropdown-item" onClick={() => { setProfileOpen(false); }}>
+                    <History size={15} /> Watch History
+                  </button>
+                  <button className="profile-dropdown-item" onClick={() => { setProfileOpen(false); }}>
+                    <User size={15} /> Account Settings
+                  </button>
+                  <div className="profile-dropdown-divider" />
+                  <button className="profile-dropdown-item profile-dropdown-signout" onClick={() => { setProfileOpen(false); if (onSignOut) onSignOut(); }}>
+                    <LogOut size={15} /> Sign Out
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            /* ── Guest sign-in button ── */
+            <button id="navbar-signin-btn" className="navbar-signin-btn" onClick={onSignIn}>
+              Sign In
+            </button>
+          )}
         </div>
       </div>
     </nav>
   );
 }
-

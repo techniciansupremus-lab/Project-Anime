@@ -4,8 +4,10 @@ import Navbar from './components/Navbar';
 import SectionSlider from './components/SectionSlider';
 import AnimeCard from './components/AnimeCard';
 import VideoPlayer from './components/VideoPlayer';
+import AuthModal from './components/AuthModal';
 import { api, animeCategories, recentReleases } from './mockData';
 import { apiUrl, getBackendConfigError } from './runtimeConfig';
+import { supabase } from './supabaseClient';
 
 function App() {
   const [view, setView] = useState('home');
@@ -57,22 +59,175 @@ function App() {
   const [manhwaSearchResults, setManhwaSearchResults] = useState([]);
   const [manhwaSearchLoading, setManhwaSearchLoading] = useState(false);
 
+  // ── Auth & Sync states ──
+  const [session, setSession] = useState(null);
+  const [user, setUser] = useState(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [watchHistory, setWatchHistory] = useState([]);
+
   const detailRequestRef = useRef(0);
   const watchRequestRef = useRef(0);
   const searchRequestRef = useRef(0);
   const searchDebounceRef = useRef(null);
 
-  // Load My List on mount
+  // ── Watch History & Watchlist Sync Engine ──
+
+  // Fetch watch history from DB/local on mount
   useEffect(() => {
+    // 1. Initial local load
     try {
-      const stored = localStorage.getItem('anistream_watchlist');
-      if (stored) {
-        setMyList(JSON.parse(stored));
+      const storedHistory = localStorage.getItem('anistream_watch_history');
+      if (storedHistory) {
+        setWatchHistory(JSON.parse(storedHistory));
+      }
+    } catch (e) {
+      console.warn('Failed to load watch history from localStorage', e);
+    }
+
+    try {
+      const storedWatchlist = localStorage.getItem('anistream_watchlist');
+      if (storedWatchlist) {
+        setMyList(JSON.parse(storedWatchlist));
       }
     } catch (e) {
       console.warn('Failed to load watchlist from localStorage', e);
     }
+
+    // 2. Auth State Change Listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+      setSession(newSession);
+      const currentUser = newSession?.user || null;
+      setUser(currentUser);
+
+      if (currentUser) {
+        // User logged in: Sync & merge database records
+        setIsSyncing(true);
+        try {
+          await syncCloudData(currentUser.id);
+        } catch (err) {
+          console.error('[Sync Error] Failed to sync data with Supabase:', err);
+        } finally {
+          setIsSyncing(false);
+        }
+      } else {
+        // User logged out: clear state to local only
+        try {
+          const storedH = localStorage.getItem('anistream_watch_history');
+          const storedW = localStorage.getItem('anistream_watchlist');
+          setWatchHistory(storedH ? JSON.parse(storedH) : []);
+          setMyList(storedW ? JSON.parse(storedW) : []);
+        } catch (e) {}
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
+
+  // Sync / Merge cloud data with local data
+  const syncCloudData = async (userId) => {
+    if (supabase.isMock) return;
+
+    // A. Sync Watchlist
+    const { data: cloudList, error: listErr } = await supabase
+      .from('watchlist')
+      .select('*')
+      .eq('user_id', userId);
+
+    if (!listErr && cloudList) {
+      // Merge local watchlist with cloud watchlist
+      const localWatchlist = JSON.parse(localStorage.getItem('anistream_watchlist') || '[]');
+      const mergedWatchlist = [...cloudList];
+      
+      // Upload any local items not on cloud
+      for (const localItem of localWatchlist) {
+        const idStr = String(localItem.id || localItem.media_id);
+        const exists = cloudList.some(item => String(item.media_id) === idStr);
+        if (!exists) {
+          const newItem = {
+            user_id: userId,
+            media_id: idStr,
+            type: localItem.type || 'anime',
+            title: localItem.title,
+            cover: localItem.coverImage || localItem.cover || localItem.thumbnail,
+          };
+          await supabase.from('watchlist').insert(newItem);
+          mergedWatchlist.push({ ...newItem, id: idStr });
+        }
+      }
+
+      // Convert back to format expected by UI
+      const formattedList = mergedWatchlist.map(item => ({
+        id: item.media_id,
+        title: item.title,
+        type: item.type,
+        coverImage: item.cover,
+        bannerImage: item.cover,
+        rating: 'N/A',
+      }));
+
+      setMyList(formattedList);
+      localStorage.setItem('anistream_watchlist', JSON.stringify(formattedList));
+    }
+
+    // B. Sync Watch History
+    const { data: cloudHistory, error: histErr } = await supabase
+      .from('watch_history')
+      .select('*')
+      .eq('user_id', userId);
+
+    if (!histErr && cloudHistory) {
+      const localHistory = JSON.parse(localStorage.getItem('anistream_watch_history') || '[]');
+      const mergedHistory = [...cloudHistory];
+
+      // Upload local history not in cloud, or newer local history
+      for (const localItem of localHistory) {
+        const cloudItem = cloudHistory.find(item => String(item.media_id) === String(localItem.media_id));
+        
+        if (!cloudItem) {
+          const newItem = {
+            user_id: userId,
+            media_id: String(localItem.media_id),
+            type: localItem.type,
+            title: localItem.title,
+            cover: localItem.cover,
+            episode_number: String(localItem.episode_number || ''),
+            chapter_number: String(localItem.chapter_number || ''),
+            progress_seconds: parseInt(localItem.progress_seconds || 0, 10),
+            duration_seconds: parseInt(localItem.duration_seconds || 0, 10),
+            updated_at: new Date().toISOString()
+          };
+          await supabase.from('watch_history').insert(newItem);
+          mergedHistory.push(newItem);
+        } else {
+          // Compare dates if we have them, or just skip if cloud is present.
+          // For simplicity, we assume cloud is source of truth unless local has progress
+        }
+      }
+
+      // Sort by updated_at descending
+      mergedHistory.sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
+
+      const formattedHistory = mergedHistory.map(item => ({
+        media_id: item.media_id,
+        id: item.media_id, // convenience duplicate
+        type: item.type,
+        title: item.title,
+        cover: item.cover,
+        coverImage: item.cover, // convenience duplicate
+        episode_number: item.episode_number,
+        chapter_number: item.chapter_number,
+        progress_seconds: item.progress_seconds,
+        duration_seconds: item.duration_seconds,
+        updated_at: item.updated_at
+      }));
+
+      setWatchHistory(formattedHistory);
+      localStorage.setItem('anistream_watch_history', JSON.stringify(formattedHistory));
+    }
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -267,31 +422,103 @@ function App() {
       });
   }, [view]);
 
-  const toggleWatchlist = (animeItem) => {
-    setMyList((prev) => {
-      let updated;
-      const exists = prev.some((item) => item.id === animeItem.id);
+  const toggleWatchlist = async (animeItem) => {
+    let exists = myList.some((item) => item.id === animeItem.id);
+    let updated;
+
+    if (exists) {
+      updated = myList.filter((item) => item.id !== animeItem.id);
+    } else {
+      const item = {
+        id: animeItem.id,
+        title: animeItem.title,
+        coverImage: animeItem.coverImage || animeItem.cover || animeItem.thumbnail,
+        bannerImage: animeItem.bannerImage || animeItem.cover || animeItem.thumbnail,
+        rating: animeItem.rating || 'N/A',
+        type: animeItem.type || animeItem.format || 'anime',
+        genres: animeItem.genres || []
+      };
+      updated = [item, ...myList];
+    }
+
+    setMyList(updated);
+
+    try {
+      localStorage.setItem('anistream_watchlist', JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Failed to save watchlist to localStorage', e);
+    }
+
+    // Sync to Supabase in the background if logged in
+    if (user && !supabase.isMock) {
+      const idStr = String(animeItem.id);
       if (exists) {
-        updated = prev.filter((item) => item.id !== animeItem.id);
+        await supabase
+          .from('watchlist')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('media_id', idStr);
       } else {
-        const item = {
-          id: animeItem.id,
-          title: animeItem.title,
-          coverImage: animeItem.coverImage,
-          bannerImage: animeItem.bannerImage,
-          rating: animeItem.rating,
-          type: animeItem.type || animeItem.format,
-          genres: animeItem.genres || []
-        };
-        updated = [item, ...prev];
+        await supabase
+          .from('watchlist')
+          .insert({
+            user_id: user.id,
+            media_id: idStr,
+            type: animeItem.type || animeItem.format || 'anime',
+            title: animeItem.title,
+            cover: animeItem.coverImage || animeItem.cover || animeItem.thumbnail,
+          });
       }
+    }
+  };
+
+  const handleWatchProgress = async (mediaItem, itemDetail, type, progDetail) => {
+    const mediaId = String(mediaItem.id || mediaItem.slug || mediaItem.idMal || mediaItem.id);
+    const cover = mediaItem.coverImage || mediaItem.bannerImage || mediaItem.cover || mediaItem.thumbnail || '';
+    const title = mediaItem.title || '';
+
+    const episodeNum = type === 'manhwa' ? '' : String(itemDetail?.number || itemDetail || '');
+    const chapterNum = type === 'manhwa' ? String(itemDetail?.number || itemDetail?.slug || itemDetail || '') : '';
+
+    const newHistoryItem = {
+      media_id: mediaId,
+      id: mediaId,
+      type,
+      title,
+      cover,
+      coverImage: cover,
+      episode_number: episodeNum,
+      chapter_number: chapterNum,
+      progress_seconds: progDetail.progressSeconds,
+      duration_seconds: progDetail.durationSeconds,
+      updated_at: new Date().toISOString()
+    };
+
+    setWatchHistory(prev => {
+      const filtered = prev.filter(item => String(item.media_id) !== mediaId);
+      const updated = [newHistoryItem, ...filtered];
       try {
-        localStorage.setItem('anistream_watchlist', JSON.stringify(updated));
-      } catch (e) {
-        console.warn('Failed to save watchlist to localStorage', e);
-      }
+        localStorage.setItem('anistream_watch_history', JSON.stringify(updated));
+      } catch (e) {}
       return updated;
     });
+
+    if (user && !supabase.isMock) {
+      await supabase
+        .from('watch_history')
+        .upsert({
+          user_id: user.id,
+          media_id: mediaId,
+          type,
+          title,
+          cover,
+          episode_number: episodeNum,
+          chapter_number: chapterNum,
+          progress_seconds: parseInt(progDetail.progressSeconds || 0, 10),
+          duration_seconds: parseInt(progDetail.durationSeconds || 0, 10),
+          updated_at: new Date().toISOString()
+        });
+    }
   };
 
   const resetSearch = () => {
@@ -372,6 +599,8 @@ function App() {
       const r = await fetch(apiUrl(`/api/manhwa/chapter/${series.slug}/${chapter.slug}`));
       const data = await r.json();
       setManhwaChapterImages(data.images || []);
+      // Track chapter reading in watch history
+      handleWatchProgress(series, chapter, 'manhwa', { progressSeconds: 100, durationSeconds: 100 });
     } catch (e) {
       console.error('Manhwa chapter load failed', e);
     } finally {
@@ -628,7 +857,16 @@ function App() {
   return (
     <div className="app-container">
       <SectionSlider activeSection={activeSection} onSectionChange={handleSectionChange} />
-      <Navbar onSearch={handleSearch} activeView={view} setView={setView} onHome={goHome} activeSection={activeSection} />
+      <Navbar
+        onSearch={handleSearch}
+        activeView={view}
+        setView={setView}
+        onHome={goHome}
+        activeSection={activeSection}
+        user={user}
+        onSignIn={() => setShowAuthModal(true)}
+        onSignOut={async () => { await supabase.auth.signOut(); }}
+      />
       {pageLoading && view !== 'tv-shows' && view !== 'movies' && view !== 'new-popular' && (
         <GlobalLoader label="Loading anime details..." />
       )}
@@ -655,6 +893,9 @@ function App() {
                 setActiveCategory={setActiveCategory}
                 onAnimeClick={handleAnimeClick}
                 onStartWatching={startWatching}
+                watchHistory={watchHistory}
+                onDramaClick={handleDramaClick}
+                onManhwaClick={(m) => { setSelectedManhwa(m); setView('manhwa-detail'); }}
               />
             )}
 
@@ -732,6 +973,7 @@ function App() {
                     }
                   }).finally(() => setPageLoading(false));
                 }}
+                onProgress={(prog) => handleWatchProgress(selectedAnime, currentEpisode, 'anime', prog)}
               />
             )}
 
@@ -765,6 +1007,7 @@ function App() {
                 loading={dramaStreamLoading}
                 onBack={() => { setView('drama-detail'); window.scrollTo(0,0); }}
                 onEpisodeSelect={(ep) => startWatchingDrama(selectedDrama, ep)}
+                onProgress={(prog) => handleWatchProgress(selectedDrama, dramaEpisode, 'drama', prog)}
               />
             )}
 
@@ -804,6 +1047,11 @@ function App() {
           </>
         )}
       </main>
+
+      {/* ── Auth Modal ── */}
+      {showAuthModal && (
+        <AuthModal onClose={() => setShowAuthModal(false)} />
+      )}
     </div>
   );
 }
@@ -992,9 +1240,41 @@ function HomeView({
   top10Famous,
   setActiveCategory,
   onAnimeClick,
-  onStartWatching
+  onStartWatching,
+  watchHistory = [],
+  onDramaClick,
+  onManhwaClick
 }) {
-  const continueWatching = featured.filter((anime) => anime.id !== activeFeatured?.id).slice(0, 5);
+  // Build Continue Watching from real user watch history, formatted for NetflixRow
+  const continueWatching = watchHistory.slice(0, 10).map(h => ({
+    id: h.media_id || h.id,
+    title: h.title,
+    coverImage: h.cover || h.coverImage,
+    bannerImage: h.cover || h.coverImage,
+    rating: 'N/A',
+    type: h.type,
+    subtitle: h.type === 'manhwa'
+      ? `Ch. ${h.chapter_number}`
+      : `Ep. ${h.episode_number}`,
+    progressPercent: (h.duration_seconds > 0)
+      ? Math.min(100, Math.round((h.progress_seconds / h.duration_seconds) * 100))
+      : 0,
+    _historyRef: h  // store original for click routing
+  }));
+
+  // Handler that routes to the correct view based on media type
+  const handleContinueWatchingClick = (item) => {
+    const h = item._historyRef;
+    if (!h) return;
+    if (h.type === 'drama' && onDramaClick) {
+      onDramaClick(h.media_id || h.id);
+    } else if (h.type === 'manhwa' && onManhwaClick) {
+      onManhwaClick(h);
+    } else {
+      onAnimeClick(h.media_id || h.id);
+    }
+  };
+
   const popularNow = filteredTrending.slice(0, 10);
 
   const spotlightItem = filteredTrending.find(a => a.id !== activeFeatured?.id) || filteredTrending[0];
@@ -1049,7 +1329,7 @@ function HomeView({
           <NetflixRow
             title="Continue Watching"
             items={continueWatching}
-            onAnimeClick={onAnimeClick}
+            onAnimeClick={handleContinueWatchingClick}
             progress
           />
         )}
@@ -1057,7 +1337,7 @@ function HomeView({
         <NetflixRow
           title="Popular on EetNet"
           items={popularNow}
-          onAnimeClick={onAnimeClick}
+          onAnimeClick={(a) => onAnimeClick(a.id ?? a)}
         />
 
         <div className="category-row netflix-category-row">
@@ -1174,8 +1454,11 @@ function NetflixRow({ title, items, onAnimeClick, progress = false, ranked = fal
             key={`${title}-${anime.id}`}
             anime={anime}
             rank={ranked ? index + 1 : null}
-            progress={progress ? ((index + 2) * 13) % 88 : null}
-            onClick={() => onAnimeClick(anime.id)}
+            progress={progress
+              ? (anime.progressPercent !== undefined ? anime.progressPercent : ((index + 2) * 13) % 88)
+              : null
+            }
+            onClick={() => onAnimeClick(anime)}
           />
         ))}
       </div>
@@ -1198,7 +1481,7 @@ function NetflixTile({ anime, rank, progress, onClick }) {
       </span>
       <span className="tile-info">
         <strong>{anime.title}</strong>
-        <small>{anime.type} &middot; {anime.rating}</small>
+        <small>{anime.subtitle || `${anime.type} · ${anime.rating}`}</small>
       </span>
     </button>
   );
@@ -1889,7 +2172,7 @@ function CategoryGridView({
               key={genreName}
               title={`${genreName} ${viewName === 'movies' ? 'Movies' : 'Shows'}`}
               items={list}
-              onAnimeClick={onAnimeClick}
+              onAnimeClick={(a) => onAnimeClick(a.id ?? a)}
             />
           );
         })}
