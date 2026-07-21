@@ -2068,50 +2068,113 @@ body {
   pointer-events: auto;
 }
 
-/* ── Floating center Play/Pause button (mobile-friendly) ── */
-.floating-play-btn {
+/* ── Fullscreen Touch Overlay for Double-Tap ── */
+.player-touch-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  cursor: pointer;
+}
+
+/* ── Floating center Controls Group (Rewind, Play/Pause, Forward) ── */
+.floating-controls-group {
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.2s ease;
+}
+
+.floating-controls--visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.floating-play-btn {
+  position: relative;
+  top: auto;
+  left: auto;
+  transform: none;
   width: 64px;
   height: 64px;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.55);
-  border: 2px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.65);
+  border: 2px solid rgba(255, 255, 255, 0.3);
   color: white;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.25s ease, background 0.2s ease, transform 0.15s ease;
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-}
-
-.floating-play-btn--visible {
-  opacity: 1;
-  pointer-events: auto;
+  transition: background 0.2s ease, transform 0.15s ease;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .floating-play-btn:hover {
-  background: rgba(229, 9, 20, 0.75);
-  border-color: rgba(229, 9, 20, 0.8);
-  transform: translate(-50%, -50%) scale(1.08);
+  background: rgba(229, 9, 20, 0.85);
+  border-color: rgba(229, 9, 20, 0.9);
+  transform: scale(1.08);
 }
 
 .floating-play-btn:active {
-  transform: translate(-50%, -50%) scale(0.95);
+  transform: scale(0.95);
 }
 
-/* Make it bigger on mobile for easier tapping */
+.floating-action-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1.5px solid rgba(255, 255, 255, 0.2);
+  color: white;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.15s ease;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  position: relative;
+}
+
+.floating-action-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.4);
+  transform: scale(1.08);
+}
+
+.floating-action-btn:active {
+  transform: scale(0.92);
+}
+
+.floating-btn-step {
+  font-size: 0.58rem;
+  font-weight: 800;
+  line-height: 1;
+  margin-top: 1px;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* Make control buttons touch-friendly on mobile */
 @media (max-width: 768px) {
+  .floating-controls-group {
+    gap: 28px;
+  }
   .floating-play-btn {
-    width: 72px;
-    height: 72px;
+    width: 68px;
+    height: 68px;
+  }
+  .floating-action-btn {
+    width: 52px;
+    height: 52px;
   }
 }
 
@@ -2283,7 +2346,7 @@ body {
   color: rgba(255, 255, 255, 0.35);
 }
 
-/* â”€â”€ Center Ripple Overlay Animation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Center & Side Ripple Overlay Animation ── */
 .ripple-overlay-yt {
   position: absolute;
   inset: 0;
@@ -2294,16 +2357,36 @@ body {
   z-index: 9;
 }
 
+.ripple-overlay-yt.ripple-left {
+  justify-content: flex-start;
+  padding-left: 12%;
+}
+
+.ripple-overlay-yt.ripple-right {
+  justify-content: flex-end;
+  padding-right: 12%;
+}
+
 .ripple-icon-yt {
-  width: 72px;
-  height: 72px;
-  background: rgba(0, 0, 0, 0.65);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  width: 76px;
+  height: 76px;
+  background: rgba(0, 0, 0, 0.75);
+  border: 1.5px solid rgba(255, 255, 255, 0.2);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: yt-ripple-animate 0.5s ease-out forwards;
+  animation: yt-ripple-animate 0.5s cubic-bezier(0.2, 0, 0.2, 1) forwards;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.ripple-skip-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
 }
 
 .ripple-icon-yt svg {
@@ -2312,9 +2395,36 @@ body {
 
 .ripple-icon-yt .skip-text {
   color: #ffffff;
-  font-size: 0.85rem;
+  font-size: 0.72rem;
   font-weight: 800;
   letter-spacing: 0.04em;
+}
+
+/* Seek step badge button in bottom controls */
+.seek-step-btn {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+}
+
+.seek-step-badge {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 2px 7px;
+  border-radius: 4px;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  transition: all 0.15s ease;
+}
+
+.seek-step-btn:hover .seek-step-badge {
+  background: var(--accent-gradient);
+  border-color: transparent;
+  color: white;
+  box-shadow: 0 0 8px rgba(229, 9, 20, 0.4);
 }
 
 @keyframes yt-ripple-animate {

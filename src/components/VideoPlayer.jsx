@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Hls from 'hls.js';
-import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Tv, Globe, Subtitles, Settings } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Tv, Globe, Subtitles, Settings, RotateCcw, RotateCw } from 'lucide-react';
 
 export default function VideoPlayer({ source, poster, subtitles, malId, episodeNumber }) {
   const containerRef = useRef(null);
@@ -21,6 +21,29 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
   const [bufferPercent, setBufferPercent] = useState(0);
   const [ccActive, setCcActive] = useState(true);
   const [rippleAction, setRippleAction] = useState(null);
+
+  // ── Seek Step state (5s, 10s, 15s - default 10s) ───────────────────────────
+  const [seekStep, setSeekStep] = useState(() => {
+    try {
+      const saved = localStorage.getItem('anistream_seek_step');
+      if (saved) {
+        const val = parseInt(saved, 10);
+        if ([5, 10, 15].includes(val)) return val;
+      }
+    } catch (e) {}
+    return 10;
+  });
+
+  const cycleSeekStep = () => {
+    const steps = [5, 10, 15];
+    const nextIdx = (steps.indexOf(seekStep) + 1) % steps.length;
+    const nextVal = steps[nextIdx];
+    setSeekStep(nextVal);
+    try {
+      localStorage.setItem('anistream_seek_step', nextVal.toString());
+    } catch (e) {}
+    resetControlsTimeout();
+  };
 
   // ── Quality state ──────────────────────────────────────────────────────────
   const [qualityLevels, setQualityLevels] = useState([]); // [{ label, height, index }]
@@ -298,12 +321,54 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
     resetControlsTimeout();
   };
 
-  const skipTime = (amount) => {
+  const skipTime = useCallback((amount) => {
     const video = videoRef.current;
     if (!video || !duration) return;
     video.currentTime = Math.max(0, Math.min(duration, video.currentTime + amount));
     triggerRipple(amount > 0 ? 'forward' : 'backward');
     resetControlsTimeout();
+  }, [duration, resetControlsTimeout]);
+
+  // ── Touch Double Tap Gestures (Mobile left = rewind, right = forward) ──────
+  const lastTouchRef = useRef({ time: 0, x: 0 });
+  const touchTimerRef = useRef(null);
+
+  const handlePlayerClick = (e) => {
+    // Ignore clicks on control buttons, range sliders, or submenus
+    if (e.target.closest('button') || e.target.closest('input') || e.target.closest('.yt-controls-row') || e.target.closest('.yt-timeline-container') || e.target.closest('.quality-menu')) {
+      return;
+    }
+
+    const container = containerRef.current;
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+    const clickX = e.clientX ?? (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+    const xRatio = (clickX - rect.left) / rect.width;
+    const now = Date.now();
+    const timeDiff = now - lastTouchRef.current.time;
+
+    if (timeDiff < 300) {
+      // Double Tap detected!
+      if (touchTimerRef.current) {
+        clearTimeout(touchTimerRef.current);
+        touchTimerRef.current = null;
+      }
+      lastTouchRef.current = { time: 0, x: 0 };
+
+      if (xRatio < 0.5) {
+        skipTime(-seekStep);
+      } else {
+        skipTime(seekStep);
+      }
+    } else {
+      // Single tap: toggle controls after small delay
+      lastTouchRef.current = { time: now, x: xRatio };
+      if (touchTimerRef.current) clearTimeout(touchTimerRef.current);
+      touchTimerRef.current = setTimeout(() => {
+        setShowControls(prev => !prev);
+      }, 250);
+    }
   };
 
   // ── Quality switching ──────────────────────────────────────────────────────
@@ -344,8 +409,8 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
         case 'backspace': e.preventDefault(); togglePlay(); break;
         case 'm': toggleMute(); break;
         case 'f': toggleFullscreen(); break;
-        case 'arrowleft': e.preventDefault(); skipTime(-10); break;
-        case 'arrowright': e.preventDefault(); skipTime(10); break;
+        case 'arrowleft': e.preventDefault(); skipTime(-seekStep); break;
+        case 'arrowright': e.preventDefault(); skipTime(seekStep); break;
         case 'arrowup':
           e.preventDefault();
           setVolume(prev => {
@@ -372,7 +437,7 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isIframe, duration, isMuted, resetControlsTimeout]);
+  }, [isIframe, duration, isMuted, resetControlsTimeout, seekStep, skipTime]);
 
   // ── Timeline Scrubbing ────────────────────────────────────────────────────
   const seekTo = (e) => {
@@ -482,14 +547,42 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
             ))}
           </video>
 
-          {/* Persistent floating Play/Pause button — visible when controls show */}
-          <button
-            className={`floating-play-btn ${showControls ? 'floating-play-btn--visible' : ''}`}
-            onClick={togglePlay}
-            aria-label={isPlaying ? 'Pause' : 'Play'}
-          >
-            {isPlaying ? <Pause size={32} fill="white" /> : <Play size={32} fill="white" />}
-          </button>
+          {/* Player Click / Touch Overlay Handler for Double-Tap */}
+          <div
+            className="player-touch-overlay"
+            onClick={handlePlayerClick}
+          />
+
+          {/* Persistent floating Center Control Group (Rewind, Play/Pause, Forward) */}
+          <div className={`floating-controls-group ${showControls ? 'floating-controls--visible' : ''}`}>
+            <button
+              className="floating-action-btn floating-rewind-btn"
+              onClick={(e) => { e.stopPropagation(); skipTime(-seekStep); }}
+              aria-label={`Rewind ${seekStep} seconds`}
+              title={`Rewind ${seekStep}s`}
+            >
+              <RotateCcw size={22} />
+              <span className="floating-btn-step">{seekStep}s</span>
+            </button>
+
+            <button
+              className="floating-play-btn"
+              onClick={(e) => { e.stopPropagation(); togglePlay(); }}
+              aria-label={isPlaying ? 'Pause' : 'Play'}
+            >
+              {isPlaying ? <Pause size={32} fill="white" /> : <Play size={32} fill="white" />}
+            </button>
+
+            <button
+              className="floating-action-btn floating-forward-btn"
+              onClick={(e) => { e.stopPropagation(); skipTime(seekStep); }}
+              aria-label={`Forward ${seekStep} seconds`}
+              title={`Forward ${seekStep}s`}
+            >
+              <RotateCw size={22} />
+              <span className="floating-btn-step">{seekStep}s</span>
+            </button>
+          </div>
 
           {/* Buffering spinner overlay */}
           {isBuffering && !error && (
@@ -519,14 +612,24 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
             </button>
           )}
 
-          {/* Center Ripple Indicator */}
+          {/* Center / Side Ripple Indicator */}
           {rippleAction && (
-            <div className="ripple-overlay-yt">
+            <div className={`ripple-overlay-yt ${rippleAction === 'backward' ? 'ripple-left' : rippleAction === 'forward' ? 'ripple-right' : ''}`}>
               <div className="ripple-icon-yt">
                 {rippleAction === 'play' && <Play size={42} fill="white" />}
                 {rippleAction === 'pause' && <Pause size={42} fill="white" />}
-                {rippleAction === 'forward' && <span className="skip-text">+10s</span>}
-                {rippleAction === 'backward' && <span className="skip-text">-10s</span>}
+                {rippleAction === 'forward' && (
+                  <div className="ripple-skip-content">
+                    <RotateCw size={28} />
+                    <span className="skip-text">+{seekStep}s</span>
+                  </div>
+                )}
+                {rippleAction === 'backward' && (
+                  <div className="ripple-skip-content">
+                    <RotateCcw size={28} />
+                    <span className="skip-text">-{seekStep}s</span>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -602,6 +705,16 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
                     <Subtitles size={20} color={ccActive ? 'var(--accent-primary)' : 'white'} />
                   </button>
                 )}
+
+                {/* Seek step adjust button (5s / 10s / 15s) */}
+                <button
+                  className="yt-control-btn seek-step-btn"
+                  onClick={cycleSeekStep}
+                  aria-label="Seek interval duration"
+                  title={`Seek step: ${seekStep}s (Click to toggle: 5s, 10s, 15s)`}
+                >
+                  <span className="seek-step-badge">±{seekStep}s</span>
+                </button>
 
                 {/* Quality selector — only shown when HLS levels are available */}
                 {qualityLevels.length > 1 && (
