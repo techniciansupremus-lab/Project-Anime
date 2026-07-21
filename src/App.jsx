@@ -869,9 +869,11 @@ function SearchResults({ query, animeResults = [], dramaResults = [], loading, o
 function GlobalLoader({ label }) {
   return (
     <div className="global-loader-overlay" role="status" aria-live="polite">
-      <div className="global-loader-content">
-        <div className="loading-spinner"></div>
-        <div className="global-loader-text">{label}</div>
+      <div className="blob-loader-wrap">
+        <div className="blob-loader" />
+        <p className="blob-loader-text">
+          Loading<span className="blob-dots"><span>.</span><span>.</span><span>.</span></span>
+        </p>
       </div>
     </div>
   );
@@ -880,8 +882,10 @@ function GlobalLoader({ label }) {
 function InlineLoader({ label }) {
   return (
     <div className="inline-loader" role="status" aria-live="polite">
-      <div className="loading-spinner"></div>
-      <p>{label}</p>
+      <div className="blob-loader" />
+      <p className="blob-loader-text">
+        Loading<span className="blob-dots"><span>.</span><span>.</span><span>.</span></span>
+      </p>
     </div>
   );
 }
@@ -1373,10 +1377,7 @@ function DetailView({ anime, franchiseList = [], myList = [], onToggleWatchlist,
           </div>
 
           {loadingPage ? (
-            <div className="inline-loader" role="status">
-              <div className="loading-spinner"></div>
-              <p>Loading episodes...</p>
-            </div>
+            <InlineLoader label="Loading episodes..." />
           ) : filteredEpisodes.length === 0 ? (
             <div className="ep-empty-state">
               <p>No {filter !== 'all' ? filter : ''} episodes in this part.</p>
@@ -1803,10 +1804,12 @@ function BentoEpisodeSkeleton() {
 function LoadingPlayer() {
   return (
     <div className="player-wrapper player-loading">
-      <div className="loading-spinner"></div>
-      <p style={{ color: 'var(--text-secondary)', fontWeight: '500' }}>
-        Resolving streaming server links...
-      </p>
+      <div className="blob-loader-wrap">
+        <div className="blob-loader" />
+        <p className="blob-loader-text">
+          Loading<span className="blob-dots"><span>.</span><span>.</span><span>.</span></span>
+        </p>
+      </div>
     </div>
   );
 }
@@ -1997,7 +2000,7 @@ function ManhwaHomeView({ data, error, isLoading, searchQuery, searchResults, se
         <div className="container manhwa-search-results">
           <h2 className="manhwa-row-title">Results for "{searchQuery}"</h2>
           {searchLoading ? (
-            <div className="manhwa-loading"><div className="loading-spinner" /></div>
+            <div className="manhwa-loading"><InlineLoader /></div>
           ) : searchResults.length ? (
             <div className="manhwa-grid">
               {searchResults.map((s, i) => <ManhwaCard key={s.slug + i} series={s} onClick={() => onSeriesClick(s)} />)}
@@ -2008,7 +2011,7 @@ function ManhwaHomeView({ data, error, isLoading, searchQuery, searchResults, se
         </div>
       ) : isLoading ? (
         <div className="manhwa-loading" style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div className="loading-spinner" />
+          <InlineLoader />
         </div>
       ) : !data ? (
         <div style={{ minHeight: '60vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.2rem' }}>
@@ -2103,7 +2106,7 @@ function ManhwaDetailView({ series, isLoading, onBack, onReadChapter }) {
           </h3>
 
           {isLoading ? (
-            <div className="manhwa-loading"><div className="loading-spinner" /></div>
+            <div className="manhwa-loading"><InlineLoader /></div>
           ) : chapters.length === 0 ? (
             <p style={{ color: 'var(--text-secondary)' }}>No chapters available.</p>
           ) : (
@@ -2185,10 +2188,7 @@ function ManhwaReadView({ series, chapter, images, isLoading, onBack, onChapterS
       <div className="manhwa-reader-pages">
         {isLoading ? (
           <div className="manhwa-loading" style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div>
-              <div className="loading-spinner" style={{ margin: '0 auto' }} />
-              <p style={{ color: 'var(--text-secondary)', marginTop: '1rem', textAlign: 'center' }}>Loading pages...</p>
-            </div>
+            <InlineLoader />
           </div>
         ) : images.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '4rem', color: 'var(--text-secondary)' }}>
@@ -2318,7 +2318,7 @@ function DramaHomeView({ data, error, isLoading, searchQuery, searchResults, sea
         <div className="container drama-search-results">
           <h2 className="drama-row-title">Results for "{searchQuery}"</h2>
           {searchLoading ? (
-            <div className="drama-loading"><div className="loading-spinner" /></div>
+            <div className="drama-loading"><InlineLoader /></div>
           ) : searchResults.length ? (
             <div className="drama-grid">
               {searchResults.map(d => <DramaCard key={d.id} drama={d} onClick={() => onDramaClick(d)} />)}
@@ -2329,7 +2329,7 @@ function DramaHomeView({ data, error, isLoading, searchQuery, searchResults, sea
         </div>
       ) : isLoading ? (
         <div className="drama-loading" style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div className="loading-spinner" />
+          <InlineLoader />
         </div>
       ) : !data || !Array.isArray(data.korean) ? (
         <div style={{ minHeight: '60vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.2rem' }}>
@@ -2414,7 +2414,7 @@ function DramaDetailView({ drama, onBack, onWatchEpisode }) {
             Episodes <span className="drama-ep-count">({episodes.length})</span>
           </h3>
           {episodes.length === 0 ? (
-            <div className="drama-loading"><div className="loading-spinner" /></div>
+            <div className="drama-loading"><InlineLoader /></div>
           ) : (
             <>
               <div className="drama-episodes-grid">
@@ -2476,8 +2476,12 @@ function DramaWatchView({ drama, episode, stream, loading, onBack, onEpisodeSele
       <div className="drama-player-wrap">
         {loading ? (
           <div className="drama-player-loading">
-            <div className="loading-spinner large" />
-            <p>Loading stream for Episode {episode.number}...</p>
+            <div className="blob-loader-wrap">
+              <div className="blob-loader" />
+              <p className="blob-loader-text">
+                Loading<span className="blob-dots"><span>.</span><span>.</span><span>.</span></span>
+              </p>
+            </div>
           </div>
         ) : stream?.error ? (
           <div className="drama-player-error">

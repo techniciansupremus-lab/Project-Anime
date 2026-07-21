@@ -1032,63 +1032,81 @@ body {
 .global-loader-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(7, 8, 13, 0.72);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: rgba(7, 8, 13, 0.78);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 9999;
-  animation: fadeInFast 0.2s ease-out;
+  animation: fadeInFast 0.18s ease-out;
 }
 
-.global-loader-content {
+/* ── Blob Loader ── */
+.blob-loader-wrap {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1.25rem;
-  padding: 2rem 2.5rem;
-  background: rgba(18, 19, 26, 0.92);
-  border: 1px solid var(--border-color);
-  border-radius: 16px;
-  box-shadow: 0 20px 40px rgba(0,0,0,0.5);
-  text-align: center;
-  animation: scaleUp 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  gap: 1.4rem;
 }
 
-.global-loader-text {
+.blob-loader {
+  height: 70px;
+  aspect-ratio: 1;
+  background: #e50914;
+  animation: blobMorph 0.8s infinite alternate ease-out;
+}
+
+@keyframes blobMorph {
+  0% {
+    clip-path: shape(from 99.42% 44.63%,curve to 99.42% 55.37% with 100.00% 50.00%,curve to 97.10% 65.87% with 98.83% 60.75%,curve to 92.59% 75.63% with 95.38% 70.99%,curve to 86.09% 84.18% with 89.80% 80.26%,curve to 77.89% 91.14% with 82.37% 88.11%,curve to 68.40% 96.18% with 73.42% 94.18%,curve to 58.04% 99.05% with 63.38% 98.18%,curve to 47.31% 99.63% with 52.71% 99.93%,curve to 36.70% 97.90% with 41.91% 99.34%,curve to 26.72% 93.92% with 31.49% 96.45%,curve to 17.82% 87.88% with 21.94% 91.38%,curve to 10.43% 80.08% with 13.70% 84.38%,curve to 4.89% 70.87% with 7.16% 75.78%,curve to 1.46% 60.69% with 2.62% 65.97%,curve to 0.29% 50.00% with 0.29% 55.41%,curve to 1.46% 39.31% with 0.29% 44.59%,curve to 4.89% 29.13% with 2.62% 34.03%,curve to 10.43% 19.92% with 7.16% 24.22%,curve to 17.82% 12.12% with 13.70% 15.62%,curve to 26.72% 6.08% with 21.94% 8.62%,curve to 36.70% 2.10% with 31.49% 3.55%,curve to 47.31% 0.37% with 41.91% 0.66%,curve to 58.04% 0.95% with 52.71% 0.07%,curve to 68.40% 3.82% with 63.38% 1.82%,curve to 77.89% 8.86% with 73.42% 5.82%,curve to 86.09% 15.82% with 82.37% 11.89%,curve to 92.59% 24.37% with 89.80% 19.74%,curve to 97.10% 34.13% with 95.38% 29.01%,curve to 99.42% 44.63% with 98.83% 39.25%);
+  }
+  to {
+    clip-path: shape(from 94.59% 45.14%,curve to 89.43% 53.72% with 95.04% 50.00%,curve to 83.01% 61.17% with 83.83% 57.45%,curve to 82.17% 69.66% with 82.20% 64.90%,curve to 79.82% 78.41% with 82.13% 74.43%,curve to 71.51% 80.81% with 77.52% 82.40%,curve to 64.23% 87.96% with 65.50% 79.23%,curve to 57.49% 91.99% with 62.96% 96.68%,curve to 47.27% 91.50% with 52.02% 87.30%,curve to 38.80% 91.55% with 42.51% 95.70%,curve to 28.78% 89.01% with 35.09% 87.41%,curve to 20.39% 85.31% with 22.47% 90.61%,curve to 17.51% 75.02% with 18.32% 80.01%,curve to 13.35% 66.76% with 16.70% 70.04%,curve to 13.08% 58.58% with 10.00% 63.48%,curve to 10.65% 49.40% with 16.15% 53.68%,curve to 4.90% 39.92% with 5.15% 45.12%,curve to 6.48% 29.82% with 4.65% 34.72%,curve to 16.97% 25.92% with 8.32% 24.92%,curve to 27.78% 23.66% with 25.63% 26.91%,curve to 31.87% 14.87% with 29.94% 20.41%,curve to 38.34% 7.99% with 33.79% 9.32%,curve to 47.76% 4.14% with 42.90% 6.66%,curve to 55.93% 9.19% with 52.62% 1.62%,curve to 62.32% 18.84% with 59.23% 16.77%,curve to 72.22% 18.37% with 65.42% 20.92%,curve to 81.35% 20.12% with 79.02% 15.83%,curve to 81.77% 30.29% with 83.67% 24.41%,curve to 87.01% 38.23% with 79.88% 36.18%,curve to 94.59% 45.14% with 94.14% 40.28%);
+  }
+}
+
+/* ── Blinking "Loading..." text ── */
+.blob-loader-text {
   font-size: 1rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: 0.5px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.9);
+  letter-spacing: 0.04em;
+  display: flex;
+  align-items: baseline;
+  gap: 1px;
 }
 
+.blob-dots span {
+  display: inline-block;
+  opacity: 0;
+  animation: blobDotBlink 1.2s infinite;
+}
+.blob-dots span:nth-child(1) { animation-delay: 0s; }
+.blob-dots span:nth-child(2) { animation-delay: 0.2s; }
+.blob-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes blobDotBlink {
+  0%, 80%, 100% { opacity: 0; }
+  40%           { opacity: 1; }
+}
+
+/* ── Inline loader (used inside panels) ── */
 .inline-loader {
   min-height: 280px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1rem;
-  color: var(--text-secondary);
-  font-weight: 600;
+  gap: 1.2rem;
 }
 
 @keyframes fadeInFast {
   from { opacity: 0; }
-  to { opacity: 1; }
+  to   { opacity: 1; }
 }
 
-@keyframes scaleUp {
-  from {
-    opacity: 0;
-    transform: scale(0.9);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
+
 
 .anime-row {
   margin-bottom: 3.5rem;
