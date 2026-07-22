@@ -1127,8 +1127,8 @@ function App() {
           onSignIn={() => setShowAuthModal(true)}
         />
       )}
-      {/* ── Global Floating Back Button ── */}
-      {['detail', 'watch', 'drama-detail', 'drama-watch', 'movie-detail', 'movie-watch', 'manhwa-detail', 'manhwa-read'].includes(view) && (
+      {/* ── Global Floating Back Button (Detail Pages Only) ── */}
+      {['detail', 'drama-detail', 'movie-detail', 'manhwa-detail'].includes(view) && (
         <button 
           className="global-back-btn" 
           onClick={() => window.history.back()}
