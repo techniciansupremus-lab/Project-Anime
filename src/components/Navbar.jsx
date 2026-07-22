@@ -1,5 +1,54 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bell, ChevronDown, Search, LogOut, User, Bookmark, History, X } from 'lucide-react';
+import { Bell, ChevronDown, Search, LogOut, User, Bookmark, History, X, Home, Tv, Clapperboard, Film } from 'lucide-react';
+
+export function MobileBottomNav({ activeSection, activeView, setView, setSection, user, onSignIn }) {
+  return (
+    <nav className="mobile-bottom-nav">
+      <button
+        className={`mobile-nav-item ${activeSection === 'anime' && (activeView === 'home' || activeView === 'tv-shows') ? 'active' : ''}`}
+        onClick={() => { setSection('anime'); setView('home'); window.scrollTo(0,0); }}
+      >
+        <Home size={20} />
+        <span>Anime</span>
+      </button>
+
+      <button
+        className={`mobile-nav-item ${activeSection === 'drama' ? 'active' : ''}`}
+        onClick={() => { setSection('drama'); setView('dramas'); window.scrollTo(0,0); }}
+      >
+        <Clapperboard size={20} />
+        <span>Drama</span>
+      </button>
+
+      <button
+        className={`mobile-nav-item ${activeSection === 'movies' ? 'active' : ''}`}
+        onClick={() => { setSection('movies'); setView('movies'); window.scrollTo(0,0); }}
+      >
+        <Film size={20} />
+        <span>Movies</span>
+      </button>
+
+      <button
+        className={`mobile-nav-item ${activeSection === 'comic' ? 'active' : ''}`}
+        onClick={() => { setSection('comic'); setView('manhwa'); window.scrollTo(0,0); }}
+      >
+        <Tv size={20} />
+        <span>Comic</span>
+      </button>
+
+      <button
+        className={`mobile-nav-item ${activeView === 'my-list' ? 'active' : ''}`}
+        onClick={() => {
+          if (!user) { if (onSignIn) onSignIn(); return; }
+          setView('my-list'); window.scrollTo(0,0);
+        }}
+      >
+        <Bookmark size={20} />
+        <span>My List</span>
+      </button>
+    </nav>
+  );
+}
 
 export default function Navbar({ onSearch, activeView, setView, onHome, activeSection = 'anime', user, onSignIn, onSignOut }) {
   const [searchVal, setSearchVal] = useState('');

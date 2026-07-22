@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Info, Play, Star, X, ArrowLeft, Flame, Trophy, Sparkles, Compass, History, Tv } from 'lucide-react';
-import Navbar from './components/Navbar';
+import Navbar, { MobileBottomNav } from './components/Navbar';
 import SectionSlider from './components/SectionSlider';
 import AnimeCard from './components/AnimeCard';
 import VideoPlayer from './components/VideoPlayer';
@@ -1097,9 +1097,15 @@ function App() {
     ? currentEpisode
     : (currentEpisode?.sources?.[currentSourceIndex] || currentEpisode?.sources?.[0] || currentEpisode);
 
+  // Watch/read views should hide the bottom nav to avoid interference
+  const isImmersiveView = ['watch', 'drama-watch', 'movie-watch', 'manhwa-read'].includes(view);
+
   return (
     <div className="app-container">
-      <SectionSlider activeSection={activeSection} onSectionChange={handleSectionChange} />
+      {/* SectionSlider hidden on mobile — replaced by bottom nav */}
+      <div className="desktop-only-section-slider">
+        <SectionSlider activeSection={activeSection} onSectionChange={handleSectionChange} />
+      </div>
       <Navbar
         onSearch={handleSearch}
         activeView={view}
@@ -1110,6 +1116,17 @@ function App() {
         onSignIn={() => setShowAuthModal(true)}
         onSignOut={async () => { await supabase.auth.signOut(); }}
       />
+      {/* ── Mobile Bottom Navigation ── */}
+      {!isImmersiveView && (
+        <MobileBottomNav
+          activeSection={activeSection}
+          activeView={view}
+          setView={setView}
+          setSection={handleSectionChange}
+          user={user}
+          onSignIn={() => setShowAuthModal(true)}
+        />
+      )}
       {/* ── Global Floating Back Button ── */}
       {['detail', 'watch', 'drama-detail', 'drama-watch', 'movie-detail', 'movie-watch', 'manhwa-detail', 'manhwa-read'].includes(view) && (
         <button 
