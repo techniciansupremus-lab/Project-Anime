@@ -576,18 +576,13 @@ function App() {
   }, [view]);
 
   // Load movies home when switching to movies view
+  // NOTE: Movies use Vercel serverless directly (TMDB), NOT the phone tunnel
   useEffect(() => {
     if (view !== 'movies') return;
     if (moviesHomeData) return;
-    const configError = getBackendConfigError();
-    if (configError) {
-      setMoviesHomeError(configError);
-      setMoviesHomeData(null);
-      return;
-    }
     setMoviesHomeLoading(true);
     setMoviesHomeError('');
-    fetch(apiUrl('/api/movies/home'))
+    fetch('/api/movies/home')
       .then(async r => {
         const data = await r.json().catch(() => null);
         if (!r.ok) throw new Error(data?.message || data?.error || `Backend returned ${r.status}`);
@@ -880,7 +875,7 @@ function App() {
     setSelectedMovieLoading(true);
     window.scrollTo(0, 0);
     try {
-      const r = await fetch(apiUrl(`/api/movies/info/${movie.id}`));
+      const r = await fetch(`/api/movies/info/${movie.id}`);
       const data = await r.json();
       setSelectedMovie({ ...data, coverImage: data.coverImage || movie.coverImage, bannerImage: data.bannerImage || movie.bannerImage });
     } catch (e) {
@@ -894,7 +889,7 @@ function App() {
     setMovieSearchQuery(q);
     if (!q.trim()) { setMovieSearchResults([]); return; }
     setMovieSearchLoading(true);
-    fetch(apiUrl(`/api/movies/search?q=${encodeURIComponent(q)}`))
+    fetch(`/api/movies/search?q=${encodeURIComponent(q)}`)
       .then(r => r.json())
       .then(data => {
         setMovieSearchResults(Array.isArray(data) ? data : []);
@@ -3509,7 +3504,7 @@ function MovieWatchView({ movie, onBack, onProgress }) {
   // Dynamically resolve IMDb ID if not already present on the movie object
   React.useEffect(() => {
     if (!movie.imdbId && movie.id) {
-      fetch(apiUrl(`/api/movies/info/${movie.id}`))
+      fetch(`/api/movies/info/${movie.id}`)
         .then(r => r.json())
         .then(data => {
           if (data && data.imdbId) {
