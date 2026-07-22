@@ -36,7 +36,15 @@ function readQueryOverride() {
 function readStoredOverride() {
   if (typeof window === 'undefined') return '';
   try {
-    return cleanApiBase(window.localStorage.getItem(CONFIG_STORAGE_KEY));
+    const val = cleanApiBase(window.localStorage.getItem(CONFIG_STORAGE_KEY));
+    // Ignore stale tunnel/localhost overrides when running on Vercel production
+    if (val && window.location.hostname.endsWith('.vercel.app')) {
+      if (val.includes('localhost') || val.includes('.loca.lt') || val.includes('.ngrok')) {
+        window.localStorage.removeItem(CONFIG_STORAGE_KEY);
+        return '';
+      }
+    }
+    return val;
   } catch {
     return '';
   }
@@ -66,7 +74,13 @@ export async function loadRuntimeConfig() {
   const storedOverride = readStoredOverride();
   const runtimeEndpoint = await readJsonConfig('/api/runtime-config');
   const staticConfig = await readJsonConfig('/eetnet-config.json');
-  const envBase = cleanApiBase(import.meta.env.VITE_API_BASE);
+  
+  // Ignore localhost env base on Vercel production
+  let envBase = cleanApiBase(import.meta.env.VITE_API_BASE);
+  if (typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app') && envBase.includes('localhost')) {
+    envBase = '';
+  }
+
   const localDevBase = getLocalDevBase();
 
   const apiBase =
@@ -88,7 +102,12 @@ export async function loadRuntimeConfig() {
 export function getApiBase() {
   const runtimeBase = cleanApiBase(window.__EETNET_CONFIG__?.API_BASE);
   const storedBase = readStoredOverride();
-  const envBase = cleanApiBase(import.meta.env.VITE_API_BASE);
+  
+  let envBase = cleanApiBase(import.meta.env.VITE_API_BASE);
+  if (typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app') && envBase.includes('localhost')) {
+    envBase = '';
+  }
+
   return runtimeBase || storedBase || envBase || getLocalDevBase();
 }
 
@@ -99,5 +118,6 @@ export function apiUrl(path) {
 }
 
 export function getBackendConfigError() {
-  return '';
+  if (getApiBase()) return '';
+  return 'Backend URL is not configured. Set VITE_API_BASE on Vercel or visit once with ?apiBase=https://your-backend.example.com.';
 }
