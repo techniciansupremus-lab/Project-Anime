@@ -3500,7 +3500,7 @@ function MovieDetailView({ movie, isLoading, onBack, onWatch }) {
 
 function MovieWatchView({ movie, onBack, onProgress }) {
   const [movieData, setMovieData] = React.useState(movie);
-  const [activeServerId, setActiveServerId] = React.useState('vidsrc-to');
+  const [activeServerId, setActiveServerId] = React.useState('vidsrc-me');
 
   // Dynamically resolve IMDb ID if not already present on the movie object
   React.useEffect(() => {
@@ -3523,34 +3523,34 @@ function MovieWatchView({ movie, onBack, onProgress }) {
   // Verified high-availability movie embed providers (supporting IMDb & TMDB fallbacks)
   const servers = [
     {
-      id: 'vidsrc-to',
-      name: 'Server 1 (VidSrc Fast)',
-      getUrl: () => `https://vidsrc.to/embed/movie/${tmdbId}`
-    },
-    {
       id: 'vidsrc-me',
-      name: 'Server 2 (VidSrc Pro - HD)',
+      name: 'Server 1 (VidSrc Primary - HD)',
       getUrl: () => imdbId ? `https://vidsrc.me/embed/movie?imdb=${imdbId}` : `https://vidsrc.me/embed/movie?tmdb=${tmdbId}`
     },
     {
-      id: 'vidsrc-in',
-      name: 'Server 3 (VidSrc IN)',
-      getUrl: () => `https://vidsrc.in/embed/movie/${activeId}`
+      id: 'vidlink-pro',
+      name: 'Server 2 (VidLink Pro)',
+      getUrl: () => `https://vidlink.pro/movie/${tmdbId}`
     },
     {
       id: 'vidsrc-pm',
-      name: 'Server 4 (VidSrc PM)',
+      name: 'Server 3 (VidSrc PM)',
       getUrl: () => `https://vidsrc.pm/embed/movie/${activeId}`
     },
     {
-      id: 'autoembed',
-      name: 'Server 5 (AutoEmbed)',
-      getUrl: () => `https://autoembed.co/movie/tmdb/${tmdbId}`
+      id: '2embed',
+      name: 'Server 4 (2Embed)',
+      getUrl: () => `https://www.2embed.cc/embed/${tmdbId}`
     },
     {
-      id: '2embed',
-      name: 'Server 6 (2Embed)',
-      getUrl: () => `https://www.2embed.cc/embed/${tmdbId}`
+      id: 'vidsrc-in',
+      name: 'Server 5 (VidSrc IN)',
+      getUrl: () => `https://vidsrc.in/embed/movie/${activeId}`
+    },
+    {
+      id: 'vidsrc-to',
+      name: 'Server 6 (VidSrc TO)',
+      getUrl: () => `https://vidsrc.to/embed/movie/${activeId}`
     }
   ];
 
