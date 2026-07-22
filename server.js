@@ -11,6 +11,15 @@ const PORT = process.env.PORT || 8080;
 const startedAt = new Date();
 
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
+app.use(express.json());
+
+// Vercel serverless request URL normalizer (/movies/home -> /api/movies/home)
+app.use((req, res, next) => {
+  if (req.url && !req.url.startsWith('/api/') && req.url !== '/api') {
+    req.url = '/api' + req.url;
+  }
+  next();
+});
 
 // Public base URL the browser should use to reach this server.
 // Behind ngrok/Cloudflare the real protocol + host arrive via X-Forwarded-*.
