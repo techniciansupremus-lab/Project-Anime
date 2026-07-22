@@ -509,30 +509,30 @@ app.get('/api/health', (req, res) => {
 // HiAnime watch — PRIMARY stream provider
 // Uses AniList ID for deterministic season-correct lookup.
 // No title search = no season ambiguity.
-// GET /api/hianime/watch?anilistId=N&episode=N
+// GET /api/hianime/watch?anilistId=N&episode=N[&dub=eng|hindi]
 // ─────────────────────────────────────────────────────
 app.get('/api/hianime/watch', async (req, res) => {
-  const { anilistId, episode } = req.query;
+  const { anilistId, episode, dub } = req.query;
   const episodeNum = parseInt(episode) || 1;
+  // Consumet accepts 'sub' or 'dub' — Hindi not available on HiAnime so map to sub
+  const subOrDub = dub === 'eng' ? 'dub' : 'sub';
 
   if (!anilistId) {
     return res.status(400).json({ error: 'Missing anilistId parameter' });
   }
 
-  console.log(`\n[HIANIME] Request: AniList ID ${anilistId} → Episode ${episodeNum}`);
+  console.log(`\n[HIANIME] Request: AniList ID ${anilistId} → Episode ${episodeNum} [${subOrDub}]`);
 
   try {
-    // Check episode list cache
+    // Cache keyed by anilistId+subOrDub so sub/dub episode lists stay separate
+    const cacheKey = `${anilistId}:${subOrDub}`;
     let epList = null;
-    const cached = hiAnimeEpCache.get(anilistId);
+    const cached = hiAnimeEpCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < HIANIME_TTL) {
       epList = cached.episodes;
-      console.log(`[HIANIME] Cache hit: ${epList.length} episodes for AniList ID ${anilistId}`);
+      console.log(`[HIANIME] Cache hit: ${epList.length} episodes for AniList ID ${anilistId} (${subOrDub})`);
     } else {
-      // Fetch anime info by AniList ID — consumet resolves to exact HiAnime season page
-      // Wrap in a 3-second timeout — HiAnime is behind Cloudflare and often returns 522.
-      // Fail fast so we fall through to AnimeKai instead of waiting 10-12 seconds.
-      console.log(`[HIANIME] Fetching anime info for AniList ID ${anilistId}...`);
+      console.log(`[HIANIME] Fetching anime info for AniList ID ${anilistId} (${subOrDub})...`);
       const fetchWithTimeout = Promise.race([
         anilistHianime.fetchAnimeInfo(anilistId, true),
         new Promise((_, reject) =>
@@ -545,11 +545,10 @@ app.get('/api/hianime/watch', async (req, res) => {
         return res.status(404).json({ error: `No episodes found on HiAnime for AniList ID ${anilistId}` });
       }
       epList = info.episodes;
-      hiAnimeEpCache.set(anilistId, { episodes: epList, timestamp: Date.now() });
-      console.log(`[HIANIME] Fetched ${epList.length} episodes (cached for 30min)`);
+      hiAnimeEpCache.set(cacheKey, { episodes: epList, timestamp: Date.now() });
+      console.log(`[HIANIME] Fetched ${epList.length} episodes (${subOrDub}) (cached for 30min)`);
     }
 
-    // Find episode by number (season-relative, ep 1 = this season's episode 1)
     const ep = epList.find(e => e.number === episodeNum);
     if (!ep) {
       console.warn(`[HIANIME] Episode ${episodeNum} not found. Available: ${epList.map(e => e.number).join(', ')}`);
@@ -558,21 +557,22 @@ app.get('/api/hianime/watch', async (req, res) => {
 
     console.log(`[HIANIME] Found episode: ID=${ep.id} Title=${ep.title || '?'}`);
 
-    // Fetch stream sources for this specific episode ID
-    const sources = await anilistHianime.fetchEpisodeSources(ep.id);
+    // Pass subOrDub to Consumet so HiAnime serves the correct audio track
+    const sources = await hianime.fetchEpisodeSources(ep.id, undefined, subOrDub);
     if (!sources || !sources.sources || sources.sources.length === 0) {
-      console.warn(`[HIANIME] No sources for episode ID ${ep.id}`);
+      console.warn(`[HIANIME] No sources for episode ID ${ep.id} (${subOrDub})`);
       return res.status(404).json({ error: `No stream sources found for this episode` });
     }
 
-    console.log(`[HIANIME] ✅ Episode ${episodeNum} — ${sources.sources.length} source(s) found`);
+    console.log(`[HIANIME] ✅ Episode ${episodeNum} (${subOrDub}) — ${sources.sources.length} source(s) found`);
     return res.json({
       provider: 'hianime',
       type: 'hls',
       sources: sources.sources,
       subtitles: sources.subtitles || [],
       episode: episodeNum,
-      episodeTitle: ep.title || null
+      episodeTitle: ep.title || null,
+      audioMode: subOrDub
     });
 
   } catch (err) {
@@ -684,25 +684,30 @@ app.get('/api/info/:anilistId', async (req, res) => {
 // Returns embed URLs from third-party players (no domain whitelisting)
 // ─────────────────────────────────────────────────────
 app.get('/api/gogoanime/watch', async (req, res) => {
-  const { title, episode, season } = req.query;
+  const { title, episode, season, dub } = req.query;
   const episodeNum = parseInt(episode) || 1;
   const seasonNum = season ? parseInt(season) : null;
   const host = publicHost(req);
+  // dub param: 'eng' | 'hindi' | undefined (default = sub)
+  const wantDub = dub === 'eng';
+  const wantHindi = dub === 'hindi';
 
   if (!title) {
     return res.status(400).json({ error: 'Missing title parameter' });
   }
 
-app.get('/api/cache/clear', (req, res) => {
-  animeCache.clear();
-  hiAnimeEpCache.clear();
-  jikanCache.clear();
-  streamCache.clear();
-  console.log('[CACHE] All server caches cleared successfully!');
-  res.json({ message: 'All caches cleared successfully!' });
-});
+  // Hindi dub note: AnimeKai only has sub/dub/hsub (English)
+  // Hindi dubs are not available on AnimeKai — return early with a clear message
+  if (wantHindi) {
+    console.log(`[ANIMEKAI] Hindi dub requested for "${title}" — not available on this provider`);
+    return res.status(404).json({
+      error: 'Hindi dub not available',
+      message: 'Hindi dubbed streams are not available through the current provider (AnimeKai). Hindi dubs will be sourced from a dedicated Hindi anime provider in a future update.',
+      audioMode: 'hindi'
+    });
+  }
 
-// Cache key always includes season (defaults to 1 if unspecified)
+  // Cache key always includes season (defaults to 1 if unspecified)
   const effectiveSeason = seasonNum || 1;
   const cacheKey = `${title.toUpperCase().trim()}::s${effectiveSeason}`;
 
@@ -727,25 +732,46 @@ app.get('/api/cache/clear', (req, res) => {
     const servers = await animeKaiGetEpisodeEmbeds(cached.slug, episodeNum);
 
     // Build preference-ordered list of embed URLs to try
-    // Priority: sub (external English subs) > hsub (hard-subbed) > dub
+    // Priority changes based on requested dub mode:
+    // - Default/sub: sub > hsub > dub
+    // - ENG Dub: dub > sub > hsub
     const candidates = [];
-    if (servers.sub?.length > 0) {
-      const s = servers.sub.find(x => x.isDefault) || servers.sub[0];
-      candidates.push({ embedUrl: s.embedUrl, language: 'English Sub', server: s.serverName });
-      // Also add non-default sub servers as fallbacks
-      servers.sub.filter(x => !x.isDefault).forEach(x =>
-        candidates.push({ embedUrl: x.embedUrl, language: 'English Sub', server: x.serverName })
-      );
-    }
-    if (servers.hsub?.length > 0) {
-      servers.hsub.forEach(x =>
-        candidates.push({ embedUrl: x.embedUrl, language: 'English Sub (Hardsub)', server: x.serverName })
-      );
-    }
-    if (servers.dub?.length > 0) {
-      servers.dub.forEach(x =>
-        candidates.push({ embedUrl: x.embedUrl, language: 'English Dub', server: x.serverName })
-      );
+    if (wantDub) {
+      // English Dub mode: prefer dub servers first
+      if (servers.dub?.length > 0) {
+        servers.dub.forEach(x =>
+          candidates.push({ embedUrl: x.embedUrl, language: 'English Dub', server: x.serverName })
+        );
+      }
+      if (servers.sub?.length > 0) {
+        servers.sub.forEach(x =>
+          candidates.push({ embedUrl: x.embedUrl, language: 'English Sub', server: x.serverName })
+        );
+      }
+      if (servers.hsub?.length > 0) {
+        servers.hsub.forEach(x =>
+          candidates.push({ embedUrl: x.embedUrl, language: 'English Sub (Hardsub)', server: x.serverName })
+        );
+      }
+    } else {
+      // Default: sub first (Japanese audio + English subtitles)
+      if (servers.sub?.length > 0) {
+        const s = servers.sub.find(x => x.isDefault) || servers.sub[0];
+        candidates.push({ embedUrl: s.embedUrl, language: 'English Sub', server: s.serverName });
+        servers.sub.filter(x => !x.isDefault).forEach(x =>
+          candidates.push({ embedUrl: x.embedUrl, language: 'English Sub', server: x.serverName })
+        );
+      }
+      if (servers.hsub?.length > 0) {
+        servers.hsub.forEach(x =>
+          candidates.push({ embedUrl: x.embedUrl, language: 'English Sub (Hardsub)', server: x.serverName })
+        );
+      }
+      if (servers.dub?.length > 0) {
+        servers.dub.forEach(x =>
+          candidates.push({ embedUrl: x.embedUrl, language: 'English Dub', server: x.serverName })
+        );
+      }
     }
 
     if (candidates.length === 0) {
