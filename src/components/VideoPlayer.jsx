@@ -260,7 +260,17 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
     }
   }, [currentTime, duration, onProgress]);
 
-  // ── Video Actions ─────────────────────────────────────────────────────────
+  const [topToast, setTopToast] = useState(null); // { text, type }
+  const topToastTimeoutRef = useRef(null);
+
+  const triggerTopToast = useCallback((text, type) => {
+    setTopToast({ text, type });
+    if (topToastTimeoutRef.current) clearTimeout(topToastTimeoutRef.current);
+    topToastTimeoutRef.current = setTimeout(() => {
+      setTopToast(null);
+    }, 1800);
+  }, []);
+
   const triggerRipple = (type) => {
     setRippleAction(type);
     setTimeout(() => setRippleAction(null), 500);
@@ -271,7 +281,7 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     controlsTimeoutRef.current = setTimeout(() => {
       if (!isDraggingRef.current) setShowControls(false);
-    }, 2500);
+    }, 5500);
   }, []);
 
   const togglePlay = () => {
@@ -279,10 +289,10 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
     if (!video || !streamUrl) return;
     if (video.paused) {
       video.play().catch(console.error);
-      triggerRipple('play');
+      triggerTopToast('Video Resumed', 'play');
     } else {
       video.pause();
-      triggerRipple('pause');
+      triggerTopToast('Video Paused', 'pause');
     }
     resetControlsTimeout();
   };
@@ -347,8 +357,15 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
   const touchTimerRef = useRef(null);
 
   const handlePlayerClick = (e) => {
-    // Ignore clicks on control buttons, range sliders, or submenus
-    if (e.target.closest('button') || e.target.closest('input') || e.target.closest('.yt-controls-row') || e.target.closest('.yt-timeline-container') || e.target.closest('.quality-menu')) {
+    // Ignore clicks on control buttons, range sliders, floating controls, or submenus
+    if (
+      e.target.closest('button') ||
+      e.target.closest('input') ||
+      e.target.closest('.yt-controls-row') ||
+      e.target.closest('.yt-timeline-container') ||
+      e.target.closest('.quality-menu') ||
+      e.target.closest('.floating-controls-group')
+    ) {
       return;
     }
 
@@ -375,12 +392,17 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
         skipTime(seekStep);
       }
     } else {
-      // Single tap: toggle controls after small delay
+      // Single tap: toggle controls smoothly
       lastTouchRef.current = { time: now, x: xRatio };
       if (touchTimerRef.current) clearTimeout(touchTimerRef.current);
       touchTimerRef.current = setTimeout(() => {
-        setShowControls(prev => !prev);
-      }, 250);
+        setShowControls(prev => {
+          const next = !prev;
+          if (next) resetControlsTimeout();
+          else if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+          return next;
+        });
+      }, 180);
     }
   };
 
@@ -525,13 +547,24 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
     <div
       ref={containerRef}
       className={`player-wrapper custom-yt-player ${showControls ? 'show-controls' : 'hide-controls'}`}
-      onMouseMove={resetControlsTimeout}
+      onMouseMove={() => { if (showControls) resetControlsTimeout(); }}
       onMouseLeave={() => isPlaying && setShowControls(false)}
     >
       {error ? (
         <div className="player-error">{error}</div>
       ) : (
         <>
+          {/* Top Play/Pause Toast Badge */}
+          {topToast && (
+            <div className="player-top-toast">
+              {topToast.type === 'play' ? (
+                <Play size={15} fill="white" />
+              ) : (
+                <Pause size={15} fill="white" />
+              )}
+              <span>{topToast.text}</span>
+            </div>
+          )}
           {/* Main Video Element — clicks on video itself do NOT toggle play (use the dedicated button) */}
           <video
             ref={videoRef}
