@@ -1063,9 +1063,8 @@ function App() {
 
       if (requestId !== watchRequestRef.current) return;
 
-      if ((targetAudioMode === 'hindi' || targetAudioMode === 'dub') && (result.provider === 'unavailable' || (!result.sources?.length && !result.iframeSrc))) {
-        const langName = targetAudioMode === 'hindi' ? 'Hindi Dub' : 'English Dub';
-        showToast(`ℹ️ ${langName} stream not found on servers for this episode. Reverting to Japanese audio.`, 'info');
+      if (targetAudioMode === 'dub' && (result.provider === 'unavailable' || (!result.sources?.length && !result.iframeSrc))) {
+        showToast('ℹ️ English Dub stream not found on servers for this episode. Reverting to Japanese audio.', 'info');
         setAudioMode('sub');
         startWatching(anime, episodeNum, true, 'sub');
         return;
@@ -2318,22 +2317,13 @@ function WatchView({
                   DUB (ENG)
                 </button>
                 <button
-                  className={`audio-pill audio-pill--hindi ${audioMode === 'hindi' ? 'active' : ''}`}
+                  className="audio-pill audio-pill--hindi"
                   onClick={() => {
-                    const isHindiOk = hasHindiDubAvailable(anime.title, anime.japaneseTitle);
-                    if (!isHindiOk) {
-                      if (showToast) showToast('ℹ️ Hindi Dub is currently unavailable for this anime. It will be added in future updates!', 'info');
-                      return;
-                    }
-                    if (setAudioMode) setAudioMode('hindi');
-                    if (showToast) showToast('🇮🇳 Switched to Hindi Dub Audio!', 'info');
-                    if (onStartWatching) onStartWatching(anime, episode.number, true, 'hindi');
+                    if (showToast) showToast('ℹ️ Hindi Dub is coming soon! Dedicated regional servers will be added in a future update.', 'info');
                   }}
                 >
                   🇮🇳 HINDI DUB
-                  {hasHindiDubAvailable(anime.title, anime.japaneseTitle) && (
-                    <span className="hindi-badge">Available</span>
-                  )}
+                  <span className="hindi-badge" style={{ background: '#555', color: '#ccc' }}>SOON</span>
                 </button>
               </div>
             </div>
