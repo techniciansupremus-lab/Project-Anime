@@ -5,7 +5,7 @@ import SectionSlider from './components/SectionSlider';
 import AnimeCard from './components/AnimeCard';
 import VideoPlayer from './components/VideoPlayer';
 import AuthModal from './components/AuthModal';
-import { api, animeCategories, recentReleases, hasHindiDubAvailable } from './mockData';
+import { api, animeCategories, recentReleases, hasHindiDubAvailable, isKnownHindiDubTitle } from './mockData';
 import { apiUrl, getBackendConfigError } from './runtimeConfig';
 import { supabase } from './supabaseClient';
 
@@ -1063,8 +1063,22 @@ function App() {
 
       if (requestId !== watchRequestRef.current) return;
 
-      if ((targetAudioMode === 'dub' || targetAudioMode === 'hindi') && (result.provider === 'unavailable' || (!result.sources?.length && !result.iframeSrc))) {
-        const label = targetAudioMode === 'hindi' ? 'Hindi Dub' : 'English Dub';
+      if (targetAudioMode === 'hindi' && (result.provider === 'unavailable' || (!result.sources?.length && !result.iframeSrc))) {
+        showToast(result.error || 'Hindi Dub stream is not connected yet. Staying on Japanese audio.', 'info');
+        setAudioMode('sub');
+        setCurrentEpisode({
+          ...episode,
+          sources: [],
+          subtitles: [],
+          iframeSrc: null,
+          provider: 'unavailable',
+          error: result.error || 'Hindi Dub stream is not connected yet.'
+        });
+        return;
+      }
+
+      if (targetAudioMode === 'dub' && (result.provider === 'unavailable' || (!result.sources?.length && !result.iframeSrc))) {
+        const label = 'English Dub';
         showToast(`ℹ️ ${label} stream node is currently offline/updating. Reverting to Japanese audio.`, 'info');
         setAudioMode('sub');
         startWatching(anime, episodeNum, true, 'sub');
@@ -2320,21 +2334,19 @@ function WatchView({
                 <button
                   className={`audio-pill audio-pill--hindi ${audioMode === 'hindi' ? 'active' : ''}`}
                   onClick={() => {
-                    const isHindiOk = hasHindiDubAvailable(anime.title, anime.japaneseTitle);
-                    if (!isHindiOk) {
-                      if (showToast) showToast('ℹ️ Hindi Dub is not available for this anime title. Try SUB (JPN) or DUB (ENG).', 'info');
-                      return;
-                    }
+                    const isKnownHindiDub = isKnownHindiDubTitle(anime.title, anime.japaneseTitle);
                     if (setAudioMode) setAudioMode('hindi');
-                    if (showToast) showToast('🇮🇳 Switched to Hindi Dub Audio!', 'info');
+                    if (showToast) showToast(isKnownHindiDub ? 'Switching to Hindi Dub audio...' : 'Checking Hindi Dub source...', 'info');
                     if (onStartWatching) onStartWatching(anime, episode.number, true, 'hindi');
                   }}
                 >
                   🇮🇳 HINDI DUB
                   {hasHindiDubAvailable(anime.title, anime.japaneseTitle) ? (
                     <span className="hindi-badge">Available</span>
+                  ) : isKnownHindiDubTitle(anime.title, anime.japaneseTitle) ? (
+                    <span className="hindi-badge" style={{ background: '#8a6d1d', color: '#ffe8a3' }}>Check</span>
                   ) : (
-                    <span className="hindi-badge" style={{ background: '#555', color: '#ccc' }}>N/A</span>
+                    <span className="hindi-badge" style={{ background: '#555', color: '#ccc' }}>Try</span>
                   )}
                 </button>
               </div>

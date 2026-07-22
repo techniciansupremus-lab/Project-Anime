@@ -19,9 +19,15 @@ export const HINDI_DUB_ANIME_KEYWORDS = [
   'beyblade', 'detective conan', 'attack on titan'
 ];
 
-export function hasHindiDubAvailable(title = '', japaneseTitle = '') {
+export const HINDI_DUB_PROVIDER_READY = true;
+
+export function isKnownHindiDubTitle(title = '', japaneseTitle = '') {
   const combined = `${title || ''} ${japaneseTitle || ''}`.toLowerCase();
   return HINDI_DUB_ANIME_KEYWORDS.some(kw => combined.includes(kw));
+}
+
+export function hasHindiDubAvailable(title = '', japaneseTitle = '') {
+  return HINDI_DUB_PROVIDER_READY && isKnownHindiDubTitle(title, japaneseTitle);
 }
 
 // ─────────────────────────────────────────
@@ -362,6 +368,63 @@ export const api = {
     }
 
     const dubParam = audioMode === 'hindi' ? '&dub=hindi' : audioMode === 'dub' ? '&dub=eng' : '';
+
+    if (audioMode === 'hindi' && !HINDI_DUB_PROVIDER_READY) {
+      console.warn('[API] Hindi Dub requested, but no Hindi-capable anime stream provider is connected.');
+      return {
+        provider: 'unavailable',
+        sources: [],
+        subtitles: [],
+        audioMode: 'hindi',
+        error: 'Hindi Dub streams are not connected yet. Current anime providers only return Japanese sub or English dub.'
+      };
+    }
+
+    if (audioMode === 'hindi') {
+      try {
+        console.log(`[API] HindiDubAnime primary: "${animeTitle || japaneseTitle}" S${seasonNum ?? '?'} E${episodeNumber}`);
+        const seasonParam = seasonNum ? `&season=${seasonNum}` : '';
+        const response = await fetch(
+          backendApi(`/hindi/watch?title=${encodeURIComponent(animeTitle || japaneseTitle || '')}&episode=${episodeNumber}${seasonParam}`)
+        );
+        if (response.ok) {
+          const data = await response.json();
+          if (data.type === 'iframe' && data.iframeSrc) {
+            console.log(`[API] ✅ HindiDubAnime iframe stream`);
+            return {
+              provider: 'hindidubanime',
+              type: 'iframe',
+              iframeSrc: data.iframeSrc,
+              sources: [],
+              subtitles: [],
+              language: 'Hindi Dub',
+              audioMode: 'hindi',
+              matchedTitle: data.matchedTitle,
+              episodeUrl: data.episodeUrl
+            };
+          }
+        } else {
+          const data = await response.json().catch(() => ({}));
+          console.warn(`[API] HindiDubAnime unavailable: ${data.message || data.error || response.status}`);
+          return {
+            provider: 'unavailable',
+            sources: [],
+            subtitles: [],
+            audioMode: 'hindi',
+            error: data.message || 'Hindi Dub stream was not found for this episode.'
+          };
+        }
+      } catch (err) {
+        console.warn(`[API] HindiDubAnime fetch failed:`, err.message);
+        return {
+          provider: 'unavailable',
+          sources: [],
+          subtitles: [],
+          audioMode: 'hindi',
+          error: 'Hindi Dub provider could not be reached right now.'
+        };
+      }
+    }
 
     // ═══════════════════════════════════════════════
     // PROVIDER 1 (PRIMARY): HiAnime via AniList ID

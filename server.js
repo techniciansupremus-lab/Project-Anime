@@ -511,9 +511,271 @@ app.get('/api/health', (req, res) => {
 // No title search = no season ambiguity.
 // GET /api/hianime/watch?anilistId=N&episode=N[&dub=eng|hindi]
 // ─────────────────────────────────────────────────────
+// Hindi Dub Anime provider (WordPress/Kiranime)
+// Uses HindiDubAnime search + episode pages and returns the embedded player iframe.
+const HINDI_ANIME_BASE = process.env.HINDI_ANIME_BASE || 'https://hindidubanime.com';
+const hindiAnimeCache = new Map();
+const HINDI_ANIME_TTL = 30 * 60 * 1000;
+
+function decodeHtmlText(value = '') {
+  return cheerio.load(`<textarea>${value}</textarea>`)('textarea').text();
+}
+
+function normalizeProviderTitle(value = '') {
+  return decodeHtmlText(value)
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\b(hindi\s+dubbed|hindi\s+dubed|hindi\s+dub|hindi\s+subbed|dual\s+audio)\b/gi, ' ')
+    .replace(/\b(tv|ona|ova|movie)\b/gi, ' ')
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function providerTitleScore(providerTitle, targetTitle, seasonNum = null) {
+  const providerClean = normalizeProviderTitle(providerTitle);
+  const targetClean = normalizeProviderTitle(targetTitle);
+  const targetTokens = targetClean.split(/\s+/).filter(token => token.length > 2);
+  const providerTokens = new Set(providerClean.split(/\s+/).filter(Boolean));
+  const overlap = targetTokens.filter(token => providerTokens.has(token)).length;
+
+  if (targetTokens.length > 0 && overlap === 0) return 0;
+  if (targetTokens.length >= 2 && overlap / targetTokens.length < 0.5) return 0;
+
+  const score = titleMatchScore(
+    providerClean,
+    targetClean
+  );
+  const title = decodeHtmlText(providerTitle).toLowerCase();
+  let adjusted = score;
+  const seasonMatch = title.match(/\bseason\s*(\d+)\b/i);
+
+  if (seasonNum && seasonNum > 1) {
+    if (seasonMatch && parseInt(seasonMatch[1], 10) === seasonNum) adjusted += 35;
+    if (seasonMatch && parseInt(seasonMatch[1], 10) !== seasonNum) adjusted -= 45;
+  } else if (seasonMatch && parseInt(seasonMatch[1], 10) > 1) {
+    adjusted -= 35;
+  }
+
+  if (/\bhindi\s+dub/i.test(title)) adjusted += 20;
+  return adjusted;
+}
+
+async function hindiProviderJson(path, params = {}) {
+  const url = new URL(path, HINDI_ANIME_BASE);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      url.searchParams.set(key, value);
+    }
+  });
+  const { data } = await axios.get(url.toString(), {
+    timeout: 12000,
+    headers: {
+      'User-Agent': AXIOS_OPTS.headers['User-Agent'],
+      'Accept': 'application/json, text/plain, */*',
+      'Referer': HINDI_ANIME_BASE + '/',
+    },
+  });
+  return data;
+}
+
+async function findHindiAnime(title, seasonNum = null) {
+  const cacheKey = `${title.toLowerCase()}:s${seasonNum || 1}`;
+  const cached = hindiAnimeCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < HINDI_ANIME_TTL) return cached.data;
+
+  const queries = [
+    title,
+    title.replace(/\([^)]*\)/g, '').trim(),
+    title.split(/[:\-–—]/)[0].trim(),
+  ].filter(Boolean);
+
+  const seen = new Set();
+  const candidates = [];
+  for (const query of queries) {
+    if (seen.has(query.toLowerCase())) continue;
+    seen.add(query.toLowerCase());
+    try {
+      const rows = await hindiProviderJson('/wp-json/wp/v2/anime', {
+        search: query,
+        per_page: 10,
+      });
+      if (Array.isArray(rows)) candidates.push(...rows);
+    } catch (err) {
+      console.warn(`[HINDI] Anime search failed for "${query}":`, err.message);
+    }
+  }
+
+  const scored = candidates
+    .map(item => ({
+      id: item.id,
+      slug: item.slug,
+      link: item.link,
+      title: decodeHtmlText(item.title?.rendered || ''),
+      score: providerTitleScore(item.title?.rendered || item.slug, title, seasonNum),
+    }))
+    .filter(item => item.score >= 50)
+    .sort((a, b) => b.score - a.score);
+
+  const best = scored[0] || null;
+  hindiAnimeCache.set(cacheKey, { data: best, timestamp: Date.now() });
+  return best;
+}
+
+function episodeNumberMatches(item, episodeNum) {
+  const title = decodeHtmlText(item.title?.rendered || '').toLowerCase();
+  const slug = (item.slug || '').toLowerCase();
+  return (
+    new RegExp(`\\bepisode\\s*[\\-–—:]?\\s*0*${episodeNum}\\b`, 'i').test(title) ||
+    new RegExp(`episode-0*${episodeNum}(?:$|-)`, 'i').test(slug)
+  );
+}
+
+function scoreHindiEpisode(item, anime, targetTitle, episodeNum, seasonNum = null) {
+  if (!episodeNumberMatches(item, episodeNum)) return -999;
+  const episodeTitle = decodeHtmlText(item.title?.rendered || item.slug);
+  let score = providerTitleScore(episodeTitle.replace(/\bepisode\b.*$/i, ''), targetTitle, seasonNum);
+  const raw = `${episodeTitle} ${item.slug}`.toLowerCase();
+  const seasonMatch = raw.match(/\bseason[\s-]*(\d+)\b/i);
+
+  if (seasonNum && seasonNum > 1) {
+    if (seasonMatch && parseInt(seasonMatch[1], 10) === seasonNum) score += 40;
+    if (seasonMatch && parseInt(seasonMatch[1], 10) !== seasonNum) score -= 50;
+  } else if (seasonMatch && parseInt(seasonMatch[1], 10) > 1) {
+    score -= 45;
+  }
+
+  if (anime?.slug && item.slug.startsWith(anime.slug.replace(/-hindi-dubbed|-hindi-dubed|-hindi-dub$/i, ''))) {
+    score += 10;
+  }
+
+  return score;
+}
+
+async function findHindiEpisode(anime, title, episodeNum, seasonNum = null) {
+  const searchTitle = anime?.title || title;
+  const queries = [
+    `${searchTitle} Episode ${episodeNum}`,
+    `${title} Episode ${episodeNum}`,
+    normalizeProviderTitle(title).replace(/\s+/g, ' ') + ` Episode ${episodeNum}`,
+  ].filter(Boolean);
+
+  const seen = new Set();
+  const candidates = [];
+  for (const query of queries) {
+    const key = query.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    try {
+      const rows = await hindiProviderJson('/wp-json/wp/v2/episode', {
+        search: query,
+        per_page: 10,
+      });
+      if (Array.isArray(rows)) candidates.push(...rows);
+    } catch (err) {
+      console.warn(`[HINDI] Episode search failed for "${query}":`, err.message);
+    }
+  }
+
+  return candidates
+    .map(item => ({
+      id: item.id,
+      slug: item.slug,
+      link: item.link,
+      title: decodeHtmlText(item.title?.rendered || ''),
+      score: scoreHindiEpisode(item, anime, title, episodeNum, seasonNum),
+    }))
+    .filter(item => item.score >= 45)
+    .sort((a, b) => b.score - a.score)[0] || null;
+}
+
+function extractHindiIframe(html) {
+  const $ = cheerio.load(html);
+  const scoped = $('.episode-player iframe').first().attr('src');
+  if (scoped) return new URL(scoped, HINDI_ANIME_BASE).toString();
+
+  const blocked = /adsterra|histats|google|doubleclick|environmenttalentrabble/i;
+  let found = '';
+  $('iframe').each((_, el) => {
+    if (found) return;
+    const src = $(el).attr('src') || '';
+    if (src && !blocked.test(src)) found = new URL(src, HINDI_ANIME_BASE).toString();
+  });
+  return found;
+}
+
+app.get('/api/hindi/watch', async (req, res) => {
+  const { title } = req.query;
+  const episodeNum = parseInt(req.query.episode, 10) || 1;
+  const seasonNum = req.query.season ? parseInt(req.query.season, 10) : null;
+
+  if (!title) return res.status(400).json({ error: 'Missing title parameter' });
+
+  try {
+    console.log(`\n[HINDI] Request: "${title}" S${seasonNum || 1} E${episodeNum}`);
+    const anime = await findHindiAnime(String(title), seasonNum);
+    if (!anime) {
+      return res.status(404).json({
+        error: 'Hindi anime not found',
+        message: 'No matching Hindi Dub anime entry was found for this title.',
+      });
+    }
+
+    const episode = await findHindiEpisode(anime, String(title), episodeNum, seasonNum);
+    if (!episode?.link) {
+      return res.status(404).json({
+        error: 'Hindi episode not found',
+        message: `Hindi Dub episode ${episodeNum} was not found for ${anime.title}.`,
+        matchedTitle: anime.title,
+      });
+    }
+
+    const { data: html } = await axios.get(episode.link, {
+      ...AXIOS_OPTS,
+      headers: {
+        ...AXIOS_OPTS.headers,
+        'Referer': HINDI_ANIME_BASE + '/',
+      },
+      responseType: 'text',
+    });
+
+    const iframeSrc = extractHindiIframe(html);
+    if (!iframeSrc) {
+      return res.status(404).json({
+        error: 'Hindi player not found',
+        message: 'The Hindi episode page loaded, but no playable iframe was found.',
+        matchedTitle: anime.title,
+        episodeUrl: episode.link,
+      });
+    }
+
+    console.log(`[HINDI] Ready: ${anime.title} E${episodeNum} -> ${iframeSrc}`);
+    res.json({
+      provider: 'hindidubanime',
+      type: 'iframe',
+      iframeSrc,
+      language: 'Hindi Dub',
+      audioMode: 'hindi',
+      matchedTitle: anime.title,
+      episodeTitle: episode.title,
+      episodeUrl: episode.link,
+    });
+  } catch (err) {
+    console.error('[HINDI] Error:', err.message);
+    res.status(502).json({ error: 'Hindi provider failed', message: err.message });
+  }
+});
+
 app.get('/api/hianime/watch', async (req, res) => {
   const { anilistId, episode, dub } = req.query;
   const episodeNum = parseInt(episode) || 1;
+  if (dub === 'hindi') {
+    return res.status(404).json({
+      error: 'Hindi dub not available',
+      message: 'HiAnime/Consumet only exposes sub and English dub streams here. Hindi requests must use a Hindi-capable provider.',
+      audioMode: 'hindi'
+    });
+  }
   // Consumet accepts 'sub' or 'dub' — Hindi not available on HiAnime so map to sub
   const subOrDub = dub === 'eng' ? 'dub' : 'sub';
 
