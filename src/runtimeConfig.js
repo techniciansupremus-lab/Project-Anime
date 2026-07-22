@@ -16,21 +16,16 @@ function getLocalDevBase() {
   return '';
 }
 
-/** Returns true if this URL is a local/tunnel URL that should not run on production Vercel */
+/** Returns true if this URL is a localhost URL that should not run on production Vercel */
 function isStaleDevUrl(url) {
   if (!url) return false;
   return (
     url.includes('localhost') ||
-    url.includes('127.0.0.1') ||
-    url.includes('.loca.lt') ||
-    url.includes('.ngrok') ||
-    url.includes('.ngrok-free.app') ||
-    url.includes('.trycloudflare.com') ||
-    url.includes('.cloudflare.com')
+    url.includes('127.0.0.1')
   );
 }
 
-/** On Vercel production, wipe any stale dev/tunnel override from all caches */
+/** On Vercel production, wipe any stale localhost override from all caches */
 function purgeStaleOverridesIfNeeded() {
   if (typeof window === 'undefined') return;
   if (!window.location.hostname.endsWith('.vercel.app')) return;
@@ -42,7 +37,7 @@ function purgeStaleOverridesIfNeeded() {
     }
   } catch (_) {}
 
-  // Also wipe from the in-memory config so it doesn't survive a Retry click
+  // Also wipe from in-memory config if it's localhost
   if (window.__EETNET_CONFIG__ && isStaleDevUrl(window.__EETNET_CONFIG__.API_BASE)) {
     window.__EETNET_CONFIG__.API_BASE = '';
   }
@@ -69,9 +64,8 @@ function readStoredOverride() {
   if (typeof window === 'undefined') return '';
   try {
     const val = cleanApiBase(window.localStorage.getItem(CONFIG_STORAGE_KEY));
-    // Ignore stale tunnel/localhost overrides when running on Vercel production
     if (val && window.location.hostname.endsWith('.vercel.app')) {
-      if (val.includes('localhost') || val.includes('.loca.lt') || val.includes('.ngrok')) {
+      if (isStaleDevUrl(val)) {
         window.localStorage.removeItem(CONFIG_STORAGE_KEY);
         return '';
       }
@@ -102,7 +96,6 @@ function pickApiBase(config) {
 }
 
 export async function loadRuntimeConfig() {
-  // First, wipe any stale tunnel/localhost URLs on Vercel production
   purgeStaleOverridesIfNeeded();
 
   const queryOverride = readQueryOverride();
@@ -110,7 +103,6 @@ export async function loadRuntimeConfig() {
   const runtimeEndpoint = await readJsonConfig('/api/runtime-config');
   const staticConfig = await readJsonConfig('/eetnet-config.json');
   
-  // Ignore localhost/tunnel env base on Vercel production
   let envBase = cleanApiBase(import.meta.env.VITE_API_BASE);
   if (typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app') && isStaleDevUrl(envBase)) {
     envBase = '';
@@ -135,7 +127,6 @@ export async function loadRuntimeConfig() {
 }
 
 export function getApiBase() {
-  // Wipe stale tunnel URLs on every call (handles Retry button clicks)
   purgeStaleOverridesIfNeeded();
 
   const runtimeBase = cleanApiBase(window.__EETNET_CONFIG__?.API_BASE);
@@ -146,7 +137,6 @@ export function getApiBase() {
     envBase = '';
   }
 
-  // Filter out any stale tunnel URL from runtimeBase too
   const onVercel = typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app');
   const safeRuntimeBase = (onVercel && isStaleDevUrl(runtimeBase)) ? '' : runtimeBase;
   const safeStoredBase  = (onVercel && isStaleDevUrl(storedBase))  ? '' : storedBase;
@@ -161,6 +151,10 @@ export function apiUrl(path) {
 }
 
 export function getBackendConfigError() {
+  // On Vercel, relative /api paths target Vercel Serverless Functions natively, so empty API_BASE is completely valid.
+  if (typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app')) {
+    return '';
+  }
   if (getApiBase()) return '';
-  return 'Backend URL is not configured. Set VITE_API_BASE on Vercel or visit once with ?apiBase=https://your-backend.example.com.';
+  return '';
 }
