@@ -5,7 +5,7 @@ import SectionSlider from './components/SectionSlider';
 import AnimeCard from './components/AnimeCard';
 import VideoPlayer from './components/VideoPlayer';
 import AuthModal from './components/AuthModal';
-import { api, animeCategories, recentReleases } from './mockData';
+import { api, animeCategories, recentReleases, hasHindiDubAvailable } from './mockData';
 import { apiUrl, getBackendConfigError } from './runtimeConfig';
 import { supabase } from './supabaseClient';
 
@@ -26,6 +26,7 @@ function App() {
   const [currentEpisode, setCurrentEpisode] = useState(null);
   const [currentSourceIndex, setCurrentSourceIndex] = useState(0);
   const [loadingSources, setLoadingSources] = useState(false);
+  const [audioMode, setAudioMode] = useState('sub'); // 'sub' | 'dub' | 'hindi'
   const [pageLoading, setPageLoading] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [carouselIndex, setCarouselIndex] = useState(0);
@@ -1005,7 +1006,7 @@ function App() {
     });
   };
 
-  const startWatching = async (anime, episodeNum = 1, keepFranchise = false) => {
+  const startWatching = async (anime, episodeNum = 1, keepFranchise = false, targetAudioMode = audioMode) => {
     const requestId = watchRequestRef.current + 1;
     watchRequestRef.current = requestId;
     detailRequestRef.current += 1;
@@ -1055,8 +1056,9 @@ function App() {
         anime.title,
         anime.japaneseTitle,
         episodeNum,
-        anime.id,   // 5th arg: AniList ID for HiAnime
-        seasonNum   // 6th arg: Season number for AnimeKai fallback
+        anime.id,          // 5th arg: AniList ID for HiAnime
+        seasonNum,         // 6th arg: Season number for AnimeKai fallback
+        targetAudioMode    // 7th arg: 'sub' | 'dub' | 'hindi'
       );
 
       if (requestId !== watchRequestRef.current) return;
@@ -1225,7 +1227,7 @@ function App() {
                 currentSourceIndex={currentSourceIndex}
                 loadingSources={loadingSources}
                 setCurrentSourceIndex={setCurrentSourceIndex}
-                onStartWatching={(animeNode, epNum) => startWatching(animeNode, epNum, true)}
+                onStartWatching={(animeNode, epNum, keepFranchise = true, targetAudio = audioMode) => startWatching(animeNode, epNum, keepFranchise, targetAudio)}
                 onAnimeSelect={(id) => {
                   setPageLoading(true);
                   api.getAnimeDetails(id).then((newDetails) => {
@@ -1235,6 +1237,9 @@ function App() {
                   }).finally(() => setPageLoading(false));
                 }}
                 onProgress={(prog) => handleWatchProgress(selectedAnime, currentEpisode, 'anime', prog)}
+                audioMode={audioMode}
+                setAudioMode={setAudioMode}
+                showToast={showToast}
               />
             )}
 
@@ -2095,7 +2100,10 @@ function WatchView({
   loadingSources,
   setCurrentSourceIndex,
   onStartWatching,
-  onAnimeSelect
+  onAnimeSelect,
+  audioMode = 'sub',
+  setAudioMode,
+  showToast
 }) {
   const EPISODES_PER_PART = 100;
   const totalPages = anime.episodePagination?.lastPage || 1;
@@ -2277,6 +2285,51 @@ function WatchView({
 
           {/* Description & Server Block */}
           <div className="watch-description-block" style={{ marginTop: '0' }}>
+            {/* Audio Mode / Language Selector Bar */}
+            <div className="audio-mode-selector">
+              <span className="audio-mode-label">Audio Language:</span>
+              <div className="audio-mode-pills">
+                <button
+                  className={`audio-pill ${audioMode === 'sub' ? 'active' : ''}`}
+                  onClick={() => {
+                    if (setAudioMode) setAudioMode('sub');
+                    if (showToast) showToast('🇯🇵 Switched to Japanese (Subbed) Audio', 'info');
+                    if (onStartWatching) onStartWatching(anime, episode.number, true, 'sub');
+                  }}
+                >
+                  SUB (JPN)
+                </button>
+                <button
+                  className={`audio-pill ${audioMode === 'dub' ? 'active' : ''}`}
+                  onClick={() => {
+                    if (setAudioMode) setAudioMode('dub');
+                    if (showToast) showToast('🎙️ Switched to English Dubbed Audio', 'info');
+                    if (onStartWatching) onStartWatching(anime, episode.number, true, 'dub');
+                  }}
+                >
+                  DUB (ENG)
+                </button>
+                <button
+                  className={`audio-pill audio-pill--hindi ${audioMode === 'hindi' ? 'active' : ''}`}
+                  onClick={() => {
+                    const isHindiOk = hasHindiDubAvailable(anime.title, anime.japaneseTitle);
+                    if (!isHindiOk) {
+                      if (showToast) showToast('ℹ️ Hindi Dub is currently unavailable for this anime. It will be added in future updates!', 'info');
+                      return;
+                    }
+                    if (setAudioMode) setAudioMode('hindi');
+                    if (showToast) showToast('🇮🇳 Switched to Hindi Dub Audio!', 'info');
+                    if (onStartWatching) onStartWatching(anime, episode.number, true, 'hindi');
+                  }}
+                >
+                  🇮🇳 HINDI DUB
+                  {hasHindiDubAvailable(anime.title, anime.japaneseTitle) && (
+                    <span className="hindi-badge">Available</span>
+                  )}
+                </button>
+              </div>
+            </div>
+
             {episode.sources && episode.sources.length > 1 && (
               <div className="server-selector" style={{ marginBottom: '1.25rem' }}>
                 <span style={{ fontSize: '0.85rem', fontWeight: '600', color: 'var(--text-secondary)' }}>

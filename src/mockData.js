@@ -9,6 +9,21 @@ export const animeCategories = [
 
 export const recentReleases = [];
 
+// List of anime series known to have official/popular Hindi Dubs
+export const HINDI_DUB_ANIME_KEYWORDS = [
+  'naruto', 'dragon ball', 'dragonball', 'demon slayer', 'kimetsu', 'jujutsu kaisen',
+  'solo leveling', 'chainsaw man', 'my hero academia', 'boku no hero',
+  'spy x family', 'blue lock', 'kaiju', 'wind breaker', 'black clover',
+  'one piece', 'death note', 'tokyo revengers', 'monster', 'ranking of kings',
+  'iruma-kun', 'iruma', 'shin-chan', 'shinchan', 'doraemon', 'pokemon', 'pokémon',
+  'beyblade', 'detective conan', 'attack on titan'
+];
+
+export function hasHindiDubAvailable(title = '', japaneseTitle = '') {
+  const combined = `${title || ''} ${japaneseTitle || ''}`.toLowerCase();
+  return HINDI_DUB_ANIME_KEYWORDS.some(kw => combined.includes(kw));
+}
+
 // ─────────────────────────────────────────
 // AniList GraphQL helper
 // ─────────────────────────────────────────
@@ -334,7 +349,8 @@ export const api = {
   // Fetch streaming sources for an episode
   // anilistId: AniList ID (for HiAnime primary lookup)
   // seasonNum: season number (for AnimeKai fallback filtering)
-  getEpisodeSources: async (episodeId, animeTitle, japaneseTitle, episodeNumber, anilistId = null, seasonNum = null) => {
+  // audioMode: 'sub' | 'dub' | 'hindi'
+  getEpisodeSources: async (episodeId, animeTitle, japaneseTitle, episodeNumber, anilistId = null, seasonNum = null, audioMode = 'sub') => {
     const configError = getBackendConfigError();
     if (configError) {
       return {
@@ -345,6 +361,8 @@ export const api = {
       };
     }
 
+    const dubParam = audioMode === 'hindi' ? '&dub=hindi' : audioMode === 'dub' ? '&dub=eng' : '';
+
     // ═══════════════════════════════════════════════
     // PROVIDER 1 (PRIMARY): HiAnime via AniList ID
     // Deterministic: AniList ID → exact season page
@@ -353,9 +371,9 @@ export const api = {
     // ═══════════════════════════════════════════════
     if (anilistId) {
       try {
-        console.log(`[API] HiAnime primary: AniList ID ${anilistId} Episode ${episodeNumber}`);
+        console.log(`[API] HiAnime primary (${audioMode}): AniList ID ${anilistId} Episode ${episodeNumber}`);
         const response = await fetch(
-          backendApi(`/hianime/watch?anilistId=${encodeURIComponent(anilistId)}&episode=${episodeNumber}`)
+          backendApi(`/hianime/watch?anilistId=${encodeURIComponent(anilistId)}&episode=${episodeNumber}${dubParam}`)
         );
         if (response.ok) {
           const data = await response.json();
@@ -366,6 +384,7 @@ export const api = {
               type: 'hls',
               sources: data.sources,
               subtitles: data.subtitles || [],
+              audioMode: audioMode
             };
           }
         }
@@ -382,9 +401,9 @@ export const api = {
     if (titleToSearch) {
       try {
         const seasonParam = seasonNum ? `&season=${seasonNum}` : '';
-        console.log(`[API] AnimeKai fallback: "${titleToSearch}" S${seasonNum ?? '?'} E${episodeNumber}`);
+        console.log(`[API] AnimeKai fallback (${audioMode}): "${titleToSearch}" S${seasonNum ?? '?'} E${episodeNumber}`);
         const response = await fetch(
-          backendApi(`/gogoanime/watch?title=${encodeURIComponent(titleToSearch)}&episode=${episodeNumber}${seasonParam}`)
+          backendApi(`/gogoanime/watch?title=${encodeURIComponent(titleToSearch)}&episode=${episodeNumber}${seasonParam}${dubParam}`)
         );
         if (response.ok) {
           const data = await response.json();
