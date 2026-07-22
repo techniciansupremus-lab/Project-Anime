@@ -58,6 +58,7 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
   const isIframe = Boolean(source?.iframeSrc);
   const streamUrl = source?.url;
   const sourceError = source?.error;
+  const preferredAudioLang = source?.preferredAudioLang || (source?.audioMode === 'hindi' ? 'hin' : null);
 
   // ── AniSkip fetch ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -179,6 +180,20 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
         setCurrentQuality(-1); // Start on Auto
       });
 
+      hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (_, data) => {
+        if (!preferredAudioLang) return;
+        const targetLang = preferredAudioLang.toLowerCase();
+        const tracks = data.audioTracks || hls.audioTracks || [];
+        const targetIndex = tracks.findIndex(track => {
+          const lang = (track.lang || track.language || '').toLowerCase();
+          const name = (track.name || '').toLowerCase();
+          return lang === targetLang || name.includes('hindi');
+        });
+        if (targetIndex >= 0 && hls.audioTrack !== targetIndex) {
+          hls.audioTrack = targetIndex;
+        }
+      });
+
       hls.loadSource(streamUrl);
       hls.attachMedia(video);
 
@@ -208,7 +223,7 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
     return () => {
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
     };
-  }, [source, isIframe, streamUrl, sourceError]);
+  }, [source, isIframe, streamUrl, sourceError, preferredAudioLang]);
 
   // ── CC (subtitles) ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -522,18 +537,21 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
 
   // ── Iframe Fallback ───────────────────────────────────────────────────────
   if (isIframe) {
+    const iframeLabel = source?.language || (source?.audioMode === 'hindi' ? 'Hindi Dub' : 'Embedded Player');
+
     return (
       <div className="player-wrapper">
         <div className="iframe-badge">
           <Globe size={14} />
-          <span>English Sub</span>
+          <span>{iframeLabel}</span>
         </div>
         <iframe
           src={source.iframeSrc}
           className="player-iframe"
           allowFullScreen
-          allow="autoplay; encrypted-media; picture-in-picture"
+          allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
           referrerPolicy="no-referrer"
+          sandbox={source?.iframeSandbox || undefined}
           title="Episode player"
           style={{ width: '100%', height: '100%', border: 'none', position: 'absolute', top: 0, left: 0 }}
         />

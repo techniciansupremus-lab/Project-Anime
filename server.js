@@ -82,15 +82,28 @@ app.get('/api/m3u8-proxy', async (req, res) => {
       responseType: 'text',
     });
 
-    const baseUrl = decodedUrl.substring(0, decodedUrl.lastIndexOf('/') + 1);
-
     const host = publicHost(req);
+    const resolveManifestUrl = (value) => new URL(value, decodedUrl).toString();
+    const proxyManifestUrl = (value) =>
+      `${host}/api/m3u8-proxy?url=${encodeURIComponent(resolveManifestUrl(value))}&referer=${encodeURIComponent(decodedRef)}`;
+    const proxySegmentUrl = (value) =>
+      `${host}/api/ts-proxy?url=${encodeURIComponent(resolveManifestUrl(value))}&referer=${encodeURIComponent(decodedRef)}`;
+
     const rewritten = data.split('\n').map(line => {
       const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) return line;
+      if (!trimmed) return line;
+      if (trimmed.startsWith('#')) {
+        return line.replace(/URI="([^"]+)"/g, (match, uri) => {
+          if (!uri || uri.startsWith('data:')) return match;
+          const proxied = uri.includes('.m3u8') || trimmed.startsWith('#EXT-X-MEDIA')
+            ? proxyManifestUrl(uri)
+            : proxySegmentUrl(uri);
+          return `URI="${proxied}"`;
+        });
+      }
 
       // Resolve relative URL
-      const abs = trimmed.startsWith('http') ? trimmed : baseUrl + trimmed;
+      const abs = resolveManifestUrl(trimmed);
 
       // Sub-playlists (.m3u8) → recurse through this same proxy
       if (abs.includes('.m3u8')) {
@@ -188,6 +201,7 @@ const CACHE_TTL = 60 * 60 * 1000; // 1 hour
 // Stream URL cache: "slug::epN" → { streamData, timestamp }
 const streamCache = new Map();
 const STREAM_CACHE_TTL = 20 * 60 * 1000; // 20 minutes
+const hindiStreamCache = new Map();
 
 // ─────────────────────────────────────────────────────
 // Jikan episode cache: "malId:page" -> { data, timestamp }
@@ -704,6 +718,70 @@ function extractHindiIframe(html) {
   return found;
 }
 
+function getHindiPlayerId(iframeSrc) {
+  try {
+    const url = new URL(iframeSrc);
+    const match = url.pathname.match(/\/video\/([^/?#]+)/i);
+    return match?.[1] || null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveHindiDirectStream(iframeSrc, episodeUrl, req) {
+  const playerId = getHindiPlayerId(iframeSrc);
+  if (!playerId) return null;
+
+  const cacheKey = `${playerId}::hls`;
+  const cached = hindiStreamCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < STREAM_CACHE_TTL) {
+    return cached.data;
+  }
+
+  try {
+    const iframeUrl = new URL(iframeSrc);
+    const playerOrigin = iframeUrl.origin;
+    const endpoint = `${playerOrigin}/player/index.php?data=${encodeURIComponent(playerId)}&do=getVideo`;
+    const referer = iframeSrc;
+    const body = new URLSearchParams({
+      hash: playerId,
+      r: episodeUrl || HINDI_ANIME_BASE + '/'
+    }).toString();
+
+    const { data } = await axios.post(endpoint, body, {
+      ...AXIOS_OPTS,
+      timeout: 12000,
+      headers: {
+        ...AXIOS_OPTS.headers,
+        'Accept': '*/*',
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Origin': playerOrigin,
+        'Referer': referer,
+      },
+      responseType: 'text',
+    });
+
+    const payload = typeof data === 'string' ? JSON.parse(data) : data;
+    const rawStreamUrl = payload?.videoSource || payload?.securedLink;
+    if (!payload?.hls || !rawStreamUrl) return null;
+
+    const streamUrl = `${publicHost(req)}/api/m3u8-proxy?url=${encodeURIComponent(rawStreamUrl)}&referer=${encodeURIComponent(referer)}`;
+    const direct = {
+      type: 'hls',
+      streamUrl,
+      rawStreamUrl,
+      image: payload.videoImage || null,
+      headers: { Referer: referer },
+    };
+    hindiStreamCache.set(cacheKey, { data: direct, timestamp: Date.now() });
+    return direct;
+  } catch (err) {
+    console.warn('[HINDI] Direct stream extraction failed:', err.message);
+    return null;
+  }
+}
+
 app.get('/api/hindi/watch', async (req, res) => {
   const { title } = req.query;
   const episodeNum = parseInt(req.query.episode, 10) || 1;
@@ -749,11 +827,30 @@ app.get('/api/hindi/watch', async (req, res) => {
       });
     }
 
-    console.log(`[HINDI] Ready: ${anime.title} E${episodeNum} -> ${iframeSrc}`);
+    const directStream = await resolveHindiDirectStream(iframeSrc, episode.link, req);
+    if (directStream?.streamUrl) {
+      console.log(`[HINDI] Ready: ${anime.title} E${episodeNum} -> direct HLS`);
+      return res.json({
+        provider: 'hindidubanime',
+        type: 'hls',
+        streamUrl: directStream.streamUrl,
+        headers: directStream.headers,
+        poster: directStream.image,
+        language: 'Hindi Dub',
+        audioMode: 'hindi',
+        matchedTitle: anime.title,
+        episodeTitle: episode.title,
+        episodeUrl: episode.link,
+        iframeSrc,
+      });
+    }
+
+    console.log(`[HINDI] Ready: ${anime.title} E${episodeNum} -> iframe fallback`);
     res.json({
       provider: 'hindidubanime',
       type: 'iframe',
       iframeSrc,
+      iframeSandbox: 'allow-scripts allow-same-origin allow-forms allow-presentation',
       language: 'Hindi Dub',
       audioMode: 'hindi',
       matchedTitle: anime.title,

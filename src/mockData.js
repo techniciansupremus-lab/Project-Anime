@@ -389,12 +389,34 @@ export const api = {
         );
         if (response.ok) {
           const data = await response.json();
+          if (data.type === 'hls' && data.streamUrl) {
+            console.log(`[API] HindiDubAnime HLS stream`);
+            return {
+              provider: 'hindidubanime',
+              type: 'hls',
+              sources: [{
+                url: data.streamUrl,
+                isM3U8: true,
+                quality: 'Hindi Dub',
+                language: data.language || 'Hindi Dub',
+                audioMode: 'hindi',
+                preferredAudioLang: 'hin'
+              }],
+              subtitles: [],
+              headers: data.headers || {},
+              language: data.language || 'Hindi Dub',
+              audioMode: 'hindi',
+              matchedTitle: data.matchedTitle,
+              episodeUrl: data.episodeUrl
+            };
+          }
           if (data.type === 'iframe' && data.iframeSrc) {
             console.log(`[API] ✅ HindiDubAnime iframe stream`);
             return {
               provider: 'hindidubanime',
               type: 'iframe',
               iframeSrc: data.iframeSrc,
+              iframeSandbox: data.iframeSandbox,
               sources: [],
               subtitles: [],
               language: 'Hindi Dub',

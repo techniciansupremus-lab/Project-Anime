@@ -1090,6 +1090,9 @@ function App() {
         sources: result.sources || [],
         subtitles: result.subtitles || [],
         iframeSrc: result.iframeSrc || null,
+        iframeSandbox: result.iframeSandbox || null,
+        language: result.language || null,
+        audioMode: result.audioMode || targetAudioMode,
         provider: result.provider,
         error: result.error || null
       });
@@ -1117,9 +1120,12 @@ function App() {
     : trending.filter((anime) => anime.genres?.includes(activeCategory));
 
   const activeFeatured = featured[carouselIndex];
-  const playerSource = currentEpisode?.iframeSrc
-    ? currentEpisode
-    : (currentEpisode?.sources?.[currentSourceIndex] || currentEpisode?.sources?.[0] || currentEpisode);
+  const playerSource = React.useMemo(() => {
+    const selectedSource = currentEpisode?.sources?.[currentSourceIndex] || currentEpisode?.sources?.[0];
+    return selectedSource
+      ? { ...currentEpisode, ...selectedSource }
+      : currentEpisode;
+  }, [currentEpisode, currentSourceIndex]);
 
   // Watch/read views should hide the bottom nav to avoid interference
   const isImmersiveView = ['watch', 'drama-watch', 'movie-watch', 'manhwa-read'].includes(view);
