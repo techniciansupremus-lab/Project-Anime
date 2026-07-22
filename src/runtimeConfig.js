@@ -99,6 +99,5 @@ export function apiUrl(path) {
 }
 
 export function getBackendConfigError() {
-  if (getApiBase()) return '';
-  return 'Backend URL is not configured. Set VITE_API_BASE on Vercel or visit once with ?apiBase=https://your-backend.example.com.';
+  return '';
 }
