@@ -1063,6 +1063,14 @@ function App() {
 
       if (requestId !== watchRequestRef.current) return;
 
+      if ((targetAudioMode === 'hindi' || targetAudioMode === 'dub') && (result.provider === 'unavailable' || (!result.sources?.length && !result.iframeSrc))) {
+        const langName = targetAudioMode === 'hindi' ? 'Hindi Dub' : 'English Dub';
+        showToast(`ℹ️ ${langName} stream not found on servers for this episode. Reverting to Japanese audio.`, 'info');
+        setAudioMode('sub');
+        startWatching(anime, episodeNum, true, 'sub');
+        return;
+      }
+
       setCurrentEpisode({
         ...episode,
         sources: result.sources || [],

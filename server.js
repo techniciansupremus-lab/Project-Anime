@@ -779,7 +779,7 @@ app.get('/api/gogoanime/watch', async (req, res) => {
     }
 
     // Check stream cache first — avoid re-extracting the HLS URL on repeat clicks
-    const streamCacheKey = `${cached.slug}::ep${episodeNum}`;
+    const streamCacheKey = `${cached.slug}::ep${episodeNum}::${dub || 'sub'}`;
     const cachedStream = streamCache.get(streamCacheKey);
     if (cachedStream && Date.now() - cachedStream.timestamp < STREAM_CACHE_TTL) {
       console.log(`[ANIMEKAI] ⚡ Stream cache hit for ${streamCacheKey}`);
