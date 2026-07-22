@@ -1554,22 +1554,25 @@ app.get('/api/movies/info/:id', async (req, res) => {
 // Start server
 
 // ─────────────────────────────────────────────────────
-app.listen(PORT, () => {
-  console.log(`\n🚀 EetNet backend running on http://localhost:${PORT}`);
-  console.log(`   PRIMARY:  AnimeKai (HTTP scraper — English subs) ⚡`);
-  console.log(`   FALLBACK: AnimeUnity (Consumet — Italian subs)`);
-  console.log(`   DRAMA:    KissKH via enc-dec.app (English subs) 🎬`);
-  console.log(`   Endpoints:`);
-  console.log(`     GET /api/info/:anilistId                     — anime details + episode list`);
-  console.log(`     GET /api/gogoanime/watch?title=X&episode=N   — AnimeKai English sub stream ⚡`);
-  console.log(`     GET /api/watch/:episodeId                    — AnimeUnity fallback stream`);
-  console.log(`     GET /api/search?q=<query>                    — AnimeKai search`);
-  console.log(`     GET /api/drama/list?type=1&page=1            — KissKH drama catalog 🎬`);
-  console.log(`     GET /api/drama/search?q=<query>              — KissKH drama search`);
-  console.log(`     GET /api/drama/info/:dramaId                 — episode list for a drama`);
-  console.log(`     GET /api/drama/stream/:episodeId             — stream URL + subtitles`);
-  console.log(`     GET /api/drama/stream/:episodeId             — stream URL + subtitles`);
-  console.log(`     GET /api/drama/subtitle?url=<url>            — decode KissKH subtitle`);
-  console.log(`     GET /api/m3u8-proxy?url=<url>                — HLS manifest proxy`);
-  console.log(`     GET /api/ts-proxy?url=<url>                  — HLS segment proxy\n`);
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`\n🚀 EetNet backend running on http://localhost:${PORT}`);
+    console.log(`   PRIMARY:  AnimeKai (HTTP scraper — English subs) ⚡`);
+    console.log(`   FALLBACK: AnimeUnity (Consumet — Italian subs)`);
+    console.log(`   DRAMA:    KissKH via enc-dec.app (English subs) 🎬`);
+    console.log(`   Endpoints:`);
+    console.log(`     GET /api/info/:anilistId                     — anime details + episode list`);
+    console.log(`     GET /api/gogoanime/watch?title=X&episode=N   — AnimeKai English sub stream ⚡`);
+    console.log(`     GET /api/watch/:episodeId                    — AnimeUnity fallback stream`);
+    console.log(`     GET /api/search?q=<query>                    — AnimeKai search`);
+    console.log(`     GET /api/drama/list?type=1&page=1            — KissKH drama catalog 🎬`);
+    console.log(`     GET /api/drama/search?q=<query>              — KissKH drama search`);
+    console.log(`     GET /api/drama/info/:dramaId                 — episode list for a drama`);
+    console.log(`     GET /api/drama/stream/:episodeId             — stream URL + subtitles`);
+    console.log(`     GET /api/drama/subtitle?url=<url>            — decode KissKH subtitle`);
+    console.log(`     GET /api/m3u8-proxy?url=<url>                — HLS manifest proxy`);
+    console.log(`     GET /api/ts-proxy?url=<url>                  — HLS segment proxy\n`);
+  });
+}
+
+export default app;
