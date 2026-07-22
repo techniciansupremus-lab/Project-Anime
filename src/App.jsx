@@ -3500,6 +3500,7 @@ function MovieDetailView({ movie, isLoading, onBack, onWatch }) {
 
 function MovieWatchView({ movie, onBack, onProgress }) {
   const [movieData, setMovieData] = React.useState(movie);
+  const [activeServerId, setActiveServerId] = React.useState('vidsrc-to');
 
   // Dynamically resolve IMDb ID if not already present on the movie object
   React.useEffect(() => {
@@ -3522,14 +3523,14 @@ function MovieWatchView({ movie, onBack, onProgress }) {
   // Verified high-availability movie embed providers (supporting IMDb & TMDB fallbacks)
   const servers = [
     {
-      id: 'vidsrc-me',
-      name: 'Server 1 (VidSrc Pro - HD)',
-      getUrl: () => imdbId ? `https://vidsrc.me/embed/movie?imdb=${imdbId}` : `https://vidsrc.me/embed/movie?tmdb=${tmdbId}`
+      id: 'vidsrc-to',
+      name: 'Server 1 (VidSrc Fast)',
+      getUrl: () => `https://vidsrc.to/embed/movie/${tmdbId}`
     },
     {
-      id: 'vidsrc-to',
-      name: 'Server 2 (VidSrc TO)',
-      getUrl: () => `https://vidsrc.to/embed/movie/${activeId}`
+      id: 'vidsrc-me',
+      name: 'Server 2 (VidSrc Pro - HD)',
+      getUrl: () => imdbId ? `https://vidsrc.me/embed/movie?imdb=${imdbId}` : `https://vidsrc.me/embed/movie?tmdb=${tmdbId}`
     },
     {
       id: 'vidsrc-in',
@@ -3553,7 +3554,8 @@ function MovieWatchView({ movie, onBack, onProgress }) {
     }
   ];
 
-  const [activeServer, setActiveServer] = React.useState(servers[0]);
+  const currentServer = servers.find(s => s.id === activeServerId) || servers[0];
+  const iframeSrc = currentServer.getUrl();
 
   // Track progress periodically
   React.useEffect(() => {
@@ -3572,7 +3574,8 @@ function MovieWatchView({ movie, onBack, onProgress }) {
 
       <div className="drama-player-wrap" style={{ aspectRatio: '16/9', background: '#000' }}>
         <iframe
-          src={activeServer.getUrl()}
+          key={activeServerId + '-' + (imdbId || 'noimdb')}
+          src={iframeSrc}
           title={movie.title}
           style={{ width: '100%', height: '100%', border: 'none' }}
           allowFullScreen
@@ -3587,8 +3590,8 @@ function MovieWatchView({ movie, onBack, onProgress }) {
         {servers.map(s => (
           <button
             key={s.id}
-            className={`drama-sub-btn ${activeServer.id === s.id ? 'active' : ''}`}
-            onClick={() => setActiveServer(s)}
+            className={`drama-sub-btn ${activeServerId === s.id ? 'active' : ''}`}
+            onClick={() => setActiveServerId(s.id)}
           >
             {s.name}
           </button>
