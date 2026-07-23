@@ -556,29 +556,31 @@ function normalizeProviderTitle(value = '') {
 function providerTitleScore(providerTitle, targetTitle, seasonNum = null) {
   const providerClean = normalizeProviderTitle(providerTitle);
   const targetClean = normalizeProviderTitle(targetTitle);
-  const targetTokens = targetClean.split(/\s+/).filter(token => token.length >= 2 || /\d/.test(token));
+  
+  // Use primary title (before colon/dash) for token matching so subtitles like "Kimetsu no Yaiba" don't lower overlap ratio
+  const primaryTarget = targetTitle.split(/[:\-–—]/)[0].trim();
+  const primaryClean = normalizeProviderTitle(primaryTarget);
+
+  const targetTokens = primaryClean.split(/\s+/).filter(token => token.length >= 2 || /\d/.test(token));
   const providerTokens = new Set(providerClean.split(/\s+/).filter(Boolean));
   const overlap = targetTokens.filter(token => providerTokens.has(token)).length;
 
   if (targetTokens.length > 0 && overlap === 0) return 0;
+  if (targetTokens.length >= 2 && overlap / targetTokens.length < 0.5) return 0;
 
-  const score = titleMatchScore(
-    providerClean,
-    targetClean
-  );
+  let score = titleMatchScore(providerClean, primaryClean);
   const title = decodeHtmlText(providerTitle).toLowerCase();
-  let adjusted = score;
   const seasonMatch = title.match(/\bseason\s*(\d+)\b/i);
 
   if (seasonNum && seasonNum > 1) {
-    if (seasonMatch && parseInt(seasonMatch[1], 10) === seasonNum) adjusted += 25;
-    if (seasonMatch && parseInt(seasonMatch[1], 10) !== seasonNum) adjusted -= 20;
+    if (seasonMatch && parseInt(seasonMatch[1], 10) === seasonNum) score += 25;
+    if (seasonMatch && parseInt(seasonMatch[1], 10) !== seasonNum) score -= 20;
   } else if (seasonMatch && parseInt(seasonMatch[1], 10) > 1) {
-    adjusted -= 15;
+    score -= 15;
   }
 
-  if (/\bhindi\s+dub/i.test(title)) adjusted += 15;
-  return adjusted;
+  if (/\bhindi\s+dub/i.test(title)) score += 15;
+  return score;
 }
 
 async function hindiProviderJson(path, params = {}) {
