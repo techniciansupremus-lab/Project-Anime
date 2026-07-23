@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertCircle, Info, Play, Star, X, ArrowLeft, Flame, Trophy, Sparkles, Compass, History, Tv } from 'lucide-react';
+import { AlertCircle, Info, Play, Star, X, ArrowLeft, Flame, Trophy, Sparkles, Compass, History, Tv, Globe } from 'lucide-react';
 import Navbar, { MobileBottomNav } from './components/Navbar';
 import SectionSlider from './components/SectionSlider';
 import AnimeCard from './components/AnimeCard';
@@ -1117,6 +1117,8 @@ function App() {
 
   const filteredTrending = activeCategory === 'All'
     ? trending
+    : activeCategory === 'Hindi'
+    ? trending.filter((anime) => anime.hasHindiDub || hasHindiDubAvailable(anime.title, anime.japaneseTitle))
     : trending.filter((anime) => anime.genres?.includes(activeCategory));
 
   const activeFeatured = featured[carouselIndex];
@@ -1622,6 +1624,7 @@ function HomeView({
   };
 
   const popularNow = filteredTrending.slice(0, 10);
+  const hindiAnimeRow = filteredTrending.filter(a => a.hasHindiDub || hasHindiDubAvailable(a.title, a.japaneseTitle));
   const spotlightItem = filteredTrending.find(a => a.id !== activeFeatured?.id) || filteredTrending[0];
   const bentoItems = filteredTrending.filter(a => a.id !== activeFeatured?.id && a.id !== spotlightItem?.id).slice(0, 4);
   const classics = filteredTrending.filter(a => a.id !== activeFeatured?.id && a.id !== spotlightItem?.id && !bentoItems.some(b => b.id === a.id)).slice(0, 5);
@@ -1700,6 +1703,16 @@ function HomeView({
           />
         )}
 
+        {/* Hindi Dubbed Anime Row */}
+        {hindiAnimeRow.length > 0 && (
+          <NetflixRow
+            title="Hindi Dubbed Anime"
+            icon={<Globe className="hv-icon" size={20} style={{ color: '#ff4757' }} />}
+            items={hindiAnimeRow}
+            onAnimeClick={(a) => onAnimeClick(a.id ?? a)}
+          />
+        )}
+
         {/* Popular */}
         <NetflixRow
           title="Popular on EetNet"
@@ -1752,6 +1765,9 @@ function HomeView({
               <div className="bento-card bento-card--large" onClick={() => onAnimeClick(spotlightItem.id)}>
                 <div className="bento-card__bg" style={{ backgroundImage: `url(${spotlightItem.bannerImage || spotlightItem.coverImage})` }} />
                 <div className="bento-card__overlay" />
+                {(spotlightItem.hasHindiDub || hasHindiDubAvailable(spotlightItem.title, spotlightItem.japaneseTitle)) && (
+                  <div className="bento-hindi-badge">Hindi</div>
+                )}
                 <div className="bento-card__content">
                   <div className="bento-badge">✦ Spotlight Pick</div>
                   <h3 className="bento-title">{spotlightItem.title}</h3>
@@ -1774,21 +1790,25 @@ function HomeView({
 
               {/* Medium mosaic cards */}
               <div className="bento-medium-wrapper">
-                {bentoItems.map((item) => (
-                  <div key={item.id} className="bento-card bento-card--medium" onClick={() => onAnimeClick(item.id)}>
-                    <img src={item.coverImage} alt={item.title} className="bento-card__img" loading="lazy" />
-                    <div className="bento-card__info">
-                      <h4 className="bento-card__title">{item.title}</h4>
-                      <div className="bento-card__meta">
-                        <span className="bento-card__rating">★ {item.rating}</span>
-                        <span className="bento-card__type">{item.type}</span>
+                {bentoItems.map((item) => {
+                  const isHindi = item.hasHindiDub || hasHindiDubAvailable(item.title, item.japaneseTitle);
+                  return (
+                    <div key={item.id} className="bento-card bento-card--medium" onClick={() => onAnimeClick(item.id)}>
+                      <img src={item.coverImage} alt={item.title} className="bento-card__img" loading="lazy" />
+                      {isHindi && <div className="bento-hindi-badge">Hindi</div>}
+                      <div className="bento-card__info">
+                        <h4 className="bento-card__title">{item.title}</h4>
+                        <div className="bento-card__meta">
+                          <span className="bento-card__rating">★ {item.rating}</span>
+                          <span className="bento-card__type">{item.type}</span>
+                        </div>
+                      </div>
+                      <div className="bento-card__hover-overlay">
+                        <Play size={28} fill="white" style={{ color: 'white' }} />
                       </div>
                     </div>
-                    <div className="bento-card__hover-overlay">
-                      <Play size={28} fill="white" style={{ color: 'white' }} />
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               {/* Sidebar list */}
@@ -1851,6 +1871,8 @@ function NetflixRow({ title, icon, items, onAnimeClick, progress = false, ranked
 }
 
 function NetflixTile({ anime, rank, progress, onClick }) {
+  const isHindi = anime.hasHindiDub || hasHindiDubAvailable(anime.title, anime.japaneseTitle);
+
   return (
     <button className={`netflix-tile ${rank ? 'ranked-tile' : ''}`} onClick={onClick}>
       {rank && <span className="tile-rank">{rank}</span>}

@@ -1,8 +1,10 @@
 import React from 'react';
 import { Star } from 'lucide-react';
+import { hasHindiDubAvailable } from '../mockData';
 
 export default function AnimeCard({ anime, onClick }) {
-  const { title, coverImage, rating, type, genres } = anime;
+  const { title, coverImage, rating, type, genres, hasHindiDub, japaneseTitle } = anime;
+  const isHindi = hasHindiDub || hasHindiDubAvailable(title, japaneseTitle);
 
   return (
     <div className="anime-card" onClick={onClick}>
@@ -13,6 +15,7 @@ export default function AnimeCard({ anime, onClick }) {
           className="card-img"
           loading="lazy"
         />
+        {isHindi && <div className="card-hindi-badge">Hindi</div>}
         {type && <div className="card-badge">{type}</div>}
         {rating && (
           <div className="card-rating">

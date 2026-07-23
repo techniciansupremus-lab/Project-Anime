@@ -435,6 +435,35 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+/* Top-Left Hindi Badge for Bento Flashcards & Anime Cards */
+.card-hindi-badge,
+.tile-hindi-badge,
+.bento-hindi-badge {
+  position: absolute;
+  top: 0.6rem;
+  left: 0.6rem;
+  background: linear-gradient(135deg, #ff4757, #ff6b81);
+  color: #ffffff;
+  padding: 0.22rem 0.55rem;
+  border-radius: 6px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  z-index: 20;
+  box-shadow: 0 2px 8px rgba(255, 71, 87, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+  line-height: 1;
+}
+
+.card-img-wrapper .card-hindi-badge ~ .card-badge {
+  top: 0.6rem;
+  left: auto;
+  right: 0.6rem;
+}
+
 .card-rating {
   position: absolute;
   bottom: 0.75rem;

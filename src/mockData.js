@@ -4,7 +4,7 @@ const ANILIST_API = 'https://graphql.anilist.co';
 const backendApi = (path) => apiUrl(`/api${path.startsWith('/') ? path : `/${path}`}`);
 
 export const animeCategories = [
-  "Action", "Adventure", "Fantasy", "Sci-Fi", "Romance", "Shounen", "Drama", "Slice of Life", "Mystery"
+  "Hindi", "Action", "Adventure", "Fantasy", "Sci-Fi", "Romance", "Shounen", "Drama", "Slice of Life", "Mystery"
 ];
 
 export const recentReleases = [];
@@ -16,7 +16,14 @@ export const HINDI_DUB_ANIME_KEYWORDS = [
   'spy x family', 'blue lock', 'kaiju', 'wind breaker', 'black clover',
   'one piece', 'death note', 'tokyo revengers', 'monster', 'ranking of kings',
   'iruma-kun', 'iruma', 'shin-chan', 'shinchan', 'doraemon', 'pokemon', 'pokémon',
-  'beyblade', 'detective conan', 'attack on titan'
+  'beyblade', 'detective conan', 'attack on titan', 'wistoria', 'zom 100', 'dr. stone',
+  'dr stone', 'tokyo ghoul', 'overlord', 'eminence in shadow', 're:zero', 'mushoku tensei',
+  'slime', 'silent voice', 'pancreas', 'eighty six', '86', 'rent a girlfriend', 'angel next door',
+  'hokkaido gals', 'sakamoto days', 'vampire dormitory', 'tsukimichi', 'cheat skill',
+  'wrong way to use healing magic', 'iron man', 'overflow', 'yamada-kun', 'dragon raja',
+  'grand blue', 'marriagetoxin', 'witch hat atelier', 'detective is already dead',
+  'viral hit', 'high school dxd', 'alya', 'tower of god', 'reborn to master',
+  'tunnel to summer', 'release that witch'
 ];
 
 export const HINDI_DUB_PROVIDER_READY = true;
@@ -62,17 +69,20 @@ async function fetchAniList(query, variables = {}) {
 // Map AniList media to our card format
 // ─────────────────────────────────────────
 function mapMediaToCard(media) {
+  const title = media.title.english || media.title.romaji || media.title.userPreferred;
+  const japaneseTitle = media.title.romaji;
   return {
     id: media.id.toString(),
-    title: media.title.english || media.title.romaji || media.title.userPreferred,
-    japaneseTitle: media.title.romaji,
+    title,
+    japaneseTitle,
     coverImage: media.coverImage?.extraLarge || media.coverImage?.large,
     bannerImage: media.bannerImage || media.coverImage?.extraLarge || media.coverImage?.large,
     rating: media.averageScore ? (media.averageScore / 10).toFixed(1) : "N/A",
     type: media.format || "TV",
     episodesCount: media.episodes || (media.nextAiringEpisode?.episode ? media.nextAiringEpisode.episode - 1 : null),
     genres: media.genres || [],
-    status: media.status || "UNKNOWN"
+    status: media.status || "UNKNOWN",
+    hasHindiDub: hasHindiDubAvailable(title, japaneseTitle)
   };
 }
 
