@@ -36,6 +36,7 @@ function App() {
   const [tvShowsData, setTvShowsData] = useState({ featured: null, genres: {} });
   const [moviesData, setMoviesData] = useState({ featured: null, genres: {} });
   const [newPopularData, setNewPopularData] = useState({ featured: null, rows: {} });
+  const [hindiData, setHindiData] = useState({ featured: null, list: [] });
   const [myList, setMyList] = useState([]);
 
   // â”€â”€ Drama state â”€â”€
@@ -499,11 +500,25 @@ function App() {
       }).catch(() => {
         if (mounted) setPageLoading(false);
       });
+    } else if (view === 'hindi' && (!hindiData.list || hindiData.list.length === 0)) {
+      setPageLoading(true);
+      api.getHindiAnimeList().then((list) => {
+        if (mounted) {
+          setHindiData({
+            featured: list[0] || null,
+            list
+          });
+          setPageLoading(false);
+        }
+      }).catch((err) => {
+        console.warn('Failed to load Hindi anime catalog:', err);
+        if (mounted) setPageLoading(false);
+      });
     }
     return () => {
       mounted = false;
     };
-  }, [view, tvShowsData.featured, moviesData.featured, newPopularData.featured]);
+  }, [view, tvShowsData.featured, moviesData.featured, newPopularData.featured, hindiData.list]);
 
   // Load drama home when switching to dramas view
   useEffect(() => {
@@ -1230,9 +1245,10 @@ function App() {
 
             {view === 'hindi' && (
               <HindiView
-                hindiAnime={trending.filter(a => a.hasHindiDub || hasHindiDubAvailable(a.title, a.japaneseTitle))}
+                hindiAnime={hindiData.list.length > 0 ? hindiData.list : trending.filter(a => a.hasHindiDub || hasHindiDubAvailable(a.title, a.japaneseTitle))}
                 onAnimeClick={handleAnimeClick}
                 onStartWatching={startWatching}
+                isLoading={pageLoading}
               />
             )}
 
@@ -2652,22 +2668,13 @@ function CategoryGridView({
   );
 }
 
-function HindiView({ hindiAnime = [], onAnimeClick, onStartWatching }) {
-  const featuredItem = hindiAnime[0];
-
-  if (!hindiAnime || hindiAnime.length === 0) {
-    return (
-      <div className="container" style={{ marginTop: '6rem', minHeight: '60vh', textAlign: 'center' }}>
-        <Globe size={48} style={{ color: '#ff4757', marginBottom: '1rem' }} />
-        <h2 className="section-title">Hindi Dubbed Anime</h2>
-        <p style={{ color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-          No Hindi dubbed titles available right now. Check back soon!
-        </p>
-      </div>
-    );
+function HindiView({ hindiAnime = [], onAnimeClick, onStartWatching, isLoading = false }) {
+  if (isLoading || !hindiAnime || hindiAnime.length === 0) {
+    return <CategorySkeleton />;
   }
 
-  const actionHindi = hindiAnime.filter(a => a.genres?.includes('Action'));
+  const featuredItem = hindiAnime[0];
+  const actionHindi = hindiAnime.filter(a => a.genres?.includes('Action') || a.genres?.includes('Adventure'));
   const fantasyHindi = hindiAnime.filter(a => a.genres?.includes('Fantasy') || a.genres?.includes('Supernatural'));
 
   return (
@@ -2724,7 +2731,7 @@ function HindiView({ hindiAnime = [], onAnimeClick, onStartWatching }) {
         />
         {actionHindi.length > 0 && (
           <NetflixRow
-            title="Action Anime (Hindi Dubbed)"
+            title="Action &amp; Adventure (Hindi Dubbed)"
             icon={<Flame className="hv-icon" size={20} style={{ color: '#f97316' }} />}
             items={actionHindi}
             onAnimeClick={(a) => onAnimeClick(a.id ?? a)}

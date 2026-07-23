@@ -9,21 +9,25 @@ export const animeCategories = [
 
 export const recentReleases = [];
 
-// List of anime series known to have official/popular Hindi Dubs
+// List of anime series known to have official/popular Hindi Dubs (verified titles)
 export const HINDI_DUB_ANIME_KEYWORDS = [
-  'naruto', 'dragon ball', 'dragonball', 'demon slayer', 'kimetsu', 'jujutsu kaisen',
-  'solo leveling', 'chainsaw man', 'my hero academia', 'boku no hero',
-  'spy x family', 'blue lock', 'kaiju', 'wind breaker', 'black clover',
-  'one piece', 'death note', 'tokyo revengers', 'monster', 'ranking of kings',
-  'iruma-kun', 'iruma', 'shin-chan', 'shinchan', 'doraemon', 'pokemon', 'pokémon',
-  'beyblade', 'detective conan', 'attack on titan', 'wistoria', 'zom 100', 'dr. stone',
-  'dr stone', 'tokyo ghoul', 'overlord', 'eminence in shadow', 're:zero', 'mushoku tensei',
-  'slime', 'silent voice', 'pancreas', 'eighty six', '86', 'rent a girlfriend', 'angel next door',
-  'hokkaido gals', 'sakamoto days', 'vampire dormitory', 'tsukimichi', 'cheat skill',
-  'wrong way to use healing magic', 'iron man', 'overflow', 'yamada-kun', 'dragon raja',
-  'grand blue', 'marriagetoxin', 'witch hat atelier', 'detective is already dead',
-  'viral hit', 'high school dxd', 'alya', 'tower of god', 'reborn to master',
-  'tunnel to summer', 'release that witch'
+  'kaiju no. 8', 'kaiju no 8', 'kaijuu 8',
+  'wistoria',
+  'demon slayer', 'kimetsu no yaiba',
+  'zom 100',
+  'dr. stone', 'dr stone',
+  'tokyo ghoul',
+  'solo leveling',
+  'jujutsu kaisen',
+  'chainsaw man',
+  'black clover',
+  'attack on titan', 'shingeki no kyojin',
+  'my hero academia', 'boku no hero academia',
+  'tokyo revengers',
+  'spy x family', 'spyxfamily',
+  'wind breaker',
+  'blue lock',
+  'doraemon', 'shin-chan', 'shinchan', 'pokemon'
 ];
 
 export const HINDI_DUB_PROVIDER_READY = true;
@@ -214,6 +218,43 @@ export const api = {
     `);
     if (data?.Page?.media) return data.Page.media.map(mapMediaToDetail);
     return [];
+  },
+
+  // Dedicated verified Hindi Dubbed anime catalog
+  getHindiAnimeList: async () => {
+    const hindiTitles = [
+      "Demon Slayer: Kimetsu no Yaiba",
+      "Kaiju No. 8",
+      "Wistoria: Wand and Sword",
+      "Zom 100: Bucket List of the Dead",
+      "Dr. STONE",
+      "Tokyo Ghoul",
+      "Solo Leveling",
+      "Jujutsu Kaisen",
+      "Chainsaw Man",
+      "Black Clover",
+      "Attack on Titan",
+      "My Hero Academia",
+      "Tokyo Revengers",
+      "SPY x FAMILY",
+      "WIND BREAKER",
+      "BLUE LOCK"
+    ];
+
+    const results = await Promise.all(
+      hindiTitles.map(async (t) => {
+        const data = await fetchAniList(`
+          query ($search: String) {
+            Page(page: 1, perPage: 1) {
+              media(search: $search, type: ANIME) { ${MEDIA_FRAGMENT} }
+            }
+          }
+        `, { search: t });
+        return data?.Page?.media?.[0] ? mapMediaToDetail(data.Page.media[0]) : null;
+      })
+    );
+
+    return results.filter(Boolean).map(item => ({ ...item, hasHindiDub: true }));
   },
 
   // Fetch lists filtered by format and genre for custom category horizontal rows
