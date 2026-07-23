@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertCircle, Info, Play, Star, X, ArrowLeft, Flame, Trophy, Sparkles, Compass, History, Tv, Globe } from 'lucide-react';
+import { AlertCircle, Info, Play, Star, X, ArrowLeft, Flame, Trophy, Sparkles, Compass, History, Tv, Globe, ChevronLeft, ChevronRight } from 'lucide-react';
 import Navbar, { MobileBottomNav } from './components/Navbar';
 import SectionSlider from './components/SectionSlider';
 import AnimeCard from './components/AnimeCard';
@@ -1866,6 +1866,124 @@ function HomeView({
 }
 
 function NetflixRow({ title, icon, items, onAnimeClick, progress = false, ranked = false }) {
+  const sliderRef = useRef(null);
+  const [hoverZone, setHoverZone] = useState(null); // 'left' | 'right' | null
+  const [dwellProgress, setDwellProgress] = useState(0); // 0 to 100
+  const [isSliding, setIsSliding] = useState(false);
+
+  const dwellTimerRef = useRef(null);
+  const animFrameRef = useRef(null);
+  const hoverStartTimeRef = useRef(null);
+  const lastMousePosRef = useRef({ x: 0, y: 0 });
+
+  const stopAutoScroll = () => {
+    if (dwellTimerRef.current) clearInterval(dwellTimerRef.current);
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    dwellTimerRef.current = null;
+    animFrameRef.current = null;
+    hoverStartTimeRef.current = null;
+    setDwellProgress(0);
+    setHoverZone(null);
+    setIsSliding(false);
+  };
+
+  const startContinuousSlide = (direction) => {
+    setIsSliding(true);
+    const slideStep = () => {
+      const slider = sliderRef.current;
+      if (!slider) return;
+
+      const speed = direction === 'right' ? 7 : -7;
+      slider.scrollLeft += speed;
+
+      // Check boundary conditions
+      if (direction === 'right' && slider.scrollLeft >= slider.scrollWidth - slider.clientWidth - 2) {
+        stopAutoScroll();
+        return;
+      }
+      if (direction === 'left' && slider.scrollLeft <= 2) {
+        stopAutoScroll();
+        return;
+      }
+
+      animFrameRef.current = requestAnimationFrame(slideStep);
+    };
+
+    animFrameRef.current = requestAnimationFrame(slideStep);
+  };
+
+  const handleMouseMove = (e) => {
+    const slider = sliderRef.current;
+    if (!slider) return;
+
+    const rect = slider.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    const dist = Math.hypot(x - lastMousePosRef.current.x, y - lastMousePosRef.current.y);
+    lastMousePosRef.current = { x, y };
+
+    const width = rect.width;
+    const zoneWidth = Math.max(100, width * 0.15); // End 15% edge zone
+
+    let newZone = null;
+    if (x >= width - zoneWidth && slider.scrollLeft < slider.scrollWidth - slider.clientWidth - 5) {
+      newZone = 'right';
+    } else if (x <= zoneWidth && slider.scrollLeft > 5) {
+      newZone = 'left';
+    }
+
+    if (newZone !== hoverZone) {
+      stopAutoScroll();
+      if (newZone) {
+        setHoverZone(newZone);
+        hoverStartTimeRef.current = Date.now();
+
+        dwellTimerRef.current = setInterval(() => {
+          if (!hoverStartTimeRef.current) return;
+          const elapsed = Date.now() - hoverStartTimeRef.current;
+          const pct = Math.min(100, (elapsed / 3000) * 100);
+          setDwellProgress(pct);
+
+          if (elapsed >= 3000) {
+            clearInterval(dwellTimerRef.current);
+            dwellTimerRef.current = null;
+            startContinuousSlide(newZone);
+          }
+        }, 30);
+      }
+    } else if (hoverZone && dist > 150) {
+      stopAutoScroll();
+    }
+  };
+
+  const handleMouseLeave = () => {
+    stopAutoScroll();
+  };
+
+  const handleWheel = (e) => {
+    const slider = sliderRef.current;
+    if (!slider) return;
+    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+      slider.scrollLeft += e.deltaY;
+    }
+  };
+
+  const manualScroll = (direction) => {
+    stopAutoScroll();
+    const slider = sliderRef.current;
+    if (!slider) return;
+    const scrollAmount = slider.clientWidth * 0.75;
+    slider.scrollBy({
+      left: direction === 'right' ? scrollAmount : -scrollAmount,
+      behavior: 'smooth'
+    });
+  };
+
+  useEffect(() => {
+    return () => stopAutoScroll();
+  }, []);
+
   if (!items || items.length === 0) return null;
 
   return (
@@ -1875,20 +1993,53 @@ function NetflixRow({ title, icon, items, onAnimeClick, progress = false, ranked
           {icon && <span className="hv-title-accent">{icon}</span>} {title}
         </h2>
         <span className="hv-section-line" />
+
+        {hoverZone && (
+          <div className="auto-slide-banner">
+            <span>{isSliding ? 'Auto-sliding...' : `Hold cursor at edge to slide (${Math.max(1, Math.ceil((3000 - (dwellProgress / 100) * 3000) / 1000))}s)`}</span>
+            <div className="auto-slide-progress-bar">
+              <div className="auto-slide-progress-fill" style={{ width: `${dwellProgress}%` }} />
+            </div>
+          </div>
+        )}
       </div>
-      <div className={`netflix-slider ${ranked ? 'ranked-row' : ''}`}>
-        {items.map((anime, index) => (
-          <NetflixTile
-            key={`${title}-${anime.id}`}
-            anime={anime}
-            rank={ranked ? index + 1 : null}
-            progress={progress
-              ? (anime.progressPercent !== undefined ? anime.progressPercent : ((index + 2) * 13) % 88)
-              : null
-            }
-            onClick={() => onAnimeClick(anime)}
-          />
-        ))}
+
+      <div
+        className="row-container-wrapper"
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        onWheel={handleWheel}
+      >
+        <button
+          className="row-scroll-btn row-scroll-btn--left"
+          onClick={() => manualScroll('left')}
+          title="Scroll Left"
+        >
+          <ChevronLeft size={22} />
+        </button>
+
+        <div ref={sliderRef} className={`netflix-slider ${ranked ? 'ranked-row' : ''}`}>
+          {items.map((anime, index) => (
+            <NetflixTile
+              key={`${title}-${anime.id}`}
+              anime={anime}
+              rank={ranked ? index + 1 : null}
+              progress={progress
+                ? (anime.progressPercent !== undefined ? anime.progressPercent : ((index + 2) * 13) % 88)
+                : null
+              }
+              onClick={() => onAnimeClick(anime)}
+            />
+          ))}
+        </div>
+
+        <button
+          className="row-scroll-btn row-scroll-btn--right"
+          onClick={() => manualScroll('right')}
+          title="Scroll Right"
+        >
+          <ChevronRight size={22} />
+        </button>
       </div>
     </section>
   );

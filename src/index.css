@@ -7216,3 +7216,77 @@ body {
 @media (max-width: 768px) {
   .app-container, .main-content { overflow-x: hidden; }
 }
+
+/* ── Row Container with Hover Auto-Slide Controls ───────────── */
+.row-container-wrapper {
+  position: relative;
+}
+
+.row-scroll-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 25;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(15, 15, 20, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease, background 0.2s ease;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+}
+
+.row-container-wrapper:hover .row-scroll-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.row-scroll-btn:hover {
+  background: var(--accent-primary);
+  transform: translateY(-50%) scale(1.12);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.row-scroll-btn--left {
+  left: -20px;
+}
+
+.row-scroll-btn--right {
+  right: -20px;
+}
+
+/* Auto-Slide Hover Dwell Indicator Banner */
+.auto-slide-banner {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #ff4757;
+  letter-spacing: 0.3px;
+  pointer-events: none;
+  animation: fadeIn 0.2s ease;
+}
+
+.auto-slide-progress-bar {
+  width: 60px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.auto-slide-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ff4757, #ff6b81);
+  transition: width 0.04s linear;
+}
