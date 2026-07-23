@@ -1228,6 +1228,14 @@ function App() {
               />
             )}
 
+            {view === 'hindi' && (
+              <HindiView
+                hindiAnime={trending.filter(a => a.hasHindiDub || hasHindiDubAvailable(a.title, a.japaneseTitle))}
+                onAnimeClick={handleAnimeClick}
+                onStartWatching={startWatching}
+              />
+            )}
+
             {view === 'my-list' && (
               <WatchlistView
                 items={myList}
@@ -2639,6 +2647,97 @@ function CategoryGridView({
             />
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function HindiView({ hindiAnime = [], onAnimeClick, onStartWatching }) {
+  const featuredItem = hindiAnime[0];
+
+  if (!hindiAnime || hindiAnime.length === 0) {
+    return (
+      <div className="container" style={{ marginTop: '6rem', minHeight: '60vh', textAlign: 'center' }}>
+        <Globe size={48} style={{ color: '#ff4757', marginBottom: '1rem' }} />
+        <h2 className="section-title">Hindi Dubbed Anime</h2>
+        <p style={{ color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+          No Hindi dubbed titles available right now. Check back soon!
+        </p>
+      </div>
+    );
+  }
+
+  const actionHindi = hindiAnime.filter(a => a.genres?.includes('Action'));
+  const fantasyHindi = hindiAnime.filter(a => a.genres?.includes('Fantasy') || a.genres?.includes('Supernatural'));
+
+  return (
+    <div className="netflix-home">
+      {featuredItem && (
+        <div
+          className="hero netflix-hero"
+          style={{ backgroundImage: `url(${featuredItem.bannerImage || featuredItem.coverImage})` }}
+        >
+          <div className="hero-overlay"></div>
+          <div className="hero-scanline"></div>
+          <div className="container hero-shell">
+            <div className="hero-content">
+              <div className="hero-eyebrow">
+                <span className="hero-eyebrow-badge" style={{ background: '#ff4757' }}>N</span>
+                <span className="hero-eyebrow-text">Hindi Audio Series</span>
+                <span className="hero-eyebrow-dot">•</span>
+                <span className="hero-live-tag" style={{ background: 'rgba(255,71,87,0.2)', color: '#ff4757', borderColor: 'rgba(255,71,87,0.4)' }}>Hindi Dub</span>
+              </div>
+
+              <h1 className="hero-title">{featuredItem.title}</h1>
+
+              <div className="hero-meta">
+                <span className="top-ten-badge" style={{ background: 'linear-gradient(135deg, #ff4757, #ff6b81)' }}>Hindi Dubbed</span>
+                <span>
+                  <Star size={14} fill="var(--accent-primary)" style={{ color: 'var(--accent-primary)' }} />
+                  {featuredItem.rating}
+                </span>
+                <span className="hero-meta-tag">{featuredItem.type}</span>
+                <span className="hero-meta-tag">{featuredItem.status}</span>
+              </div>
+
+              <p className="hero-desc">{featuredItem.description}</p>
+
+              <div className="btn-group">
+                <button className="btn btn-primary hero-btn-play" onClick={() => onStartWatching(featuredItem, 1)}>
+                  <Play size={20} fill="currentColor" /> Play in Hindi
+                </button>
+                <button className="btn btn-secondary hero-btn-info" onClick={() => onAnimeClick(featuredItem.id)}>
+                  <Info size={20} /> More Info
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="netflix-rows">
+        <NetflixRow
+          title="All Hindi Dubbed Anime"
+          icon={<Globe className="hv-icon" size={20} style={{ color: '#ff4757' }} />}
+          items={hindiAnime}
+          onAnimeClick={(a) => onAnimeClick(a.id ?? a)}
+        />
+        {actionHindi.length > 0 && (
+          <NetflixRow
+            title="Action Anime (Hindi Dubbed)"
+            icon={<Flame className="hv-icon" size={20} style={{ color: '#f97316' }} />}
+            items={actionHindi}
+            onAnimeClick={(a) => onAnimeClick(a.id ?? a)}
+          />
+        )}
+        {fantasyHindi.length > 0 && (
+          <NetflixRow
+            title="Fantasy &amp; Supernatural (Hindi Dubbed)"
+            icon={<Sparkles className="hv-icon" size={20} style={{ color: '#a855f7' }} />}
+            items={fantasyHindi}
+            onAnimeClick={(a) => onAnimeClick(a.id ?? a)}
+          />
+        )}
       </div>
     </div>
   );

@@ -157,6 +157,12 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
                 New &amp; Popular
               </div>
               <div
+                className={`nav-link nav-link--hindi ${activeView === 'hindi' ? 'active' : ''}`}
+                onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); setView('hindi'); }}
+              >
+                Hindi
+              </div>
+              <div
                 className={`nav-link ${activeView === 'my-list' ? 'active' : ''}`}
                 onClick={() => {
                   if (!user) { if (onSignIn) onSignIn(); return; }
