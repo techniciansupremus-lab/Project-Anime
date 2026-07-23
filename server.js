@@ -89,29 +89,36 @@ app.get('/api/m3u8-proxy', async (req, res) => {
     const proxySegmentUrl = (value) =>
       `${host}/api/ts-proxy?url=${encodeURIComponent(resolveManifestUrl(value))}&referer=${encodeURIComponent(decodedRef)}`;
 
+    let isStreamInf = false;
+
     const rewritten = data.split('\n').map(line => {
       const trimmed = line.trim();
       if (!trimmed) return line;
+
       if (trimmed.startsWith('#')) {
-        return line.replace(/URI="([^"]+)"/g, (match, uri) => {
+        if (trimmed.startsWith('#EXT-X-STREAM-INF') || trimmed.startsWith('#EXT-X-I-FRAME-STREAM-INF')) {
+          isStreamInf = true;
+        }
+        return line.replace(/(URI=)(["'])([^"']+)\2/gi, (match, prefix, quote, uri) => {
           if (!uri || uri.startsWith('data:')) return match;
-          const proxied = uri.includes('.m3u8') || trimmed.startsWith('#EXT-X-MEDIA')
-            ? proxyManifestUrl(uri)
-            : proxySegmentUrl(uri);
-          return `URI="${proxied}"`;
+          const isPlaylist = uri.includes('.m3u8') || trimmed.toUpperCase().startsWith('#EXT-X-MEDIA');
+          const proxied = isPlaylist ? proxyManifestUrl(uri) : proxySegmentUrl(uri);
+          return `${prefix}${quote}${proxied}${quote}`;
         });
       }
 
       // Resolve relative URL
       const abs = resolveManifestUrl(trimmed);
+      const isSubPlaylist = isStreamInf || abs.includes('.m3u8');
+      isStreamInf = false;
 
-      // Sub-playlists (.m3u8) → recurse through this same proxy
-      if (abs.includes('.m3u8')) {
-        return `${host}/api/m3u8-proxy?url=${encodeURIComponent(abs)}&referer=${encodeURIComponent(decodedRef)}`;
+      // Sub-playlists (.m3u8 or variant stream after #EXT-X-STREAM-INF) → recurse through this same proxy
+      if (isSubPlaylist) {
+        return proxyManifestUrl(abs);
       }
 
-      // Video segments (.ts / .aac / etc.) → pipe through ts-proxy
-      return `${host}/api/ts-proxy?url=${encodeURIComponent(abs)}&referer=${encodeURIComponent(decodedRef)}`;
+      // Video segments (.ts / .aac / .js / .css / .woff / etc.) → pipe through ts-proxy
+      return proxySegmentUrl(abs);
     }).join('\n');
 
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
