@@ -556,12 +556,11 @@ function normalizeProviderTitle(value = '') {
 function providerTitleScore(providerTitle, targetTitle, seasonNum = null) {
   const providerClean = normalizeProviderTitle(providerTitle);
   const targetClean = normalizeProviderTitle(targetTitle);
-  const targetTokens = targetClean.split(/\s+/).filter(token => token.length > 2);
+  const targetTokens = targetClean.split(/\s+/).filter(token => token.length >= 2 || /\d/.test(token));
   const providerTokens = new Set(providerClean.split(/\s+/).filter(Boolean));
   const overlap = targetTokens.filter(token => providerTokens.has(token)).length;
 
   if (targetTokens.length > 0 && overlap === 0) return 0;
-  if (targetTokens.length >= 2 && overlap / targetTokens.length < 0.5) return 0;
 
   const score = titleMatchScore(
     providerClean,
@@ -572,13 +571,13 @@ function providerTitleScore(providerTitle, targetTitle, seasonNum = null) {
   const seasonMatch = title.match(/\bseason\s*(\d+)\b/i);
 
   if (seasonNum && seasonNum > 1) {
-    if (seasonMatch && parseInt(seasonMatch[1], 10) === seasonNum) adjusted += 35;
-    if (seasonMatch && parseInt(seasonMatch[1], 10) !== seasonNum) adjusted -= 45;
+    if (seasonMatch && parseInt(seasonMatch[1], 10) === seasonNum) adjusted += 25;
+    if (seasonMatch && parseInt(seasonMatch[1], 10) !== seasonNum) adjusted -= 20;
   } else if (seasonMatch && parseInt(seasonMatch[1], 10) > 1) {
-    adjusted -= 35;
+    adjusted -= 15;
   }
 
-  if (/\bhindi\s+dub/i.test(title)) adjusted += 20;
+  if (/\bhindi\s+dub/i.test(title)) adjusted += 15;
   return adjusted;
 }
 
@@ -605,17 +604,26 @@ async function findHindiAnime(title, seasonNum = null) {
   const cached = hindiAnimeCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < HINDI_ANIME_TTL) return cached.data;
 
+  const cleanTitle = normalizeProviderTitle(title);
+  const primaryTitle = title.split(/[:\-–—]/)[0].trim();
+  const cleanPrimary = normalizeProviderTitle(primaryTitle);
+  const words = cleanTitle.split(/\s+/).filter(Boolean);
+  const firstTwo = words.slice(0, 2).join(' ');
+
   const queries = [
     title,
-    title.replace(/\([^)]*\)/g, '').trim(),
-    title.split(/[:\-–—]/)[0].trim(),
-  ].filter(Boolean);
+    cleanTitle,
+    primaryTitle,
+    cleanPrimary,
+    firstTwo
+  ].filter(q => q && q.length >= 2);
 
   const seen = new Set();
   const candidates = [];
   for (const query of queries) {
-    if (seen.has(query.toLowerCase())) continue;
-    seen.add(query.toLowerCase());
+    const key = query.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
     try {
       const rows = await hindiProviderJson('/wp-json/wp/v2/anime', {
         search: query,
@@ -635,7 +643,7 @@ async function findHindiAnime(title, seasonNum = null) {
       title: decodeHtmlText(item.title?.rendered || ''),
       score: providerTitleScore(item.title?.rendered || item.slug, title, seasonNum),
     }))
-    .filter(item => item.score >= 50)
+    .filter(item => item.score >= 35)
     .sort((a, b) => b.score - a.score);
 
   const best = scored[0] || null;
@@ -646,9 +654,13 @@ async function findHindiAnime(title, seasonNum = null) {
 function episodeNumberMatches(item, episodeNum) {
   const title = decodeHtmlText(item.title?.rendered || '').toLowerCase();
   const slug = (item.slug || '').toLowerCase();
+
+  const titleNoSeason = title.replace(/\bseason\s*\d+\b/gi, '');
+  const slugNoSeason = slug.replace(/\bseason-?\d+\b/gi, '');
+
   return (
-    new RegExp(`\\bepisode\\s*[\\-–—:]?\\s*0*${episodeNum}\\b`, 'i').test(title) ||
-    new RegExp(`episode-0*${episodeNum}(?:$|-)`, 'i').test(slug)
+    new RegExp(`\\bepisode\\s*[\\-–—:]?\\s*0*${episodeNum}\\b`, 'i').test(titleNoSeason) ||
+    new RegExp(`episode-0*${episodeNum}(?:$|-)`, 'i').test(slugNoSeason)
   );
 }
 
@@ -675,11 +687,19 @@ function scoreHindiEpisode(item, anime, targetTitle, episodeNum, seasonNum = nul
 
 async function findHindiEpisode(anime, title, episodeNum, seasonNum = null) {
   const searchTitle = anime?.title || title;
+  const cleanTitle = normalizeProviderTitle(searchTitle);
+  const primaryTitle = searchTitle.split(/[:\-–—]/)[0].trim();
+  const cleanPrimary = normalizeProviderTitle(primaryTitle);
+  const firstTwo = cleanTitle.split(/\s+/).slice(0, 2).join(' ');
+
   const queries = [
     `${searchTitle} Episode ${episodeNum}`,
-    `${title} Episode ${episodeNum}`,
-    normalizeProviderTitle(title).replace(/\s+/g, ' ') + ` Episode ${episodeNum}`,
-  ].filter(Boolean);
+    `${cleanTitle} Episode ${episodeNum}`,
+    `${primaryTitle} Episode ${episodeNum}`,
+    `${cleanPrimary} Episode ${episodeNum}`,
+    `${firstTwo} Episode ${episodeNum}`,
+    `${cleanPrimary} ${episodeNum}`,
+  ].filter(q => q && q.length >= 3);
 
   const seen = new Set();
   const candidates = [];
@@ -690,7 +710,7 @@ async function findHindiEpisode(anime, title, episodeNum, seasonNum = null) {
     try {
       const rows = await hindiProviderJson('/wp-json/wp/v2/episode', {
         search: query,
-        per_page: 10,
+        per_page: 50,
       });
       if (Array.isArray(rows)) candidates.push(...rows);
     } catch (err) {
@@ -706,7 +726,7 @@ async function findHindiEpisode(anime, title, episodeNum, seasonNum = null) {
       title: decodeHtmlText(item.title?.rendered || ''),
       score: scoreHindiEpisode(item, anime, title, episodeNum, seasonNum),
     }))
-    .filter(item => item.score >= 45)
+    .filter(item => item.score >= 20)
     .sort((a, b) => b.score - a.score)[0] || null;
 }
 
