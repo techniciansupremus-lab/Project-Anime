@@ -99,10 +99,9 @@ export async function loadRuntimeConfig() {
   purgeStaleOverridesIfNeeded();
 
   const queryOverride = readQueryOverride();
-  const storedOverride = readStoredOverride();
   const runtimeEndpoint = await readJsonConfig('/api/runtime-config');
   const staticConfig = await readJsonConfig('/eetnet-config.json');
-  
+
   let envBase = cleanApiBase(import.meta.env.VITE_API_BASE);
   if (typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app') && isStaleDevUrl(envBase)) {
     envBase = '';
@@ -110,12 +109,25 @@ export async function loadRuntimeConfig() {
 
   const localDevBase = getLocalDevBase();
 
-  const apiBase =
-    queryOverride ||
-    storedOverride ||
+  // Config-file-level URL (what's deployed in the repo / Vercel env)
+  const configBase =
     pickApiBase(runtimeEndpoint) ||
     pickApiBase(staticConfig) ||
-    envBase ||
+    envBase;
+
+  // Auto-evict localStorage whenever the config file has a real URL.
+  // This means pushing a new eetnet-config.json immediately takes effect
+  // for ALL users on their next page load — no manual cache clearing needed.
+  if (configBase) {
+    try { window.localStorage.removeItem(CONFIG_STORAGE_KEY); } catch (_) {}
+  }
+
+  // Priority: emergency ?apiBase= override > config file > localStorage (last resort) > local dev
+  const storedOverride = readStoredOverride();
+  const apiBase =
+    queryOverride ||
+    configBase ||
+    storedOverride ||
     localDevBase;
 
   window.__EETNET_CONFIG__ = {
@@ -129,9 +141,10 @@ export async function loadRuntimeConfig() {
 export function getApiBase() {
   purgeStaleOverridesIfNeeded();
 
+  // After loadRuntimeConfig runs, __EETNET_CONFIG__ always has the correct URL.
+  // Synchronous callers fall back to localStorage only when config hasn't loaded yet.
   const runtimeBase = cleanApiBase(window.__EETNET_CONFIG__?.API_BASE);
-  const storedBase = readStoredOverride();
-  
+
   let envBase = cleanApiBase(import.meta.env.VITE_API_BASE);
   if (typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app') && isStaleDevUrl(envBase)) {
     envBase = '';
@@ -139,9 +152,11 @@ export function getApiBase() {
 
   const onVercel = typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app');
   const safeRuntimeBase = (onVercel && isStaleDevUrl(runtimeBase)) ? '' : runtimeBase;
-  const safeStoredBase  = (onVercel && isStaleDevUrl(storedBase))  ? '' : storedBase;
 
-  return safeRuntimeBase || safeStoredBase || envBase || getLocalDevBase();
+  // Only check localStorage if the runtime config hasn't been loaded yet (e.g. very early sync call)
+  const storedBase = safeRuntimeBase ? '' : readStoredOverride();
+
+  return safeRuntimeBase || storedBase || envBase || getLocalDevBase();
 }
 
 export function apiUrl(path) {
