@@ -114,6 +114,19 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
   return (
     <header className="floating-navbar-wrapper">
       <nav className="floating-glass-nav">
+        {/* Brand Logo */}
+        <div
+          className="nav-brand-logo"
+          onClick={() => handleNavClick('home', 'anime')}
+          style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', marginRight: '0.85rem' }}
+        >
+          <img
+            src="/logo.png"
+            alt="Website Logo"
+            style={{ height: '36px', width: 'auto', objectFit: 'contain', filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.5))' }}
+          />
+        </div>
+
         {/* Navigation Links Pill Group */}
         <div className="nav-pill-links">
           <button
