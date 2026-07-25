@@ -1614,7 +1614,7 @@ function SearchResults({ query, animeResults = [], dramaResults = [], loading, o
           {animeResults.length > 0 && (
             <div>
               <h3 style={{ fontSize: '1.4rem', fontWeight: '700', marginBottom: '1.2rem', color: 'var(--text-primary)', borderLeft: '4px solid var(--accent-primary)', paddingLeft: '0.8rem' }}>Anime</h3>
-              <div className="anime-grid">
+              <div className="drama-grid">
                 {animeResults.map((anime) => (
                   <AnimeCard
                     key={anime.id}
