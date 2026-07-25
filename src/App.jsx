@@ -184,15 +184,50 @@ function App() {
 
     const shouldReplace = isSameView && (
       isSameAnime || isSameEpisode || isSameDrama || isSameManhwa || 
-      ['home', 'dramas', 'manhwa', 'tv-shows', 'movies', 'new-popular', 'my-list'].includes(view)
+      ['home', 'dramas', 'manhwa', 'tv-shows', 'movies', 'new-popular', 'my-list', 'hindi'].includes(view)
     );
 
-    if (shouldReplace) {
-      window.history.replaceState(stateObj, '');
-    } else {
-      window.history.pushState(stateObj, '');
+    // Compute clean URL path
+    let targetUrl = '/';
+    if (view === 'detail' && selectedAnime?.id) {
+      targetUrl = `/anime/${selectedAnime.id}`;
+    } else if (view === 'watch' && selectedAnime?.id) {
+      const epNum = currentEpisode?.number || 1;
+      targetUrl = `/watch/anime/${selectedAnime.id}?ep=${epNum}`;
+    } else if (view === 'drama-detail' && selectedDrama?.id) {
+      targetUrl = `/drama/${encodeURIComponent(selectedDrama.id)}`;
+    } else if (view === 'drama-watch' && selectedDrama?.id) {
+      const epNum = dramaEpisode?.number || dramaEpisode?.id || 1;
+      targetUrl = `/watch/drama/${encodeURIComponent(selectedDrama.id)}?ep=${epNum}`;
+    } else if (view === 'manhwa-detail' && selectedManhwa?.slug) {
+      targetUrl = `/manhwa/${encodeURIComponent(selectedManhwa.slug)}`;
+    } else if (view === 'manhwa-read' && selectedManhwa?.slug) {
+      const chSlug = currentManhwaChapter?.slug || 1;
+      targetUrl = `/read/manhwa/${encodeURIComponent(selectedManhwa.slug)}?ch=${encodeURIComponent(chSlug)}`;
+    } else if (view === 'movie-detail' && selectedMovie?.id) {
+      targetUrl = `/movie/${encodeURIComponent(selectedMovie.id)}`;
+    } else if (view === 'hindi') {
+      targetUrl = '/hindi';
+    } else if (view === 'tv-shows') {
+      targetUrl = '/tv-shows';
+    } else if (view === 'movies') {
+      targetUrl = '/movies';
+    } else if (view === 'dramas') {
+      targetUrl = '/dramas';
+    } else if (view === 'manhwa') {
+      targetUrl = '/manhwa';
+    } else if (view === 'new-popular') {
+      targetUrl = '/new-popular';
+    } else if (view === 'my-list') {
+      targetUrl = '/my-list';
     }
-  }, [view, selectedAnime?.id, currentEpisode?.number, selectedDrama?.id, dramaEpisode?.id, selectedManhwa?.slug, currentManhwaChapter?.slug]);
+
+    if (shouldReplace) {
+      window.history.replaceState(stateObj, '', targetUrl);
+    } else {
+      window.history.pushState(stateObj, '', targetUrl);
+    }
+  }, [view, selectedAnime?.id, currentEpisode?.number, selectedDrama?.id, dramaEpisode?.id, selectedManhwa?.slug, currentManhwaChapter?.slug, selectedMovie?.id]);
 
   const showToast = (message, type = 'info') => {
     if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
@@ -247,6 +282,58 @@ function App() {
       }
     } catch (e) {
       console.warn('Failed to load watchlist from localStorage', e);
+    }
+
+    // 1.5 Initial Route Parser for Clean URLs on Page Load / Direct Link
+    const path = window.location.pathname.replace(/\/+$/, '') || '/';
+    const params = new URLSearchParams(window.location.search);
+
+    if (path === '/hindi') {
+      setView('hindi');
+    } else if (path === '/tv-shows') {
+      setView('tv-shows');
+      setActiveSection('anime');
+    } else if (path === '/movies') {
+      setView('movies');
+      setActiveSection('movies');
+    } else if (path === '/dramas') {
+      setView('dramas');
+      setActiveSection('drama');
+    } else if (path === '/manhwa') {
+      setView('manhwa');
+      setActiveSection('comic');
+    } else if (path === '/new-popular') {
+      setView('new-popular');
+    } else if (path === '/my-list') {
+      setView('my-list');
+    } else if (path.startsWith('/watch/anime/')) {
+      const id = path.replace('/watch/anime/', '');
+      const epNum = parseInt(params.get('ep'), 10) || 1;
+      if (id) {
+        setPageLoading(true);
+        api.getAnimeDetails(id).then((details) => {
+          if (details) {
+            startWatching(details, epNum);
+          }
+        }).catch((err) => {
+          console.error('[Router] Direct anime watch link load error:', err);
+        }).finally(() => setPageLoading(false));
+      }
+    } else if (path.startsWith('/anime/')) {
+      const id = path.replace('/anime/', '');
+      if (id) {
+        handleAnimeClick(id);
+      }
+    } else if (path.startsWith('/drama/')) {
+      const id = decodeURIComponent(path.replace('/drama/', ''));
+      if (id) {
+        handleDramaClick({ id, title: id });
+      }
+    } else if (path.startsWith('/manhwa/')) {
+      const slug = decodeURIComponent(path.replace('/manhwa/', ''));
+      if (slug) {
+        handleManhwaClick({ slug, title: slug });
+      }
     }
 
     // 2. Auth State Change Listener
