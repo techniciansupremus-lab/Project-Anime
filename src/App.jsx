@@ -1745,51 +1745,10 @@ function Top10Tile({ anime, rank, onClick }) {
 
 function HomeView({
   activeFeatured,
-  featured,
-  activeCategory,
-  filteredTrending,
-  top10Famous,
-  setActiveCategory,
+  featured = [],
   onAnimeClick,
-  onStartWatching,
-  watchHistory = [],
-  onDramaClick,
-  onManhwaClick
+  onStartWatching
 }) {
-  // Build Continue Watching from real user watch history
-  const continueWatching = watchHistory.slice(0, 10).map(h => ({
-    id: h.media_id || h.id,
-    title: h.title,
-    coverImage: h.cover || h.coverImage,
-    bannerImage: h.cover || h.coverImage,
-    rating: 'N/A',
-    type: h.type,
-    subtitle: h.type === 'manhwa'
-      ? `Ch. ${h.chapter_number}`
-      : `Ep. ${h.episode_number}`,
-    progressPercent: (h.duration_seconds > 0)
-      ? Math.min(100, Math.round((h.progress_seconds / h.duration_seconds) * 100))
-      : 0,
-    _historyRef: h
-  }));
-
-  const handleContinueWatchingClick = (item) => {
-    const h = item._historyRef;
-    if (!h) return;
-    if (h.type === 'drama' && onDramaClick) {
-      onDramaClick(h.media_id || h.id);
-    } else if (h.type === 'manhwa' && onManhwaClick) {
-      onManhwaClick(h);
-    } else {
-      onAnimeClick(h.media_id || h.id);
-    }
-  };
-
-  const popularNow = filteredTrending.slice(0, 10);
-  const hindiAnimeRow = filteredTrending.filter(a => a.hasHindiDub || hasHindiDubAvailable(a.title, a.japaneseTitle));
-  const spotlightItem = filteredTrending.find(a => a.id !== activeFeatured?.id) || filteredTrending[0];
-  const bentoItems = filteredTrending.filter(a => a.id !== activeFeatured?.id && a.id !== spotlightItem?.id).slice(0, 4);
-  const classics = filteredTrending.filter(a => a.id !== activeFeatured?.id && a.id !== spotlightItem?.id && !bentoItems.some(b => b.id === a.id)).slice(0, 5);
 
   return (
     <div className="clean-home-landing">
@@ -1855,10 +1814,10 @@ function HomeView({
 
 function AnimeView({
   activeFeatured,
-  featured,
-  activeCategory,
-  filteredTrending,
-  top10Famous,
+  featured = [],
+  activeCategory = 'All',
+  filteredTrending = [],
+  top10Famous = [],
   setActiveCategory,
   onAnimeClick,
   onStartWatching,
