@@ -1333,10 +1333,9 @@ function App() {
           <>
             {view === 'home' && (
               <HomeView
-                activeFeatured={activeFeatured}
-                featured={featured}
                 onAnimeClick={handleAnimeClick}
                 onStartWatching={startWatching}
+                onManhwaClick={(m) => { setSelectedManhwa(m); setView('manhwa-detail'); }}
               />
             )}
 
@@ -1743,40 +1742,136 @@ function Top10Tile({ anime, rank, onClick }) {
   );
 }
 
+const HOME_FEATURED_ITEMS = [
+  {
+    id: 154587,
+    title: "Frieren: Beyond Journey's End",
+    badge: "✦ Trending Anime",
+    description: "After the party of heroes defeated the Demon King, elf mage Frieren sets out on a journey to understand humanity.",
+    bannerImage: "/home-carousel/81wyRXGKnpL.jpg",
+    coverImage: "/home-carousel/81wyRXGKnpL.jpg",
+    type: "ANIME",
+    rating: "9.3",
+    hasHindiDub: true,
+    actionType: "anime"
+  },
+  {
+    id: 501,
+    title: "Doraemon",
+    badge: "✦ Classic Legend",
+    description: "A robotic cat travels back in time from the 22nd century to aid a young boy named Nobita Nobi.",
+    bannerImage: "/home-carousel/Doraemonn.28_5.webp",
+    coverImage: "/home-carousel/Doraemonn.28_5.webp",
+    type: "ANIME",
+    rating: "8.7",
+    hasHindiDub: true,
+    actionType: "anime"
+  },
+  {
+    id: 199,
+    title: "Spirited Away",
+    badge: "✦ Masterpiece Movie",
+    description: "During her family's move to the suburbs, a 10-year-old girl wanders into a world ruled by gods, witches, and spirits.",
+    bannerImage: "/home-carousel/images.jpg",
+    coverImage: "/home-carousel/images.jpg",
+    type: "MOVIE",
+    rating: "8.8",
+    hasHindiDub: true,
+    actionType: "anime"
+  },
+  {
+    id: 31649,
+    title: "Liar Game",
+    badge: "✦ Psychological Thriller",
+    description: "Nao Kanzaki receives 100 million yen and an invitation to join the Liar Game Tournament—a high-stakes game of deception.",
+    bannerImage: "/home-carousel/MV5BNjcyMWRkZDUtMDgyZi00MDU4LWJjYjUtZGVjZGYyZWY2YjU2XkEyXkFqcGc@._V1_.jpg",
+    coverImage: "/home-carousel/MV5BNjcyMWRkZDUtMDgyZi00MDU4LWJjYjUtZGVjZGYyZWY2YjU2XkEyXkFqcGc@._V1_.jpg",
+    type: "MANGA",
+    rating: "8.9",
+    actionType: "manhwa",
+    slug: "liar-game"
+  },
+  {
+    id: 147149,
+    title: "Smoking Behind the Supermarket with You",
+    badge: "✦ Slice of Life",
+    description: "Overworked salaryman Sasaki finds comfort in smoking breaks behind his local supermarket with the eccentric Yamada.",
+    bannerImage: "/home-carousel/Super_no_Ura_de_Yani_Suu_Hanashi_Behind_the_Supermarket,_Smoking_With_You.png",
+    coverImage: "/home-carousel/Super_no_Ura_de_Yani_Suu_Hanashi_Behind_the_Supermarket,_Smoking_With_You.png",
+    type: "MANGA",
+    rating: "8.9",
+    actionType: "manhwa",
+    slug: "super-no-ura-de-yani-suu-futari"
+  }
+];
+
 function HomeView({
-  activeFeatured,
-  featured = [],
   onAnimeClick,
-  onStartWatching
+  onStartWatching,
+  onManhwaClick
 }) {
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setIndex((prev) => (prev + 1) % HOME_FEATURED_ITEMS.length);
+    }, 15000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const active = HOME_FEATURED_ITEMS[index];
+
+  const handlePlayClick = () => {
+    if (active.actionType === 'manhwa' && onManhwaClick) {
+      onManhwaClick(active);
+    } else {
+      onStartWatching(active, 1);
+    }
+  };
+
+  const handleInfoClick = () => {
+    if (active.actionType === 'manhwa' && onManhwaClick) {
+      onManhwaClick(active);
+    } else {
+      onAnimeClick(active.id);
+    }
+  };
 
   return (
     <div className="clean-home-landing">
-      {/* ── Pure Fullscreen Cinematic Hero — NO rows, NO cards ── */}
-      {activeFeatured ? (
+      {active && (
         <div
+          key={active.id}
           className="clean-home-hero"
           style={{
-            backgroundImage: `url(${activeFeatured.bannerImage})`,
+            backgroundImage: `url(${active.bannerImage})`,
           }}
         >
           <div className="clean-hero-overlay" />
 
-          {/* Bottom-left title + buttons */}
+          {/* Bottom-left title + description + buttons */}
           <div className="clean-home-hero-content">
-            <h1 className="clean-home-hero-title">{activeFeatured.title}</h1>
+            {active.badge && (
+              <div className="clean-home-hero-badge">
+                {active.badge}
+              </div>
+            )}
+            <h1 className="clean-home-hero-title">{active.title}</h1>
+            {active.description && (
+              <p className="clean-home-hero-desc">{active.description}</p>
+            )}
 
             <div className="clean-home-hero-btns">
               <button
                 className="clean-hero-btn-play"
-                onClick={() => onStartWatching(activeFeatured, 1)}
+                onClick={handlePlayClick}
               >
                 <Play size={17} fill="currentColor" style={{ marginRight: '0.55rem' }} />
-                Play
+                {active.actionType === 'manhwa' ? 'Read Now' : 'Play'}
               </button>
               <button
                 className="clean-hero-btn-info"
-                onClick={() => onAnimeClick(activeFeatured.id)}
+                onClick={handleInfoClick}
               >
                 <Info size={17} style={{ marginRight: '0.55rem' }} />
                 Info
@@ -1785,26 +1880,15 @@ function HomeView({
           </div>
 
           {/* Carousel progress dots (bottom-right) */}
-          {featured.length > 1 && (
-            <div className="clean-home-dots">
-              {featured.slice(0, 8).map((item, i) => (
-                <span
-                  key={i}
-                  className={`hero-dot ${activeFeatured?.id === featured[i]?.id ? 'active' : ''}`}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      ) : (
-        /* Loading state — dark placeholder */
-        <div className="clean-home-hero clean-home-hero--loading">
-          <div className="clean-home-hero-content">
-            <div style={{ width: '320px', height: '52px', background: 'rgba(255,255,255,0.08)', borderRadius: '8px' }} />
-            <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
-              <div style={{ width: '110px', height: '42px', background: 'rgba(255,255,255,0.1)', borderRadius: '9999px' }} />
-              <div style={{ width: '90px', height: '42px', background: 'rgba(255,255,255,0.06)', borderRadius: '9999px' }} />
-            </div>
+          <div className="clean-home-dots">
+            {HOME_FEATURED_ITEMS.map((item, i) => (
+              <span
+                key={item.id}
+                className={`hero-dot ${index === i ? 'active' : ''}`}
+                onClick={() => setIndex(i)}
+                title={item.title}
+              />
+            ))}
           </div>
         </div>
       )}
