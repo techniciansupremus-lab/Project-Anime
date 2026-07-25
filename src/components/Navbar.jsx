@@ -5,8 +5,8 @@ export function MobileBottomNav({ activeSection, activeView, setView, setSection
   return (
     <nav className="mobile-bottom-nav">
       <button
-        className={`mobile-nav-item ${activeSection === 'anime' && (activeView === 'home' || activeView === 'tv-shows') ? 'active' : ''}`}
-        onClick={() => { setSection('anime'); setView('home'); window.scrollTo(0,0); }}
+        className={`mobile-nav-item ${activeSection === 'anime' && (activeView === 'anime' || activeView === 'home') ? 'active' : ''}`}
+        onClick={() => { setSection('anime'); setView('anime'); window.scrollTo(0,0); }}
       >
         <Home size={20} />
         <span>Anime</span>
@@ -135,8 +135,8 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
             TV Shows
           </button>
           <button
-            className={`nav-pill-btn ${activeView === 'home' && activeSection === 'anime' ? 'active' : ''}`}
-            onClick={() => handleNavClick('home', 'anime')}
+            className={`nav-pill-btn ${activeView === 'anime' ? 'active' : ''}`}
+            onClick={() => handleNavClick('anime', 'anime')}
           >
             Anime
           </button>

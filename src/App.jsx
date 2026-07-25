@@ -226,6 +226,8 @@ function App() {
       targetUrl = '/new-popular';
     } else if (view === 'my-list') {
       targetUrl = '/my-list';
+    } else if (view === 'anime') {
+      targetUrl = '/anime';
     } else if (view === 'home') {
       targetUrl = '/';
     }
@@ -301,6 +303,9 @@ function App() {
 
     if (path === '/hindi') {
       setView('hindi');
+    } else if (path === '/anime') {
+      setView('anime');
+      setActiveSection('anime');
     } else if (path === '/tv-shows') {
       setView('tv-shows');
       setActiveSection('anime');
@@ -889,10 +894,22 @@ function App() {
     window.scrollTo(0, 0);
   };
 
+  const goAnime = () => {
+    resetSearch();
+    detailRequestRef.current += 1;
+    watchRequestRef.current += 1;
+    setView('anime');
+    setActiveSection('anime');
+    setSelectedAnime(null);
+    setCurrentEpisode(null);
+    setLoadingSources(false);
+    window.scrollTo(0, 0);
+  };
+
   // Called by SectionSlider when user picks Anime / Drama / Comic / Movies
   const handleSectionChange = (sectionId) => {
     if (sectionId === 'anime') {
-      goHome();
+      goAnime();
     } else if (sectionId === 'drama') {
       goDramas();
     } else if (sectionId === 'movies') {
@@ -1316,6 +1333,15 @@ function App() {
           <>
             {view === 'home' && (
               <HomeView
+                activeFeatured={activeFeatured}
+                featured={featured}
+                onAnimeClick={handleAnimeClick}
+                onStartWatching={startWatching}
+              />
+            )}
+
+            {view === 'anime' && (
+              <AnimeView
                 activeFeatured={activeFeatured}
                 featured={featured}
                 activeCategory={activeCategory}
@@ -1823,6 +1849,256 @@ function HomeView({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function AnimeView({
+  activeFeatured,
+  featured,
+  activeCategory,
+  filteredTrending,
+  top10Famous,
+  setActiveCategory,
+  onAnimeClick,
+  onStartWatching,
+  watchHistory = [],
+  onDramaClick,
+  onManhwaClick
+}) {
+  const continueWatching = watchHistory.slice(0, 10).map(h => ({
+    id: h.media_id || h.id,
+    title: h.title,
+    coverImage: h.cover || h.coverImage,
+    bannerImage: h.cover || h.coverImage,
+    rating: 'N/A',
+    type: h.type,
+    subtitle: h.type === 'manhwa'
+      ? `Ch. ${h.chapter_number}`
+      : `Ep. ${h.episode_number}`,
+    progressPercent: (h.duration_seconds > 0)
+      ? Math.min(100, Math.round((h.progress_seconds / h.duration_seconds) * 100))
+      : 0,
+    _historyRef: h
+  }));
+
+  const handleContinueWatchingClick = (item) => {
+    const h = item._historyRef;
+    if (!h) return;
+    if (h.type === 'drama' && onDramaClick) {
+      onDramaClick(h.media_id || h.id);
+    } else if (h.type === 'manhwa' && onManhwaClick) {
+      onManhwaClick(h);
+    } else {
+      onAnimeClick(h.media_id || h.id);
+    }
+  };
+
+  const popularNow = filteredTrending.slice(0, 10);
+  const hindiAnimeRow = filteredTrending.filter(a => a.hasHindiDub || hasHindiDubAvailable(a.title, a.japaneseTitle));
+  const spotlightItem = filteredTrending.find(a => a.id !== activeFeatured?.id) || filteredTrending[0];
+  const bentoItems = filteredTrending.filter(a => a.id !== activeFeatured?.id && a.id !== spotlightItem?.id).slice(0, 4);
+  const classics = filteredTrending.filter(a => a.id !== activeFeatured?.id && a.id !== spotlightItem?.id && !bentoItems.some(b => b.id === a.id)).slice(0, 5);
+
+  return (
+    <div className="netflix-home">
+      {/* ── Featured Anime Hero ── */}
+      {activeFeatured && (
+        <div
+          className="hero netflix-hero"
+          style={{
+            height: '80vh',
+            minHeight: '520px',
+            backgroundImage: `url(${activeFeatured.bannerImage})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center'
+          }}
+        >
+          <div className="clean-hero-overlay" />
+          <div className="container hero-shell" style={{ position: 'relative', zIndex: 2, paddingBottom: '3.5rem' }}>
+            <div className="hero-content" style={{ maxWidth: '620px' }}>
+              <div className="bento-badge" style={{ marginBottom: '0.8rem', width: 'fit-content' }}>✦ Featured Anime</div>
+              <h1 className="hero-title" style={{ fontSize: '3.6rem', fontWeight: '800', letterSpacing: '-0.02em', margin: '0 0 1.25rem 0', textShadow: '0 4px 20px rgba(0,0,0,0.8)' }}>
+                {activeFeatured.title}
+              </h1>
+
+              <div className="btn-group" style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
+                <button
+                  className="clean-hero-btn-play"
+                  onClick={() => onStartWatching(activeFeatured, 1)}
+                  style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}
+                >
+                  <Play size={18} fill="currentColor" style={{ marginRight: '0.6rem' }} /> Watch Ep 1
+                </button>
+
+                <button
+                  className="clean-hero-btn-info"
+                  onClick={() => onAnimeClick(activeFeatured.id)}
+                  style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}
+                >
+                  <Info size={18} style={{ marginRight: '0.6rem' }} /> Details
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {featured.length > 1 && (
+            <div className="hero-carousel-dots" style={{ position: 'absolute', bottom: '2rem', right: '3rem', zIndex: 3, display: 'flex', gap: '0.5rem' }}>
+              {featured.slice(0, 6).map((_, i) => (
+                <span key={i} className={`hero-dot ${activeFeatured?.id === featured[i]?.id ? 'active' : ''}`} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Anime Rows ── */}
+      <div className="netflix-rows">
+        {/* Continue Watching */}
+        {continueWatching.length > 0 && (
+          <NetflixRow
+            title="Continue Watching"
+            icon={<History className="hv-icon" size={20} style={{ color: 'var(--accent-primary)' }} />}
+            items={continueWatching}
+            onAnimeClick={handleContinueWatchingClick}
+            progress
+          />
+        )}
+
+        {/* Hindi Dubbed Anime Row */}
+        {hindiAnimeRow.length > 0 && (
+          <NetflixRow
+            title="Hindi Dubbed Anime"
+            icon={<Globe className="hv-icon" size={20} style={{ color: '#ff4757' }} />}
+            items={hindiAnimeRow}
+            onAnimeClick={(a) => onAnimeClick(a.id ?? a)}
+          />
+        )}
+
+        {/* Popular Anime */}
+        <NetflixRow
+          title="Popular Anime on EetNet"
+          icon={<Flame className="hv-icon" size={20} style={{ color: '#f97316' }} />}
+          items={popularNow}
+          onAnimeClick={(a) => onAnimeClick(a.id ?? a)}
+        />
+
+        {/* Genre Filter Pills */}
+        <div className="category-row netflix-category-row">
+          <div className="hv-section-header">
+            <h2 className="hv-section-title">
+              <Compass className="hv-icon" size={20} style={{ color: '#a855f7' }} /> Browse Anime by Genre
+            </h2>
+            <span className="hv-section-line" />
+          </div>
+          <div className="categories-container">
+            <button
+              className={`category-pill ${activeCategory === 'All' ? 'active' : ''}`}
+              onClick={() => setActiveCategory('All')}
+            >All</button>
+            {animeCategories.map((cat) => (
+              <button
+                key={cat}
+                className={`category-pill ${activeCategory === cat ? 'active' : ''}`}
+                onClick={() => setActiveCategory(cat)}
+              >{cat}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* Top 10 Famous Anime */}
+        <Top10Row
+          title="Top 10 Famous Anime"
+          items={top10Famous && top10Famous.length > 0 ? top10Famous : filteredTrending}
+          onAnimeClick={onAnimeClick}
+        />
+
+        {/* Bento Grid Spotlight */}
+        {spotlightItem && (
+          <div className="bento-section">
+            <div className="hv-section-header">
+              <h2 className="hv-section-title">
+                <Sparkles className="hv-icon" size={20} style={{ color: '#eab308' }} /> Anime Spotlight &amp; Recommendations
+              </h2>
+              <span className="hv-section-line" />
+            </div>
+            <div className="bento-grid">
+              {/* Large Spotlight card */}
+              <div className="bento-card bento-card--large" onClick={() => onAnimeClick(spotlightItem.id)}>
+                <div className="bento-card__bg" style={{ backgroundImage: `url(${spotlightItem.bannerImage || spotlightItem.coverImage})` }} />
+                <div className="bento-card__overlay" />
+                {(spotlightItem.hasHindiDub || hasHindiDubAvailable(spotlightItem.title, spotlightItem.japaneseTitle)) && (
+                  <div className="bento-hindi-badge">Hindi</div>
+                )}
+                <div className="bento-card__content">
+                  <div className="bento-badge">✦ Spotlight Pick</div>
+                  <h3 className="bento-title">{spotlightItem.title}</h3>
+                  <div className="bento-meta">
+                    <span className="bento-rating">★ {spotlightItem.rating}</span>
+                    <span className="bento-type">{spotlightItem.type}</span>
+                  </div>
+                  {spotlightItem.genres && (
+                    <div className="bento-genres">
+                      {spotlightItem.genres.slice(0, 3).map(g => (
+                        <span key={g} className="bento-genre-tag">{g}</span>
+                      ))}
+                    </div>
+                  )}
+                  <button className="bento-play-btn">
+                    <Play size={14} fill="currentColor" /> Watch Now
+                  </button>
+                </div>
+              </div>
+
+              {/* Medium mosaic cards */}
+              <div className="bento-medium-wrapper">
+                {bentoItems.map((item) => {
+                  const isHindi = item.hasHindiDub || hasHindiDubAvailable(item.title, item.japaneseTitle);
+                  return (
+                    <div key={item.id} className="bento-card bento-card--medium" onClick={() => onAnimeClick(item.id)}>
+                      <img src={item.coverImage} alt={item.title} className="bento-card__img" loading="lazy" />
+                      {isHindi && <div className="bento-hindi-badge">Hindi</div>}
+                      <div className="bento-card__info">
+                        <h4 className="bento-card__title">{item.title}</h4>
+                        <div className="bento-card__meta">
+                          <span className="bento-card__rating">★ {item.rating}</span>
+                          <span className="bento-card__type">{item.type}</span>
+                        </div>
+                      </div>
+                      <div className="bento-card__hover-overlay">
+                        <Play size={28} fill="white" style={{ color: 'white' }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Sidebar list */}
+              {classics.length > 0 && (
+                <div className="bento-card bento-card--list">
+                  <h4 className="bento-list__header">
+                    <span>Top Anime For You</span>
+                    <span className="bento-list__header-line" />
+                  </h4>
+                  <div className="bento-list__items">
+                    {classics.map((item, idx) => (
+                      <div key={item.id} className="bento-list__item" onClick={() => onAnimeClick(item.id)}>
+                        <span className="bento-list__index">{idx + 1}</span>
+                        <img src={item.coverImage} alt={item.title} className="bento-list__thumb" loading="lazy" />
+                        <div className="bento-list__details">
+                          <span className="bento-list__title">{item.title}</span>
+                          <span className="bento-list__meta">★ {item.rating} · {item.type}</span>
+                        </div>
+                        <span className="bento-list__arrow">›</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
