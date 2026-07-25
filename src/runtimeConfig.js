@@ -1,4 +1,17 @@
-const CONFIG_STORAGE_KEY = 'eetnet_api_base';
+/**
+ * Runtime Config — NO localStorage, NO stale URL issues.
+ *
+ * Priority (highest → lowest):
+ *   1. ?apiBase= query param  (emergency override, session only)
+ *   2. /api/runtime-config    (Vercel serverless, always fresh, reads API_BASE env var)
+ *   3. /eetnet-config.json    (static fallback with CDN-cache-busted URL)
+ *   4. VITE_API_BASE          (build-time env, stripped on Vercel prod if it's localhost)
+ *   5. localhost:8080         (local dev auto-detect)
+ *
+ * To update the tunnel URL for ALL users instantly:
+ *   → Set API_BASE env var on Vercel dashboard (no redeploy needed after env var is set)
+ *   OR → Update public/eetnet-config.json and git push (redeploy needed)
+ */
 
 function cleanApiBase(value) {
   if (typeof value !== 'string') return '';
@@ -16,69 +29,31 @@ function getLocalDevBase() {
   return '';
 }
 
-/** Returns true if this URL is a localhost URL that should not run on production Vercel */
-function isStaleDevUrl(url) {
+function isLocalhostUrl(url) {
   if (!url) return false;
-  return (
-    url.includes('localhost') ||
-    url.includes('127.0.0.1')
-  );
+  return url.includes('localhost') || url.includes('127.0.0.1');
 }
 
-/** On Vercel production, wipe any stale localhost override from all caches */
-function purgeStaleOverridesIfNeeded() {
-  if (typeof window === 'undefined') return;
-  if (!window.location.hostname.endsWith('.vercel.app')) return;
-
-  try {
-    const stored = window.localStorage.getItem(CONFIG_STORAGE_KEY);
-    if (isStaleDevUrl(stored)) {
-      window.localStorage.removeItem(CONFIG_STORAGE_KEY);
-    }
-  } catch (_) {}
-
-  // Also wipe from in-memory config if it's localhost
-  if (window.__EETNET_CONFIG__ && isStaleDevUrl(window.__EETNET_CONFIG__.API_BASE)) {
-    window.__EETNET_CONFIG__.API_BASE = '';
-  }
-}
-
+/** Read ?apiBase= from URL, write to window.__EETNET_CONFIG__ only (no localStorage). */
 function readQueryOverride() {
   if (typeof window === 'undefined') return '';
   const url = new URL(window.location.href);
   const value = cleanApiBase(url.searchParams.get('apiBase'));
   if (!value) return '';
 
-  try {
-    window.localStorage.setItem(CONFIG_STORAGE_KEY, value);
-  } catch (err) {
-    console.warn('[Config] Could not persist apiBase override', err);
-  }
-
+  // Strip the query param from the URL bar cleanly
   url.searchParams.delete('apiBase');
   window.history.replaceState({}, '', url.toString());
+
+  console.log('[Config] ?apiBase= override applied:', value);
   return value;
 }
 
-function readStoredOverride() {
-  if (typeof window === 'undefined') return '';
+async function fetchJson(url) {
   try {
-    const val = cleanApiBase(window.localStorage.getItem(CONFIG_STORAGE_KEY));
-    if (val && window.location.hostname.endsWith('.vercel.app')) {
-      if (isStaleDevUrl(val)) {
-        window.localStorage.removeItem(CONFIG_STORAGE_KEY);
-        return '';
-      }
-    }
-    return val;
-  } catch {
-    return '';
-  }
-}
-
-async function readJsonConfig(url) {
-  try {
-    const response = await fetch(url, { cache: 'no-store' });
+    // Add timestamp to bust Vercel CDN edge cache on static files
+    const bustUrl = url.includes('?') ? `${url}&_t=${Date.now()}` : `${url}?_t=${Date.now()}`;
+    const response = await fetch(bustUrl, { cache: 'no-store' });
     if (!response.ok) return {};
     return await response.json();
   } catch {
@@ -96,67 +71,57 @@ function pickApiBase(config) {
 }
 
 export async function loadRuntimeConfig() {
-  purgeStaleOverridesIfNeeded();
-
   const queryOverride = readQueryOverride();
-  const runtimeEndpoint = await readJsonConfig('/api/runtime-config');
-  const staticConfig = await readJsonConfig('/eetnet-config.json');
+
+  // /api/runtime-config is a Vercel serverless function — never CDN-cached, always fresh.
+  // Set API_BASE env var on Vercel dashboard to propagate instantly without redeploy.
+  const runtimeEndpoint = await fetchJson('/api/runtime-config');
+
+  // /eetnet-config.json is a static fallback. CDN-cache-busted via timestamp above.
+  const staticConfig = await fetchJson('/eetnet-config.json');
 
   let envBase = cleanApiBase(import.meta.env.VITE_API_BASE);
-  if (typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app') && isStaleDevUrl(envBase)) {
-    envBase = '';
+  // Strip localhost values on Vercel production — they're dev artifacts
+  if (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app')) {
+    if (isLocalhostUrl(envBase)) envBase = '';
   }
 
-  const localDevBase = getLocalDevBase();
-
-  // Config-file-level URL (what's deployed in the repo / Vercel env)
   const configBase =
     pickApiBase(runtimeEndpoint) ||
     pickApiBase(staticConfig) ||
     envBase;
 
-  // Auto-evict localStorage whenever the config file has a real URL.
-  // This means pushing a new eetnet-config.json immediately takes effect
-  // for ALL users on their next page load — no manual cache clearing needed.
-  if (configBase) {
-    try { window.localStorage.removeItem(CONFIG_STORAGE_KEY); } catch (_) {}
-  }
-
-  // Priority: emergency ?apiBase= override > config file > localStorage (last resort) > local dev
-  const storedOverride = readStoredOverride();
   const apiBase =
     queryOverride ||
     configBase ||
-    storedOverride ||
-    localDevBase;
+    getLocalDevBase();
 
-  window.__EETNET_CONFIG__ = {
-    ...(window.__EETNET_CONFIG__ || {}),
-    API_BASE: cleanApiBase(apiBase),
-  };
+  window.__EETNET_CONFIG__ = { API_BASE: cleanApiBase(apiBase) };
+
+  if (apiBase) {
+    console.log('[Config] API_BASE resolved to:', cleanApiBase(apiBase));
+  } else {
+    console.warn('[Config] No API_BASE found — API calls will use relative paths.');
+  }
 
   return window.__EETNET_CONFIG__;
 }
 
 export function getApiBase() {
-  purgeStaleOverridesIfNeeded();
+  // Always read from window.__EETNET_CONFIG__ which is set by loadRuntimeConfig().
+  // main.jsx awaits loadRuntimeConfig() before mounting the app, so this is always ready.
+  const base = cleanApiBase(window.__EETNET_CONFIG__?.API_BASE);
 
-  // After loadRuntimeConfig runs, __EETNET_CONFIG__ always has the correct URL.
-  // Synchronous callers fall back to localStorage only when config hasn't loaded yet.
-  const runtimeBase = cleanApiBase(window.__EETNET_CONFIG__?.API_BASE);
-
-  let envBase = cleanApiBase(import.meta.env.VITE_API_BASE);
-  if (typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app') && isStaleDevUrl(envBase)) {
-    envBase = '';
+  // Safety net for synchronous callers before app mounts (shouldn't normally happen)
+  if (!base) {
+    let envBase = cleanApiBase(import.meta.env.VITE_API_BASE);
+    if (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app')) {
+      if (isLocalhostUrl(envBase)) envBase = '';
+    }
+    return envBase || getLocalDevBase();
   }
 
-  const onVercel = typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app');
-  const safeRuntimeBase = (onVercel && isStaleDevUrl(runtimeBase)) ? '' : runtimeBase;
-
-  // Only check localStorage if the runtime config hasn't been loaded yet (e.g. very early sync call)
-  const storedBase = safeRuntimeBase ? '' : readStoredOverride();
-
-  return safeRuntimeBase || storedBase || envBase || getLocalDevBase();
+  return base;
 }
 
 export function apiUrl(path) {
@@ -166,8 +131,8 @@ export function apiUrl(path) {
 }
 
 export function getBackendConfigError() {
-  // On Vercel, relative /api paths target Vercel Serverless Functions natively, so empty API_BASE is completely valid.
-  if (typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app')) {
+  // On Vercel, relative /api paths hit Vercel Serverless Functions — empty API_BASE is fine.
+  if (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app')) {
     return '';
   }
   if (getApiBase()) return '';
