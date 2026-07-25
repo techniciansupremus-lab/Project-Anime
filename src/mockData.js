@@ -399,7 +399,25 @@ export const api = {
     const data = await fetchAniList(`
       query ($search: String) { Page(page: 1, perPage: 18) { media(type: ANIME, search: $search) { ${MEDIA_FRAGMENT} } } }
     `, { search: queryStr });
-    if (data?.Page?.media) return data.Page.media.map(mapMediaToCard);
+    if (data?.Page?.media && data.Page.media.length > 0) return data.Page.media.map(mapMediaToCard);
+
+    // Auto-correct spelling fallback if AniList returns 0 results:
+    // e.g. "galatic" -> "galactic", "heros" -> "heroes", "doramon" -> "doraemon"
+    const cleanedQuery = queryStr
+      .replace(/\bgalatic\b/gi, 'galactic')
+      .replace(/\bheros\b/gi, 'heroes')
+      .replace(/\bakademia\b/gi, 'academia')
+      .replace(/\bfriren\b/gi, 'frieren')
+      .replace(/\bdoramon\b/gi, 'doraemon');
+
+    if (cleanedQuery !== queryStr) {
+      console.log(`[Search] Auto-correcting query "${queryStr}" -> "${cleanedQuery}"...`);
+      const retryData = await fetchAniList(`
+        query ($search: String) { Page(page: 1, perPage: 18) { media(type: ANIME, search: $search) { ${MEDIA_FRAGMENT} } } }
+      `, { search: cleanedQuery });
+      if (retryData?.Page?.media) return retryData.Page.media.map(mapMediaToCard);
+    }
+
     return [];
   },
 

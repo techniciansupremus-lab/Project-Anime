@@ -920,6 +920,7 @@ function App() {
   };
 
   const handleManhwaClick = async (series) => {
+    resetSearch();
     setSelectedManhwa({ ...series, chapters: [] });
     setManhwaDetailLoading(true);
     setView('manhwa-detail');
@@ -936,6 +937,7 @@ function App() {
   };
 
   const handleManhwaRead = async (series, chapter) => {
+    resetSearch();
     setCurrentManhwaChapter(chapter);
     setManhwaChapterImages([]);
     setManhwaChapterLoading(true);
@@ -968,6 +970,27 @@ function App() {
   };
 
   const handleDramaClick = async (drama) => {
+    resetSearch();
+
+    // Smart check: If the item clicked in drama search is actually an anime (e.g. Galactic Heroes, My Hero Academia, Dragon Ball), route to handleAnimeClick!
+    const titleLower = (drama.title || '').toLowerCase();
+    const isAnimeTitle = ['ginga eiyuu', 'galactic heroes', 'hero academia', 'boku no hero', 'dragon ball', 'naruto', 'one piece', 'bleach', 'jujutsu', 'demon slayer'].some(kw => titleLower.includes(kw));
+
+    if (isAnimeTitle) {
+      console.log(`[Search] Routing anime title "${drama.title}" from drama results to anime player...`);
+      // Search AniList by title and launch anime view
+      setPageLoading(true);
+      api.searchAnime(drama.title).then((results) => {
+        if (results && results.length > 0) {
+          handleAnimeClick(results[0].id);
+        } else {
+          // Fallback to title string lookup
+          handleAnimeClick(drama.title);
+        }
+      }).finally(() => setPageLoading(false));
+      return;
+    }
+
     setSelectedDrama({ ...drama, episodes: [] });
     setView('drama-detail');
     setDramaStream(null);
@@ -982,6 +1005,7 @@ function App() {
   };
 
   const startWatchingDrama = async (drama, episode) => {
+    resetSearch();
     setDramaEpisode(episode);
     setDramaStream(null);
     setDramaStreamLoading(true);
@@ -1015,6 +1039,7 @@ function App() {
   };
 
   const handleMovieClick = async (movie) => {
+    resetSearch();
     setSelectedMovie({ ...movie });
     setView('movie-detail');
     setSelectedMovieLoading(true);
@@ -1091,9 +1116,19 @@ function App() {
 
       Promise.all([animePromise, dramaPromise]).then(([animeItems, dramaItems]) => {
         if (requestId === searchRequestRef.current) {
+          const animeList = Array.isArray(animeItems) ? animeItems : [];
+          const dramaRaw = Array.isArray(dramaItems) ? dramaItems : [];
+
+          // Remove anime titles mistakenly returned by drama provider
+          const animeKeywords = ['ginga eiyuu', 'galactic heroes', 'hero academia', 'boku no hero', 'dragon ball', 'naruto', 'one piece', 'bleach', 'jujutsu', 'demon slayer', 'chainsaw man', 'attack on titan'];
+          const cleanDramas = dramaRaw.filter((d) => {
+            const titleLower = (d.title || '').toLowerCase();
+            return !animeKeywords.some(kw => titleLower.includes(kw)) && !animeList.some(a => (a.title || '').toLowerCase() === titleLower);
+          });
+
           setSearchResults({
-            anime: Array.isArray(animeItems) ? animeItems : [],
-            dramas: Array.isArray(dramaItems) ? dramaItems : []
+            anime: animeList,
+            dramas: cleanDramas
           });
           setSearchLoading(false);
         }
