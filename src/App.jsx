@@ -1322,21 +1322,6 @@ function App() {
 
   return (
     <div className="app-container">
-      {/* ── Interactive Scroll Intro Overlay ── */}
-      {showIntroOverlay && (
-        <ScrollIntroOverlay
-          onClose={() => {
-            setShowIntroOverlay(false);
-            try { sessionStorage.setItem('anistream_intro_seen', 'true'); } catch (e) {}
-          }}
-          onNavigateSection={(sec) => {
-            handleSectionChange(sec);
-            setShowIntroOverlay(false);
-            try { sessionStorage.setItem('anistream_intro_seen', 'true'); } catch (e) {}
-          }}
-        />
-      )}
-
       {/* SectionSlider hidden on mobile — replaced by bottom nav */}
       <div className="desktop-only-section-slider">
         <SectionSlider activeSection={activeSection} onSectionChange={handleSectionChange} />
