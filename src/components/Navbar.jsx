@@ -52,15 +52,17 @@ export function MobileBottomNav({ activeSection, activeView, setView, setSection
 
 export default function Navbar({ onSearch, activeView, setView, onHome, activeSection = 'anime', user, onSignIn, onSignOut }) {
   const [searchVal, setSearchVal] = useState('');
+  const [showSearchInput, setShowSearchInput] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef(null);
+  const searchInputRef = useRef(null);
 
   // Sync searchVal state when section changes or search is cleared externally
   useEffect(() => {
     setSearchVal('');
   }, [activeSection]);
 
-  // Close profile dropdown on outside click
+  // Close profile dropdown & search on outside click
   useEffect(() => {
     const handleClick = (e) => {
       if (profileRef.current && !profileRef.current.contains(e.target)) {
@@ -70,6 +72,12 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
+
+  useEffect(() => {
+    if (showSearchInput && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [showSearchInput]);
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
@@ -82,36 +90,20 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
     if (onSearch) onSearch(val);
   };
 
-  const handleHomeClick = () => {
+  const handleNavClick = (viewName, sectionName = 'anime') => {
     setSearchVal('');
     if (onSearch) onSearch('');
-    
-    if (activeSection === 'drama') {
+    if (sectionName === 'anime') {
+      if (viewName === 'home' && onHome) onHome();
+      else setView(viewName);
+    } else if (sectionName === 'drama') {
       setView('dramas');
-    } else if (activeSection === 'movies') {
+    } else if (sectionName === 'movies') {
       setView('movies');
-    } else if (activeSection === 'comic') {
+    } else if (sectionName === 'comic') {
       setView('manhwa');
-    } else {
-      if (onHome) {
-        onHome();
-      } else {
-        setView('home');
-      }
     }
-  };
-
-  const getSearchPlaceholder = () => {
-    switch (activeSection) {
-      case 'drama':
-        return 'Search dramas, actors...';
-      case 'movies':
-        return 'Search movies, Bollywood...';
-      case 'comic':
-        return 'Search manhwa, comics...';
-      default:
-        return 'Search anime titles, genres...';
-    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   // Derive user display name / avatar letter
@@ -120,123 +112,106 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
   const avatarUrl = user?.user_metadata?.avatar_url || null;
 
   return (
-    <nav className="navbar">
-      <div className="container navbar-inner">
-        <div className="logo" onClick={handleHomeClick}>
-          <img src="/logo.png" alt="EetNet Logo" className="logo-img" />
-          <span className={`section-badge section-badge--${activeSection}`}>
-            {activeSection === 'comic' ? 'Comic' : activeSection === 'drama' ? 'Drama' : activeSection === 'movies' ? 'Movies' : 'Anime'}
-          </span>
+    <header className="floating-navbar-wrapper">
+      <nav className="floating-glass-nav">
+        {/* Navigation Links Pill Group */}
+        <div className="nav-pill-links">
+          <button
+            className={`nav-pill-btn ${activeView === 'home' ? 'active' : ''}`}
+            onClick={() => handleNavClick('home', 'anime')}
+          >
+            Home
+          </button>
+          <button
+            className={`nav-pill-btn ${activeView === 'movies' ? 'active' : ''}`}
+            onClick={() => handleNavClick('movies', 'movies')}
+          >
+            Movies
+          </button>
+          <button
+            className={`nav-pill-btn ${activeView === 'tv-shows' ? 'active' : ''}`}
+            onClick={() => handleNavClick('tv-shows', 'anime')}
+          >
+            TV Shows
+          </button>
+          <button
+            className={`nav-pill-btn ${activeView === 'home' && activeSection === 'anime' ? 'active' : ''}`}
+            onClick={() => handleNavClick('home', 'anime')}
+          >
+            Anime
+          </button>
+          <button
+            className={`nav-pill-btn ${activeView === 'dramas' ? 'active' : ''}`}
+            onClick={() => handleNavClick('dramas', 'drama')}
+          >
+            Drama
+          </button>
+          <button
+            className={`nav-pill-btn ${activeView === 'manhwa' ? 'active' : ''}`}
+            onClick={() => handleNavClick('manhwa', 'comic')}
+          >
+            Manhwa
+          </button>
         </div>
 
-        <div className="nav-links primary-nav">
-          {activeSection === 'anime' && (
-            <>
-              <div
-                className={`nav-link ${activeView === 'home' ? 'active' : ''}`}
-                onClick={handleHomeClick}
+        {/* Action Icons Group */}
+        <div className="nav-pill-actions">
+          {/* Search Toggle / Input */}
+          <div className={`nav-search-wrapper ${showSearchInput ? 'expanded' : ''}`}>
+            {showSearchInput ? (
+              <form onSubmit={handleSearchSubmit} className="nav-search-form">
+                <Search size={15} className="nav-search-icon" />
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  placeholder="Search..."
+                  value={searchVal}
+                  onChange={handleInputChange}
+                  onBlur={() => { if (!searchVal) setShowSearchInput(false); }}
+                />
+                <button type="button" className="nav-search-close" onClick={() => setShowSearchInput(false)}>
+                  <X size={14} />
+                </button>
+              </form>
+            ) : (
+              <button
+                className="nav-icon-btn"
+                onClick={() => setShowSearchInput(true)}
+                title="Search"
+                aria-label="Search"
               >
-                Home
-              </div>
-              <div
-                className={`nav-link ${activeView === 'tv-shows' ? 'active' : ''}`}
-                onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); setView('tv-shows'); }}
-              >
-                TV Shows
-              </div>
-              <div
-                className={`nav-link ${activeView === 'movies' ? 'active' : ''}`}
-                onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); setView('movies'); }}
-              >
-                Movies
-              </div>
-              <div
-                className={`nav-link ${activeView === 'new-popular' ? 'active' : ''}`}
-                onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); setView('new-popular'); }}
-              >
-                New &amp; Popular
-              </div>
-              <div
-                className={`nav-link nav-link--hindi ${activeView === 'hindi' ? 'active' : ''}`}
-                onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); setView('hindi'); }}
-              >
-                Hindi
-              </div>
-              <div
-                className={`nav-link ${activeView === 'my-list' ? 'active' : ''}`}
-                onClick={() => {
-                  if (!user) { if (onSignIn) onSignIn(); return; }
-                  setSearchVal(''); if (onSearch) onSearch(''); setView('my-list');
-                }}
-              >
-                My List
-              </div>
-            </>
-          )}
+                <Search size={16} />
+              </button>
+            )}
+          </div>
 
-          {activeSection === 'drama' && (
-            <>
-              <div
-                className={`nav-link ${activeView === 'dramas' ? 'active' : ''}`}
-                onClick={handleHomeClick}
-              >
-                Drama Home
-              </div>
-            </>
-          )}
+          {/* Watchlist Icon */}
+          <button
+            className={`nav-icon-btn ${activeView === 'my-list' ? 'active' : ''}`}
+            onClick={() => {
+              if (!user) { if (onSignIn) onSignIn(); return; }
+              setView('my-list');
+            }}
+            title="My List"
+            aria-label="My List"
+          >
+            <Bookmark size={16} />
+          </button>
 
-          {activeSection === 'movies' && (
-            <>
-              <div
-                className={`nav-link ${activeView === 'movies' ? 'active' : ''}`}
-                onClick={handleHomeClick}
-              >
-                Movies Home
-              </div>
-            </>
-          )}
-
-          {activeSection === 'comic' && (
-            <>
-              <div
-                className={`nav-link ${activeView === 'manhwa' ? 'active' : ''}`}
-                onClick={handleHomeClick}
-              >
-                Comic Home
-              </div>
-            </>
-          )}
-        </div>
-
-        <form onSubmit={handleSearchSubmit} className="search-bar">
-          <Search size={18} className="search-icon" />
-          <input 
-            type="text" 
-            placeholder={getSearchPlaceholder()} 
-            value={searchVal}
-            onChange={handleInputChange}
-          />
-        </form>
-
-        <div className="nav-actions">
-          <Bell size={19} />
-
+          {/* Auth Button or Profile Menu */}
           {user ? (
-            /* ── Logged-in profile chip ── */
             <div className="profile-chip-wrapper" ref={profileRef}>
               <button
-                id="profile-chip-btn"
-                className="profile-chip"
+                className="profile-chip-btn"
                 onClick={() => setProfileOpen(v => !v)}
-                aria-expanded={profileOpen}
-                aria-label="Open profile menu"
+                aria-label="Profile"
               >
                 {avatarUrl ? (
                   <img src={avatarUrl} alt={displayName} className="avatar-img" />
                 ) : (
                   <span className="avatar-letter">{avatarLetter}</span>
                 )}
-                <ChevronDown size={15} className={`chevron ${profileOpen ? 'open' : ''}`} />
+                <ChevronDown size={13} className={`chevron ${profileOpen ? 'open' : ''}`} />
               </button>
 
               {profileOpen && (
@@ -272,13 +247,13 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
               )}
             </div>
           ) : (
-            /* ── Guest sign-in button ── */
-            <button id="navbar-signin-btn" className="navbar-signin-btn" onClick={onSignIn}>
-              Sign In
+            <button className="nav-signin-pill-btn" onClick={onSignIn}>
+              <LogOut size={14} style={{ transform: 'rotate(180deg)' }} />
+              <span>Sign in</span>
             </button>
           )}
         </div>
-      </div>
-    </nav>
+      </nav>
+    </header>
   );
 }

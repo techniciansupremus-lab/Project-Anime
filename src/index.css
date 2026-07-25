@@ -102,6 +102,188 @@ body {
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
 }
 
+/* Floating Glassmorphism Navbar (Matching User Mockup) */
+.floating-navbar-wrapper {
+  position: fixed;
+  top: 1.25rem;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.floating-glass-nav {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.35rem 0.6rem 0.35rem 1.2rem;
+  background: rgba(22, 24, 20, 0.75);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.45);
+  transition: all 0.3s ease;
+}
+
+.nav-pill-links {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.nav-pill-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.7);
+  padding: 0.4rem 0.9rem;
+  border-radius: 9999px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.nav-pill-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.nav-pill-btn.active {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.18);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+}
+
+.nav-pill-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-left: 0.5rem;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.nav-icon-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.75);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.nav-icon-btn:hover, .nav-icon-btn.active {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.nav-signin-pill-btn {
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  padding: 0.4rem 1rem;
+  border-radius: 9999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.nav-signin-pill-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+}
+
+.nav-search-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.nav-search-form {
+  display: flex;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 9999px;
+  padding: 0.2rem 0.6rem 0.2rem 0.8rem;
+}
+
+.nav-search-form input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #ffffff;
+  font-size: 0.85rem;
+  width: 130px;
+  margin: 0 0.4rem;
+}
+
+.nav-search-close {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
+/* Modern Hero Section Pill Buttons & Vignette Overlay */
+.clean-hero-overlay {
+  position: absolute;
+  inset: 0;
+  background: 
+    radial-gradient(circle at 75% 30%, transparent 15%, rgba(12, 14, 10, 0.75) 65%, rgba(12, 14, 10, 0.98) 100%),
+    linear-gradient(0deg, rgba(12, 14, 10, 1) 0%, rgba(12, 14, 10, 0.4) 50%, transparent 100%);
+  z-index: 1;
+}
+
+.clean-hero-btn-play {
+  background: #181a14 !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  border-radius: 9999px !important;
+  padding: 0.65rem 1.8rem !important;
+  font-weight: 600 !important;
+  font-size: 0.95rem !important;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5) !important;
+  transition: all 0.2s ease !important;
+}
+
+.clean-hero-btn-play:hover {
+  background: #272a20 !important;
+  transform: scale(1.04) !important;
+}
+
+.clean-hero-btn-info {
+  background: rgba(255, 255, 255, 0.15) !important;
+  backdrop-filter: blur(10px) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  border-radius: 9999px !important;
+  padding: 0.65rem 1.8rem !important;
+  font-weight: 600 !important;
+  font-size: 0.95rem !important;
+  transition: all 0.2s ease !important;
+}
+
+.clean-hero-btn-info:hover {
+  background: rgba(255, 255, 255, 0.28) !important;
+  transform: scale(1.04) !important;
+}
+
 /* Navbar */
 .navbar {
   position: sticky;

@@ -485,8 +485,22 @@ function App() {
   useEffect(() => {
     let mounted = true;
 
+    const defaultFeatured = [
+      {
+        id: 'backrooms-movie',
+        title: 'Backrooms',
+        description: 'A young filmmaker enters a terrifying, liminal maze of endless empty rooms, realizing he is not alone in the yellow-hued nightmare.',
+        coverImage: 'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?q=80&w=1920',
+        bannerImage: 'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?q=80&w=1920',
+        type: 'MOVIE',
+        rating: '9.4',
+        genres: ['Horror', 'Mystery', 'Thriller', 'Sci-Fi'],
+        status: 'POPULAR'
+      }
+    ];
+
     api.getFeatured().then((items) => {
-      if (mounted) setFeatured(items);
+      if (mounted) setFeatured([defaultFeatured[0], ...items]);
     });
     api.getAnimeList().then((items) => {
       if (mounted) setTrending(items);
@@ -505,7 +519,7 @@ function App() {
 
     const timer = window.setInterval(() => {
       setCarouselIndex((prev) => (prev + 1) % featured.length);
-    }, 7000);
+    }, 15000);
 
     return () => window.clearInterval(timer);
   }, [featured.length, view]);
@@ -1753,58 +1767,48 @@ function HomeView({
 
   return (
     <div className="netflix-home">
-      {/* ── Cinematic Hero ── */}
+      {/* ── Cinematic Hero (Ultra Clean Mockup Design) ── */}
       {activeFeatured && (
         <div
           className="hero netflix-hero"
-          style={{ backgroundImage: `url(${activeFeatured.bannerImage})` }}
+          style={{
+            height: '82vh',
+            minHeight: '520px',
+            backgroundImage: `url(${activeFeatured.bannerImage})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center'
+          }}
         >
-          <div className="hero-overlay" />
-          <div className="hero-scanline" />
-          <div className="container hero-shell">
-            <div className="hero-content">
-              <div className="hero-eyebrow">
-                <span className="hero-eyebrow-badge">N</span>
-                <span className="hero-eyebrow-text">Series</span>
-                <span className="hero-eyebrow-dot">•</span>
-                <span className="hero-live-tag">Live</span>
-              </div>
+          <div className="clean-hero-overlay" />
+          <div className="container hero-shell" style={{ position: 'relative', zIndex: 2, paddingBottom: '3.5rem' }}>
+            <div className="hero-content" style={{ maxWidth: '620px' }}>
+              <h1 className="hero-title" style={{ fontSize: '3.8rem', fontWeight: '800', letterSpacing: '-0.02em', margin: '0 0 1.25rem 0', textShadow: '0 4px 20px rgba(0,0,0,0.8)' }}>
+                {activeFeatured.title}
+              </h1>
 
-              <h1 className="hero-title">{activeFeatured.title}</h1>
-
-              <div className="hero-genre-pills">
-                {(activeFeatured.genres || []).slice(0, 4).map(g => (
-                  <span key={g} className="hero-genre-pill">{g}</span>
-                ))}
-              </div>
-
-              <div className="hero-meta">
-                <span className="top-ten-badge">Top 10</span>
-                <span className="hero-rank">#1 in TV Shows Today</span>
-                <span className="hero-star">
-                  <Star size={14} fill="var(--accent-primary)" style={{ color: 'var(--accent-primary)' }} />
-                  {activeFeatured.rating}
-                </span>
-                <span className="hero-meta-tag">{activeFeatured.type}</span>
-                <span className="hero-meta-tag">{activeFeatured.status}</span>
-              </div>
-
-              <p className="hero-desc">{activeFeatured.description}</p>
-
-              <div className="btn-group">
-                <button className="btn btn-primary hero-btn-play" onClick={() => onStartWatching(activeFeatured, 1)}>
-                  <Play size={20} fill="currentColor" /> Play Now
+              <div className="btn-group" style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
+                <button
+                  className="clean-hero-btn-play"
+                  onClick={() => onStartWatching(activeFeatured, 1)}
+                  style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}
+                >
+                  <Play size={18} fill="currentColor" style={{ marginRight: '0.6rem' }} /> Play
                 </button>
-                <button className="btn btn-secondary hero-btn-info" onClick={() => onAnimeClick(activeFeatured.id)}>
-                  <Info size={20} /> More Info
+
+                <button
+                  className="clean-hero-btn-info"
+                  onClick={() => onAnimeClick(activeFeatured.id)}
+                  style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}
+                >
+                  <Info size={18} style={{ marginRight: '0.6rem' }} /> Info
                 </button>
               </div>
             </div>
           </div>
 
-          {/* Carousel dots */}
+          {/* 15-Second Carousel Indicator */}
           {featured.length > 1 && (
-            <div className="hero-carousel-dots">
+            <div className="hero-carousel-dots" style={{ position: 'absolute', bottom: '2rem', right: '3rem', zIndex: 3, display: 'flex', gap: '0.5rem' }}>
               {featured.slice(0, 5).map((_, i) => (
                 <span key={i} className={`hero-dot ${activeFeatured?.id === featured[i]?.id ? 'active' : ''}`} />
               ))}
