@@ -505,7 +505,7 @@ function App() {
     ];
 
     api.getFeatured().then((items) => {
-      if (mounted) setFeatured([defaultFeatured[0], ...items]);
+      if (mounted) setFeatured(items && items.length > 0 ? items : defaultFeatured);
     });
     api.getAnimeList().then((items) => {
       if (mounted) setTrending(items);
@@ -520,7 +520,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (featured.length === 0 || view !== 'home') return undefined;
+    if (featured.length === 0 || (view !== 'home' && view !== 'anime')) return undefined;
 
     const timer = window.setInterval(() => {
       setCarouselIndex((prev) => (prev + 1) % featured.length);
@@ -1853,22 +1853,25 @@ function AnimeView({
     }
   };
 
+  const realAnimeFeaturedList = featured.filter(a => a.id !== 'backrooms-movie' && (a.bannerImage || a.coverImage));
+  const activeAnimeHero = realAnimeFeaturedList.find(a => a.id === activeFeatured?.id) || realAnimeFeaturedList[0] || filteredTrending[0];
+
   const popularNow = filteredTrending.slice(0, 10);
   const hindiAnimeRow = filteredTrending.filter(a => a.hasHindiDub || hasHindiDubAvailable(a.title, a.japaneseTitle));
-  const spotlightItem = filteredTrending.find(a => a.id !== activeFeatured?.id) || filteredTrending[0];
-  const bentoItems = filteredTrending.filter(a => a.id !== activeFeatured?.id && a.id !== spotlightItem?.id).slice(0, 4);
-  const classics = filteredTrending.filter(a => a.id !== activeFeatured?.id && a.id !== spotlightItem?.id && !bentoItems.some(b => b.id === a.id)).slice(0, 5);
+  const spotlightItem = filteredTrending.find(a => a.id !== activeAnimeHero?.id) || filteredTrending[0];
+  const bentoItems = filteredTrending.filter(a => a.id !== activeAnimeHero?.id && a.id !== spotlightItem?.id).slice(0, 4);
+  const classics = filteredTrending.filter(a => a.id !== activeAnimeHero?.id && a.id !== spotlightItem?.id && !bentoItems.some(b => b.id === a.id)).slice(0, 5);
 
   return (
     <div className="netflix-home">
       {/* ── Featured Anime Hero ── */}
-      {activeFeatured && (
+      {activeAnimeHero && (
         <div
           className="hero netflix-hero"
           style={{
             height: '80vh',
             minHeight: '520px',
-            backgroundImage: `url(${activeFeatured.bannerImage})`,
+            backgroundImage: `url(${activeAnimeHero.bannerImage || activeAnimeHero.coverImage})`,
             backgroundSize: 'cover',
             backgroundPosition: 'center'
           }}
@@ -1878,13 +1881,13 @@ function AnimeView({
             <div className="hero-content" style={{ maxWidth: '620px' }}>
               <div className="bento-badge" style={{ marginBottom: '0.8rem', width: 'fit-content' }}>✦ Featured Anime</div>
               <h1 className="hero-title" style={{ fontSize: '3.6rem', fontWeight: '800', letterSpacing: '-0.02em', margin: '0 0 1.25rem 0', textShadow: '0 4px 20px rgba(0,0,0,0.8)' }}>
-                {activeFeatured.title}
+                {activeAnimeHero.title}
               </h1>
 
               <div className="btn-group" style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
                 <button
                   className="clean-hero-btn-play"
-                  onClick={() => onStartWatching(activeFeatured, 1)}
+                  onClick={() => onStartWatching(activeAnimeHero, 1)}
                   style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}
                 >
                   <Play size={18} fill="currentColor" style={{ marginRight: '0.6rem' }} /> Watch Ep 1
@@ -1892,7 +1895,7 @@ function AnimeView({
 
                 <button
                   className="clean-hero-btn-info"
-                  onClick={() => onAnimeClick(activeFeatured.id)}
+                  onClick={() => onAnimeClick(activeAnimeHero.id)}
                   style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}
                 >
                   <Info size={18} style={{ marginRight: '0.6rem' }} /> Details
@@ -1901,10 +1904,10 @@ function AnimeView({
             </div>
           </div>
 
-          {featured.length > 1 && (
+          {realAnimeFeaturedList.length > 1 && (
             <div className="hero-carousel-dots" style={{ position: 'absolute', bottom: '2rem', right: '3rem', zIndex: 3, display: 'flex', gap: '0.5rem' }}>
-              {featured.slice(0, 6).map((_, i) => (
-                <span key={i} className={`hero-dot ${activeFeatured?.id === featured[i]?.id ? 'active' : ''}`} />
+              {realAnimeFeaturedList.slice(0, 6).map((item, i) => (
+                <span key={i} className={`hero-dot ${activeAnimeHero?.id === item.id ? 'active' : ''}`} />
               ))}
             </div>
           )}
