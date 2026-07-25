@@ -187,25 +187,31 @@ function App() {
       ['home', 'dramas', 'manhwa', 'tv-shows', 'movies', 'new-popular', 'my-list', 'hindi'].includes(view)
     );
 
-    // Compute clean URL path
-    let targetUrl = '/';
-    if (view === 'detail' && selectedAnime?.id) {
-      targetUrl = `/anime/${selectedAnime.id}`;
-    } else if (view === 'watch' && selectedAnime?.id) {
-      const epNum = currentEpisode?.number || 1;
-      targetUrl = `/watch/anime/${selectedAnime.id}?ep=${epNum}`;
-    } else if (view === 'drama-detail' && selectedDrama?.id) {
-      targetUrl = `/drama/${encodeURIComponent(selectedDrama.id)}`;
-    } else if (view === 'drama-watch' && selectedDrama?.id) {
-      const epNum = dramaEpisode?.number || dramaEpisode?.id || 1;
-      targetUrl = `/watch/drama/${encodeURIComponent(selectedDrama.id)}?ep=${epNum}`;
-    } else if (view === 'manhwa-detail' && selectedManhwa?.slug) {
-      targetUrl = `/manhwa/${encodeURIComponent(selectedManhwa.slug)}`;
-    } else if (view === 'manhwa-read' && selectedManhwa?.slug) {
-      const chSlug = currentManhwaChapter?.slug || 1;
-      targetUrl = `/read/manhwa/${encodeURIComponent(selectedManhwa.slug)}?ch=${encodeURIComponent(chSlug)}`;
-    } else if (view === 'movie-detail' && selectedMovie?.id) {
-      targetUrl = `/movie/${encodeURIComponent(selectedMovie.id)}`;
+    // Compute clean URL path (only when data is ready)
+    let targetUrl = null;
+    if (view === 'detail') {
+      if (selectedAnime?.id) targetUrl = `/anime/${selectedAnime.id}`;
+    } else if (view === 'watch') {
+      if (selectedAnime?.id) {
+        const epNum = currentEpisode?.number || 1;
+        targetUrl = `/watch/anime/${selectedAnime.id}?ep=${epNum}`;
+      }
+    } else if (view === 'drama-detail') {
+      if (selectedDrama?.id) targetUrl = `/drama/${encodeURIComponent(selectedDrama.id)}`;
+    } else if (view === 'drama-watch') {
+      if (selectedDrama?.id) {
+        const epNum = dramaEpisode?.number || dramaEpisode?.id || 1;
+        targetUrl = `/watch/drama/${encodeURIComponent(selectedDrama.id)}?ep=${epNum}`;
+      }
+    } else if (view === 'manhwa-detail') {
+      if (selectedManhwa?.slug) targetUrl = `/manhwa/${encodeURIComponent(selectedManhwa.slug)}`;
+    } else if (view === 'manhwa-read') {
+      if (selectedManhwa?.slug) {
+        const chSlug = currentManhwaChapter?.slug || 1;
+        targetUrl = `/read/manhwa/${encodeURIComponent(selectedManhwa.slug)}?ch=${encodeURIComponent(chSlug)}`;
+      }
+    } else if (view === 'movie-detail') {
+      if (selectedMovie?.id) targetUrl = `/movie/${encodeURIComponent(selectedMovie.id)}`;
     } else if (view === 'hindi') {
       targetUrl = '/hindi';
     } else if (view === 'tv-shows') {
@@ -220,12 +226,17 @@ function App() {
       targetUrl = '/new-popular';
     } else if (view === 'my-list') {
       targetUrl = '/my-list';
+    } else if (view === 'home') {
+      targetUrl = '/';
     }
 
-    if (shouldReplace) {
-      window.history.replaceState(stateObj, '', targetUrl);
-    } else {
-      window.history.pushState(stateObj, '', targetUrl);
+    if (targetUrl) {
+      const currentUrl = window.location.pathname + window.location.search;
+      if (shouldReplace || currentUrl === targetUrl) {
+        window.history.replaceState(stateObj, '', targetUrl);
+      } else {
+        window.history.pushState(stateObj, '', targetUrl);
+      }
     }
   }, [view, selectedAnime?.id, currentEpisode?.number, selectedDrama?.id, dramaEpisode?.id, selectedManhwa?.slug, currentManhwaChapter?.slug, selectedMovie?.id]);
 
