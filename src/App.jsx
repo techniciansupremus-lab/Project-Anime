@@ -1429,8 +1429,8 @@ function App() {
         </button>
       )}
 
-      {pageLoading && view !== 'tv-shows' && view !== 'movies' && view !== 'new-popular' && (
-        <GlobalLoader label="Loading anime details..." />
+      {pageLoading && ['detail', 'watch', 'drama-detail', 'drama-watch', 'movie-detail', 'movie-watch', 'manhwa-detail', 'manhwa-read'].includes(view) && (
+        <GlobalLoader label="Loading details..." />
       )}
 
       <main className="main-content">
@@ -3501,9 +3501,7 @@ function ManhwaHomeView({ data, error, isLoading, searchQuery, searchResults, se
           )}
         </div>
       ) : isLoading ? (
-        <div className="manhwa-loading" style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <InlineLoader />
-        </div>
+        <CategorySkeleton />
       ) : !data ? (
         <div style={{ minHeight: '60vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.2rem' }}>
           <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem', textAlign: 'center', maxWidth: '640px' }}>
@@ -3831,12 +3829,7 @@ function DramaHomeView({ data, error, isLoading, searchQuery, searchResults, sea
           )}
         </div>
       ) : isLoading ? (
-        <div className="drama-loading" style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div className="blob-loader-wrap">
-            <div className="blob-loader" />
-            <p className="blob-loader-text">Loading catalog...</p>
-          </div>
-        </div>
+        <CategorySkeleton />
       ) : !data || !Array.isArray(data.korean) ? (
         <div style={{ minHeight: '60vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.2rem' }}>
           <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem', textAlign: 'center', maxWidth: '640px' }}>
@@ -4216,12 +4209,7 @@ function MovieHomeView({
           )}
         </div>
       ) : isLoading ? (
-        <div className="drama-loading" style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div className="blob-loader-wrap">
-            <div className="blob-loader" />
-            <p className="blob-loader-text">Loading movie catalog...</p>
-          </div>
-        </div>
+        <CategorySkeleton />
       ) : !data || !Array.isArray(data.bollywood) ? (
         <div style={{ minHeight: '60vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.2rem' }}>
           <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem', textAlign: 'center', maxWidth: '640px' }}>
