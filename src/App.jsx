@@ -930,6 +930,9 @@ function App() {
   const [genreViewName, setGenreViewName] = useState('Horror');
   const [genreAnimeList, setGenreAnimeList] = useState([]);
   const [genreLoading, setGenreLoading] = useState(false);
+  const [genrePage, setGenrePage] = useState(1);
+  const [genreLoadingMore, setGenreLoadingMore] = useState(false);
+  const [genreHasMore, setGenreHasMore] = useState(true);
 
   const handleAnimeCategoryChange = (catId) => {
     const id = (catId || 'topanime').toLowerCase();
@@ -956,25 +959,75 @@ function App() {
     }
   };
 
-  // Fetch genre anime when view === 'genre'
+  // Initial Genre Page Fetch (Page 1)
   useEffect(() => {
     if (view !== 'genre' || !genreViewName) return;
     let mounted = true;
     setGenreLoading(true);
-    api.getGenreList('ANIME', genreViewName).then((list) => {
+    setGenrePage(1);
+    setGenreHasMore(true);
+
+    api.getGenreList('ANIME', genreViewName, 1, 30).then((list) => {
       if (mounted) {
         setGenreAnimeList(list || []);
         setGenreLoading(false);
+        if (!list || list.length < 30) setGenreHasMore(false);
       }
     }).catch((err) => {
       console.warn(`[Genre View] Failed to load ${genreViewName} anime:`, err);
       if (mounted) {
         setGenreAnimeList([]);
         setGenreLoading(false);
+        setGenreHasMore(false);
       }
     });
     return () => { mounted = false; };
   }, [view, genreViewName]);
+
+  // Infinite Scroll Listener for Genre View (Optimized capped at 200 anime max)
+  useEffect(() => {
+    if (view !== 'genre' || genreLoading || genreLoadingMore || !genreHasMore) return;
+
+    const handleScroll = () => {
+      if (genreAnimeList.length >= 200) {
+        setGenreHasMore(false);
+        return;
+      }
+
+      const scrollBottom = window.innerHeight + window.scrollY;
+      const threshold = document.body.offsetHeight - 700;
+
+      if (scrollBottom >= threshold && !genreLoadingMore && genreHasMore) {
+        const nextPage = genrePage + 1;
+        setGenreLoadingMore(true);
+
+        api.getGenreList('ANIME', genreViewName, nextPage, 30).then((nextList) => {
+          if (!nextList || nextList.length === 0) {
+            setGenreHasMore(false);
+          } else {
+            setGenreAnimeList((prev) => {
+              const existingIds = new Set(prev.map((item) => item.id));
+              const freshItems = nextList.filter((item) => !existingIds.has(item.id));
+              const combined = [...prev, ...freshItems];
+              if (combined.length >= 200) {
+                setGenreHasMore(false);
+                return combined.slice(0, 200);
+              }
+              return combined;
+            });
+            setGenrePage(nextPage);
+          }
+        }).catch(() => {
+          setGenreHasMore(false);
+        }).finally(() => {
+          setGenreLoadingMore(false);
+        });
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [view, genreViewName, genrePage, genreLoading, genreLoadingMore, genreHasMore, genreAnimeList.length]);
 
   // Called by SectionSlider when user picks Anime / Drama / Comic / Movies
   const handleSectionChange = (sectionId, catId) => {
@@ -1508,6 +1561,8 @@ function App() {
                 genreName={genreViewName}
                 items={genreAnimeList}
                 isLoading={genreLoading}
+                loadingMore={genreLoadingMore}
+                hasMore={genreHasMore}
                 onAnimeClick={handleAnimeClick}
                 onStartWatching={startWatching}
               />
@@ -2482,82 +2537,178 @@ function NetflixTile({ anime, rank, progress, onClick }) {
   );
 }
 
-function GenreView({ genreName, items = [], isLoading, onAnimeClick, onStartWatching }) {
+function GenreView({ genreName, items = [], isLoading, loadingMore = false, hasMore = true, onAnimeClick, onStartWatching }) {
+  if (isLoading) {
+    return <CategorySkeleton />;
+  }
+
   const featured = items[0] || null;
 
   return (
-    <div className="genre-view-container" style={{ paddingBottom: '4rem' }}>
-      {/* Genre Hero Banner */}
-      {featured && (
-        <section className="hv-hero" style={{ height: '48vh', minHeight: '360px' }}>
+    <div className="genre-view-container" style={{ paddingTop: '5.5rem', paddingBottom: '5rem' }}>
+      {/* ── Glassmorphic Genre Hero Card ── */}
+      <div className="container">
+        <div
+          className="genre-hero-glass-card"
+          style={{
+            position: 'relative',
+            borderRadius: '20px',
+            overflow: 'hidden',
+            marginBottom: '2.5rem',
+            background: 'rgba(18, 18, 28, 0.65)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            boxShadow: '0 20px 50px rgba(0,0,0,0.6)',
+            minHeight: '300px',
+            display: 'flex',
+            alignItems: 'center',
+          }}
+        >
+          {/* Background Image & Blur */}
+          {featured && (
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                backgroundImage: `url(${featured.bannerImage || featured.coverImage})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                opacity: 0.35,
+                filter: 'blur(4px)',
+                transform: 'scale(1.05)',
+              }}
+            />
+          )}
           <div
-            className="hv-hero__bg"
-            style={{ backgroundImage: `url(${featured.bannerImage || featured.coverImage})` }}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: 'linear-gradient(90deg, #09090d 0%, rgba(9,9,13,0.85) 50%, rgba(9,9,13,0.4) 100%)',
+            }}
           />
-          <div className="hv-hero__overlay" />
-          <div className="hv-hero__content">
-            <div className="hv-hero__badge" style={{ background: '#e50914', color: '#fff', fontWeight: 800 }}>
-              ✦ {genreName.toUpperCase()} ANIME COLLECTION
+
+          {/* Content */}
+          <div style={{ position: 'relative', zIndex: 2, padding: '3rem 2.5rem', maxWidth: '680px' }}>
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                padding: '0.35rem 0.9rem',
+                borderRadius: '20px',
+                background: 'rgba(229, 9, 20, 0.15)',
+                border: '1px solid rgba(229, 9, 20, 0.4)',
+                color: '#ff4d4d',
+                fontSize: '0.72rem',
+                fontWeight: 800,
+                letterSpacing: '0.1em',
+                textTransform: 'uppercase',
+                marginBottom: '1rem',
+              }}
+            >
+              <Sparkles size={14} /> {genreName} COLLECTION
             </div>
-            <h1 className="hv-hero__title" style={{ fontSize: '2.8rem', fontWeight: 800, marginTop: '0.4rem' }}>
+
+            <h1
+              style={{
+                fontSize: '3rem',
+                fontWeight: 900,
+                color: '#fff',
+                letterSpacing: '-0.02em',
+                lineHeight: 1.1,
+                marginBottom: '0.8rem',
+              }}
+            >
               {genreName} Anime
             </h1>
-            <p className="hv-hero__description" style={{ maxWidth: '650px', color: '#d1d5db', marginTop: '0.5rem' }}>
-              Discover and stream top-rated {genreName.toLowerCase()} anime series, movies, and fan-favorite titles in high definition.
+
+            <p style={{ color: '#9ca3af', fontSize: '0.95rem', lineHeight: 1.5, marginBottom: '1.5rem' }}>
+              Explore the complete {genreName.toLowerCase()} anime universe. Stream top-rated series, movies, and trending releases in high quality.
             </p>
+
             {featured && (
-              <div className="hv-hero__actions" style={{ marginTop: '1.2rem', display: 'flex', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', gap: '0.85rem' }}>
                 <button
                   className="btn btn-primary"
                   onClick={() => onStartWatching(featured, 1)}
-                  style={{ borderRadius: '24px', padding: '0.65rem 1.6rem', fontWeight: 700 }}
+                  style={{
+                    borderRadius: '24px',
+                    padding: '0.7rem 1.8rem',
+                    fontWeight: 700,
+                    boxShadow: '0 4px 18px rgba(229, 9, 20, 0.4)',
+                  }}
                 >
                   <Play size={18} fill="currentColor" /> Watch Spotlight
                 </button>
                 <button
                   className="btn btn-secondary"
                   onClick={() => onAnimeClick(featured.id)}
-                  style={{ borderRadius: '24px', padding: '0.65rem 1.4rem' }}
+                  style={{
+                    borderRadius: '24px',
+                    padding: '0.7rem 1.6rem',
+                    background: 'rgba(255,255,255,0.08)',
+                    borderColor: 'rgba(255,255,255,0.15)',
+                  }}
                 >
                   View Details
                 </button>
               </div>
             )}
           </div>
-        </section>
-      )}
+        </div>
 
-      {/* Grid Container */}
-      <div className="container" style={{ marginTop: featured ? '2.5rem' : '6rem' }}>
-        <div className="hv-section-header" style={{ marginBottom: '1.5rem' }}>
-          <h2 className="hv-section-title" style={{ fontSize: '1.5rem', fontWeight: 800, color: '#fff' }}>
-            <Sparkles className="hv-icon" size={22} style={{ color: '#e50914' }} />
-            Popular {genreName} Titles ({items.length})
+        {/* ── Section Title ── */}
+        <div className="hv-section-header" style={{ marginBottom: '1.8rem' }}>
+          <h2 className="hv-section-title" style={{ fontSize: '1.4rem', fontWeight: 800, color: '#fff' }}>
+            <Sparkles className="hv-icon" size={20} style={{ color: '#e50914' }} />
+            All {genreName} Anime ({items.length})
           </h2>
           <span className="hv-section-line" />
         </div>
 
-        {isLoading ? (
-          <div className="bento-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1.2rem' }}>
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-              <div key={i} className="bento-card bento-card--skeleton" style={{ height: '220px', borderRadius: '12px', background: 'rgba(255,255,255,0.04)' }} />
-            ))}
-          </div>
-        ) : items.length > 0 ? (
-          <div className="bento-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1.2rem' }}>
-            {items.map((item) => (
-              <AnimeCard
-                key={item.id}
-                anime={item}
-                onClick={() => onAnimeClick(item.id)}
-                variant="bento"
+        {/* ── 16:9 Bento Cards Grid ── */}
+        <div
+          className="bento-grid"
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+            gap: '1.3rem',
+          }}
+        >
+          {items.map((item) => (
+            <AnimeCard
+              key={item.id}
+              anime={item}
+              onClick={() => onAnimeClick(item.id)}
+              variant="bento"
+            />
+          ))}
+        </div>
+
+        {/* ── Infinite Scroll Skeleton Loader ── */}
+        {loadingMore && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+              gap: '1.3rem',
+              marginTop: '1.3rem',
+            }}
+          >
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <div
+                key={`more-skel-${i}`}
+                className="skeleton-bento-card"
+                style={{ height: '200px', borderRadius: '14px' }}
               />
             ))}
           </div>
-        ) : (
-          <div style={{ textAlign: 'center', padding: '4rem 1rem', color: '#9ca3af' }}>
-            <h3 style={{ fontSize: '1.3rem', color: '#fff' }}>No {genreName} anime found.</h3>
-            <p>Try selecting another genre from the left sidebar slider.</p>
+        )}
+
+        {/* 200 items limit reached notice */}
+        {!hasMore && items.length >= 200 && (
+          <div style={{ textAlign: 'center', padding: '3.5rem 0', color: '#6b7280', fontSize: '0.85rem' }}>
+            ✦ Showing top 200 {genreName} anime. Explore other categories from the left slider menu!
           </div>
         )}
       </div>

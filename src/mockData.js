@@ -258,20 +258,20 @@ export const api = {
   },
 
   // Fetch lists filtered by format and genre for custom category horizontal rows
-  getGenreList: async (format, genre) => {
+  getGenreList: async (format, genre, page = 1, perPage = 30) => {
     let formatFilter = '';
     if (format === 'TV') formatFilter = 'format_in: [TV, TV_SHORT],';
     else if (format === 'MOVIE') formatFilter = 'format: MOVIE,';
 
     const data = await fetchAniList(`
-      query {
-        Page(page: 1, perPage: 30) {
+      query ($page: Int, $perPage: Int) {
+        Page(page: $page, perPage: $perPage) {
           media(type: ANIME, ${formatFilter} genre: "${genre}", sort: POPULARITY_DESC) {
             ${MEDIA_FRAGMENT}
           }
         }
       }
-    `);
+    `, { page, perPage });
     if (data?.Page?.media) return data.Page.media.map(mapMediaToDetail);
     return [];
   },

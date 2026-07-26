@@ -7986,3 +7986,163 @@ body {
   border-radius: 9999px;
   box-shadow: 0 0 12px rgba(229, 9, 20, 0.6);
 }
+
+/* ═══════════════════════════════════════════════
+   PREMIUM 16:9 BENTO CARD OVERHAUL
+   ═══════════════════════════════════════════════ */
+
+.anime-bento-tile {
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.28s ease;
+  outline: none;
+}
+
+.anime-bento-tile:hover {
+  transform: translateY(-6px) scale(1.02);
+  z-index: 10;
+}
+
+.anime-bento-tile .tile-art {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.anime-bento-tile:hover .tile-art {
+  border-color: rgba(229, 9, 20, 0.6);
+  box-shadow: 0 8px 30px rgba(229, 9, 20, 0.25);
+}
+
+.anime-bento-tile .tile-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.anime-bento-tile:hover .tile-art img {
+  transform: scale(1.08);
+}
+
+.anime-bento-tile .tile-logo-mark {
+  position: absolute;
+  top: 0.6rem;
+  left: 0.6rem;
+  font-size: 0.62rem;
+  font-weight: 900;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  z-index: 3;
+}
+
+.bento-hindi-badge {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  font-size: 0.65rem;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #e50914;
+  color: #fff;
+  letter-spacing: 0.04em;
+  box-shadow: 0 2px 10px rgba(229, 9, 20, 0.5);
+  z-index: 3;
+}
+
+.anime-bento-tile .tile-hover-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  z-index: 2;
+}
+
+.anime-bento-tile:hover .tile-hover-overlay {
+  opacity: 1;
+}
+
+.anime-bento-tile .tile-hover-play {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #e50914;
+  color: #fff;
+  box-shadow: 0 0 20px rgba(229, 9, 20, 0.8);
+  transform: scale(0.85);
+  transition: transform 0.25s ease;
+}
+
+.anime-bento-tile:hover .tile-hover-play {
+  transform: scale(1);
+}
+
+.anime-bento-tile .tile-rating-badge {
+  position: absolute;
+  bottom: 0.5rem;
+  right: 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(6px);
+  color: #fbbf24;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  z-index: 3;
+}
+
+.anime-bento-tile .tile-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.55rem 0.2rem 0;
+}
+
+.anime-bento-tile .tile-info strong {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #f3f4f6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.anime-bento-tile:hover .tile-info strong {
+  color: #fff;
+}
+
+.anime-bento-tile .tile-info small {
+  font-size: 0.73rem;
+  color: #9ca3af;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
