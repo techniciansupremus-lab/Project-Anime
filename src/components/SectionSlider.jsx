@@ -1,13 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Flame, Mic, Swords, Compass, Skull, Zap, Heart, Smile, Film, Clapperboard, BookOpen, Tv } from 'lucide-react';
+import { Flame, Mic, Swords, Compass, Skull, Zap, Heart, Smile } from 'lucide-react';
 import './SectionSlider.css';
-
-const SECTIONS = [
-  { id: 'anime', label: 'Anime', icon: Tv },
-  { id: 'drama', label: 'Drama', icon: Film },
-  { id: 'movies', label: 'Movies', icon: Clapperboard },
-  { id: 'comic', label: 'Comic', icon: BookOpen },
-];
 
 const ANIME_CATEGORIES = [
   {
@@ -84,7 +77,7 @@ const ANIME_CATEGORIES = [
   },
 ];
 
-export default function SectionSlider({ activeSection = 'anime', onSectionChange, activeCategory = 'topanime', onCategoryChange }) {
+export default function SectionSlider({ activeCategory = 'topanime', onCategoryChange }) {
   const [open, setOpen] = useState(false);
   const [hoveredCard, setHoveredCard] = useState(null);
   const panelRef = useRef(null);
@@ -126,21 +119,14 @@ export default function SectionSlider({ activeSection = 'anime', onSectionChange
     clearTimeout(closeTimer.current);
   };
 
-  const handleMainSectionClick = (sectionId) => {
-    if (onSectionChange) onSectionChange(sectionId);
-  };
-
   const handleCategoryClick = (cat) => {
     setOpen(false);
-    // Push browser URL e.g. /anime/topanime, /anime/action, /anime/hindi
     try {
       window.history.pushState(null, '', cat.path);
     } catch (e) {}
 
     if (onCategoryChange) {
       onCategoryChange(cat.id, cat);
-    } else if (onSectionChange) {
-      onSectionChange('anime', cat.id);
     }
   };
 
@@ -181,82 +167,58 @@ export default function SectionSlider({ activeSection = 'anime', onSectionChange
         <div className="slider-panel__header">
           <div className="slider-panel__brand-row">
             <img src="/logo.png" alt="Logo" className="slider-panel__brand-img" />
-            <div className="slider-panel__logo">EetNet</div>
+            <div className="slider-panel__logo">Anime Multiverse</div>
           </div>
-          <p className="slider-panel__subtitle">ANIME MULTIVERSE & GENRES</p>
-
-          {/* Section Switcher Pills */}
-          <div className="slider-section-pills">
-            {SECTIONS.map((sec) => (
-              <button
-                key={sec.id}
-                className={`slider-sec-pill ${activeSection === sec.id ? 'active' : ''}`}
-                onClick={() => handleMainSectionClick(sec.id)}
-              >
-                <sec.icon size={13} />
-                <span>{sec.label}</span>
-              </button>
-            ))}
-          </div>
+          <p className="slider-panel__subtitle">CATEGORIES & GENRES</p>
         </div>
 
         {/* Categories / Genres List */}
         <div className="slider-panel__cards">
-          {activeSection === 'anime' && (
-            <>
-              <div className="slider-category-heading">ANIME CATEGORIES</div>
-              {ANIME_CATEGORIES.map((cat, i) => {
-                const isActive = activeCategory === cat.id;
-                const IconComponent = cat.icon;
-                return (
-                  <button
-                    key={cat.id}
-                    className={`slider-card ${isActive ? 'slider-card--active' : ''}`}
-                    style={{
-                      '--card-accent': cat.color,
-                      animationDelay: `${i * 0.04}s`,
-                    }}
-                    onClick={() => handleCategoryClick(cat)}
-                    onMouseEnter={() => setHoveredCard(cat.id)}
-                    onMouseLeave={() => setHoveredCard(null)}
-                    id={`anime-cat-${cat.id}-btn`}
+          <div className="slider-category-heading">ANIME SECTIONS</div>
+          {ANIME_CATEGORIES.map((cat, i) => {
+            const isActive = activeCategory === cat.id;
+            const IconComponent = cat.icon;
+            return (
+              <button
+                key={cat.id}
+                className={`slider-card ${isActive ? 'slider-card--active' : ''}`}
+                style={{
+                  '--card-accent': cat.color,
+                  animationDelay: `${i * 0.04}s`,
+                }}
+                onClick={() => handleCategoryClick(cat)}
+                onMouseEnter={() => setHoveredCard(cat.id)}
+                onMouseLeave={() => setHoveredCard(null)}
+                id={`anime-cat-${cat.id}-btn`}
+              >
+                {/* Active indicator bar */}
+                {isActive && <div className="slider-card__active-bar" style={{ background: cat.color }} />}
+
+                {/* Content */}
+                <div className="slider-card__content">
+                  <span
+                    className="slider-card__icon-container"
+                    style={{ color: isActive ? '#fff' : cat.color, background: isActive ? cat.color : 'rgba(255, 255, 255, 0.05)' }}
                   >
-                    {/* Active indicator bar */}
-                    {isActive && <div className="slider-card__active-bar" style={{ background: cat.color }} />}
-
-                    {/* Content */}
-                    <div className="slider-card__content">
-                      <span
-                        className="slider-card__icon-container"
-                        style={{ color: isActive ? '#fff' : cat.color, background: isActive ? cat.color : 'rgba(255, 255, 255, 0.05)' }}
-                      >
-                        <IconComponent size={20} className="slider-card__icon" />
-                      </span>
-                      <div className="slider-card__text">
-                        <span className="slider-card__label">{cat.label}</span>
-                        <span className="slider-card__sub">{cat.sub}</span>
-                        <span className="slider-card__desc">{cat.desc}</span>
-                      </div>
-                      {isActive && (
-                        <span className="slider-card__check" style={{ color: cat.color }} aria-label="Active">✓</span>
-                      )}
-                    </div>
-                  </button>
-                );
-              })}
-            </>
-          )}
-
-          {activeSection !== 'anime' && (
-            <div style={{ padding: '1rem', color: '#9ca3af', fontSize: '0.85rem' }}>
-              Select <strong>Anime</strong> tab above to view all anime genres & categories.
-            </div>
-          )}
+                    <IconComponent size={20} className="slider-card__icon" />
+                  </span>
+                  <div className="slider-card__text">
+                    <span className="slider-card__label">{cat.label}</span>
+                    <span className="slider-card__sub">{cat.sub}</span>
+                    <span className="slider-card__desc">{cat.desc}</span>
+                  </div>
+                  {isActive && (
+                    <span className="slider-card__check" style={{ color: cat.color }} aria-label="Active">✓</span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
         </div>
 
         {/* Footer hint */}
         <div className="slider-panel__footer">
-          <span className="slider-panel__footer-hint">Hover left edge anytime to filter anime</span>
+          <span className="slider-panel__footer-hint">Hover left edge anytime to switch anime genre</span>
         </div>
       </div>
     </>

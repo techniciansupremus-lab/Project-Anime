@@ -1440,15 +1440,15 @@ function App() {
 
   return (
     <div className="app-container">
-      {/* SectionSlider hidden on mobile — replaced by bottom nav */}
-      <div className="desktop-only-section-slider">
-        <SectionSlider
-          activeSection={activeSection}
-          onSectionChange={handleSectionChange}
-          activeCategory={animeCategory}
-          onCategoryChange={handleAnimeCategoryChange}
-        />
-      </div>
+      {/* SectionSlider ONLY spawns inside Anime views (/anime, /anime/horror, /anime/action, /anime/hindi, etc) */}
+      {['anime', 'genre', 'hindi', 'new-popular'].includes(view) && (
+        <div className="desktop-only-section-slider">
+          <SectionSlider
+            activeCategory={animeCategory}
+            onCategoryChange={handleAnimeCategoryChange}
+          />
+        </div>
+      )}
       <Navbar
         onSearch={handleSearch}
         activeView={view}
