@@ -345,9 +345,20 @@ function App() {
         }).finally(() => setPageLoading(false));
       }
     } else if (path.startsWith('/anime/')) {
-      const id = path.replace('/anime/', '');
-      if (id) {
-        handleAnimeClick(id);
+      const sub = path.replace('/anime/', '').toLowerCase();
+      if (sub === 'topanime') {
+        setView('new-popular');
+        setAnimeCategory('topanime');
+      } else if (sub === 'hindi') {
+        setView('hindi');
+        setAnimeCategory('hindi');
+      } else if (['action', 'adventure', 'horror', 'thriller', 'romance', 'comedy'].includes(sub)) {
+        const capitalized = sub.charAt(0).toUpperCase() + sub.slice(1);
+        setGenreViewName(capitalized);
+        setAnimeCategory(sub);
+        setView('genre');
+      } else if (sub) {
+        handleAnimeClick(sub);
       }
     } else if (path.startsWith('/drama/')) {
       const id = decodeURIComponent(path.replace('/drama/', ''));
@@ -916,6 +927,9 @@ function App() {
   };
 
   const [animeCategory, setAnimeCategory] = useState('topanime');
+  const [genreViewName, setGenreViewName] = useState('Horror');
+  const [genreAnimeList, setGenreAnimeList] = useState([]);
+  const [genreLoading, setGenreLoading] = useState(false);
 
   const handleAnimeCategoryChange = (catId) => {
     const id = (catId || 'topanime').toLowerCase();
@@ -928,12 +942,39 @@ function App() {
 
     if (id === 'hindi') {
       setView('hindi');
+      try { window.history.pushState(null, '', '/anime/hindi'); } catch (e) {}
     } else if (id === 'topanime') {
       setView('new-popular');
+      try { window.history.pushState(null, '', '/anime/topanime'); } catch (e) {}
+    } else if (['action', 'adventure', 'horror', 'thriller', 'romance', 'comedy'].includes(id)) {
+      const capitalized = id.charAt(0).toUpperCase() + id.slice(1);
+      setGenreViewName(capitalized);
+      setView('genre');
+      try { window.history.pushState(null, '', `/anime/${id}`); } catch (e) {}
     } else {
       setView('anime');
     }
   };
+
+  // Fetch genre anime when view === 'genre'
+  useEffect(() => {
+    if (view !== 'genre' || !genreViewName) return;
+    let mounted = true;
+    setGenreLoading(true);
+    api.getGenreList('ANIME', genreViewName).then((list) => {
+      if (mounted) {
+        setGenreAnimeList(list || []);
+        setGenreLoading(false);
+      }
+    }).catch((err) => {
+      console.warn(`[Genre View] Failed to load ${genreViewName} anime:`, err);
+      if (mounted) {
+        setGenreAnimeList([]);
+        setGenreLoading(false);
+      }
+    });
+    return () => { mounted = false; };
+  }, [view, genreViewName]);
 
   // Called by SectionSlider when user picks Anime / Drama / Comic / Movies
   const handleSectionChange = (sectionId, catId) => {
@@ -1459,6 +1500,16 @@ function App() {
                 onAnimeClick={handleAnimeClick}
                 onStartWatching={startWatching}
                 isLoading={pageLoading}
+              />
+            )}
+
+            {view === 'genre' && (
+              <GenreView
+                genreName={genreViewName}
+                items={genreAnimeList}
+                isLoading={genreLoading}
+                onAnimeClick={handleAnimeClick}
+                onStartWatching={startWatching}
               />
             )}
 
@@ -2431,8 +2482,88 @@ function NetflixTile({ anime, rank, progress, onClick }) {
   );
 }
 
+function GenreView({ genreName, items = [], isLoading, onAnimeClick, onStartWatching }) {
+  const featured = items[0] || null;
 
+  return (
+    <div className="genre-view-container" style={{ paddingBottom: '4rem' }}>
+      {/* Genre Hero Banner */}
+      {featured && (
+        <section className="hv-hero" style={{ height: '48vh', minHeight: '360px' }}>
+          <div
+            className="hv-hero__bg"
+            style={{ backgroundImage: `url(${featured.bannerImage || featured.coverImage})` }}
+          />
+          <div className="hv-hero__overlay" />
+          <div className="hv-hero__content">
+            <div className="hv-hero__badge" style={{ background: '#e50914', color: '#fff', fontWeight: 800 }}>
+              ✦ {genreName.toUpperCase()} ANIME COLLECTION
+            </div>
+            <h1 className="hv-hero__title" style={{ fontSize: '2.8rem', fontWeight: 800, marginTop: '0.4rem' }}>
+              {genreName} Anime
+            </h1>
+            <p className="hv-hero__description" style={{ maxWidth: '650px', color: '#d1d5db', marginTop: '0.5rem' }}>
+              Discover and stream top-rated {genreName.toLowerCase()} anime series, movies, and fan-favorite titles in high definition.
+            </p>
+            {featured && (
+              <div className="hv-hero__actions" style={{ marginTop: '1.2rem', display: 'flex', gap: '0.75rem' }}>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => onStartWatching(featured, 1)}
+                  style={{ borderRadius: '24px', padding: '0.65rem 1.6rem', fontWeight: 700 }}
+                >
+                  <Play size={18} fill="currentColor" /> Watch Spotlight
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => onAnimeClick(featured.id)}
+                  style={{ borderRadius: '24px', padding: '0.65rem 1.4rem' }}
+                >
+                  View Details
+                </button>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
+      {/* Grid Container */}
+      <div className="container" style={{ marginTop: featured ? '2.5rem' : '6rem' }}>
+        <div className="hv-section-header" style={{ marginBottom: '1.5rem' }}>
+          <h2 className="hv-section-title" style={{ fontSize: '1.5rem', fontWeight: 800, color: '#fff' }}>
+            <Sparkles className="hv-icon" size={22} style={{ color: '#e50914' }} />
+            Popular {genreName} Titles ({items.length})
+          </h2>
+          <span className="hv-section-line" />
+        </div>
+
+        {isLoading ? (
+          <div className="bento-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1.2rem' }}>
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+              <div key={i} className="bento-card bento-card--skeleton" style={{ height: '220px', borderRadius: '12px', background: 'rgba(255,255,255,0.04)' }} />
+            ))}
+          </div>
+        ) : items.length > 0 ? (
+          <div className="bento-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1.2rem' }}>
+            {items.map((item) => (
+              <AnimeCard
+                key={item.id}
+                anime={item}
+                onClick={() => onAnimeClick(item.id)}
+                variant="bento"
+              />
+            ))}
+          </div>
+        ) : (
+          <div style={{ textAlign: 'center', padding: '4rem 1rem', color: '#9ca3af' }}>
+            <h3 style={{ fontSize: '1.3rem', color: '#fff' }}>No {genreName} anime found.</h3>
+            <p>Try selecting another genre from the left sidebar slider.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function DetailView({ anime, franchiseList = [], myList = [], onToggleWatchlist, onAnimeSelect, onBackHome, onStartWatching }) {
   const EPISODES_PER_PART = 100;

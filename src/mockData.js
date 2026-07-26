@@ -259,10 +259,13 @@ export const api = {
 
   // Fetch lists filtered by format and genre for custom category horizontal rows
   getGenreList: async (format, genre) => {
-    const formatFilter = format === 'TV' ? 'format_in: [TV, TV_SHORT],' : 'format: MOVIE,';
+    let formatFilter = '';
+    if (format === 'TV') formatFilter = 'format_in: [TV, TV_SHORT],';
+    else if (format === 'MOVIE') formatFilter = 'format: MOVIE,';
+
     const data = await fetchAniList(`
       query {
-        Page(page: 1, perPage: 24) {
+        Page(page: 1, perPage: 30) {
           media(type: ANIME, ${formatFilter} genre: "${genre}", sort: POPULARITY_DESC) {
             ${MEDIA_FRAGMENT}
           }
