@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════
-   SECTION SLIDER — Clean, Professional EetNet Theme
+   SECTION SLIDER — Glassmorphic Anime Sidebar Theme
    ═══════════════════════════════════════════════ */
 
 /* ── Invisible left-edge trigger zone ── */
@@ -25,22 +25,23 @@
   justify-content: center;
   width: 14px;
   height: 72px;
-  background: #111115;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(18, 18, 24, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-left: 2px solid #e50914;
   border-radius: 0 8px 8px 0;
-  box-shadow: 2px 0 10px rgba(0, 0, 0, 0.5);
+  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.6);
   cursor: pointer;
   transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1),
               opacity 0.2s ease,
               background 0.2s ease;
-  opacity: 0.7;
+  opacity: 0.8;
 }
 
 .slider-tab-hint:hover {
-  width: 20px;
+  width: 22px;
   opacity: 1;
-  background: #18181f;
+  background: rgba(28, 28, 38, 0.95);
 }
 
 .slider-tab-hint--hidden {
@@ -50,15 +51,15 @@
 }
 
 .slider-tab-hint__chevron {
-  color: #9ca3af;
+  color: #e50914;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 800;
   line-height: 1;
   transition: transform 0.2s ease, color 0.2s ease;
 }
 
 .slider-tab-hint:hover .slider-tab-hint__chevron {
-  transform: translateX(1px);
+  transform: translateX(2px);
   color: #fff;
 }
 
@@ -73,64 +74,140 @@
 }
 
 .slider-backdrop--visible {
-  background: rgba(0, 0, 0, 0.65);
+  background: rgba(0, 0, 0, 0.68);
   pointer-events: auto;
-  backdrop-filter: blur(1px);
+  backdrop-filter: blur(4px);
 }
 
-/* ── Slide Panel ── */
+/* ── Glassmorphic Slide Panel ── */
 .slider-panel {
   position: fixed;
   top: 0;
   left: 0;
   height: 100vh;
-  width: 300px;
+  width: 320px;
   z-index: 1010;
-  background: #09090b;
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(10, 10, 16, 0.82) !important;
+  backdrop-filter: blur(28px) saturate(200%) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(200%) !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.12) !important;
   transform: translateX(-100%);
-  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
   display: flex;
   flex-direction: column;
   padding: 0;
   overflow: hidden;
+  box-shadow: 16px 0 50px rgba(0, 0, 0, 0.75);
 }
 
 .slider-panel--open {
   transform: translateX(0);
-  box-shadow: 10px 0 40px rgba(0, 0, 0, 0.85);
 }
 
 /* ── Panel Header ── */
 .slider-panel__header {
-  padding: 2.5rem 1.7rem 1.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 1.8rem 1.4rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.slider-panel__brand-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.2rem;
+}
+
+.slider-panel__brand-img {
+  height: 28px;
+  width: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.6));
 }
 
 .slider-panel__logo {
-  font-size: 1.7rem;
+  font-size: 1.5rem;
   font-weight: 800;
   letter-spacing: -0.5px;
-  color: #e50914;
-  margin-bottom: 0.3rem;
+  color: #fff;
 }
 
 .slider-panel__subtitle {
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.12em;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
+  color: #9ca3af;
+  margin-bottom: 1rem;
+}
+
+/* ── Section Switcher Pills ── */
+.slider-section-pills {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.35rem;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.slider-sec-pill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 4px;
+  border-radius: 7px;
+  border: none;
+  background: transparent;
+  color: #9ca3af;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.slider-sec-pill:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.slider-sec-pill.active {
+  background: #e50914;
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 2px 10px rgba(229, 9, 20, 0.4);
+}
+
+/* ── Section Heading ── */
+.slider-category-heading {
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
   color: #6b7280;
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+  padding: 0 0.2rem;
 }
 
 /* ── Section Cards ── */
 .slider-panel__cards {
   flex: 1;
-  padding: 1.2rem 1rem;
+  padding: 1rem;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.55rem;
   overflow-y: auto;
+}
+
+/* Custom scrollbar for glass panel */
+.slider-panel__cards::-webkit-scrollbar {
+  width: 4px;
+}
+.slider-panel__cards::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
 }
 
 .slider-card {
@@ -140,18 +217,18 @@
   border-radius: 10px;
   padding: 0;
   cursor: pointer;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
   overflow: hidden;
   transition: transform 0.2s ease,
               border-color 0.2s ease,
-              background-color 0.2s ease;
+              background-color 0.2s ease,
+              box-shadow 0.2s ease;
   outline: none;
 
   /* Entry animation */
   opacity: 0;
   animation: slideCardIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
-  animation-delay: var(--card-delay, 0s);
 }
 
 @keyframes slideCardIn {
@@ -171,18 +248,15 @@
 
 .slider-card:hover {
   transform: translateX(4px);
-  background-color: rgba(255, 255, 255, 0.04);
-  border-color: rgba(255, 255, 255, 0.15);
+  background-color: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
 }
 
 .slider-card--active {
-  border-color: #e50914;
-  background-color: rgba(229, 9, 20, 0.04);
-}
-
-.slider-card--active:hover {
-  border-color: #e50914;
-  background-color: rgba(229, 9, 20, 0.06);
+  border-color: var(--card-accent, #e50914);
+  background-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
 }
 
 /* Left indicator line */
@@ -192,16 +266,15 @@
   top: 0;
   bottom: 0;
   width: 3px;
-  background: #e50914;
 }
 
 /* Card Content Grid */
 .slider-card__content {
   position: relative;
   display: flex;
-  align-items: flex-start;
-  gap: 1rem;
-  padding: 1.1rem 1rem;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.85rem 0.9rem;
   z-index: 1;
 }
 
@@ -209,156 +282,73 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  color: #9ca3af;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   flex-shrink: 0;
-  transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
+  transition: transform 0.2s ease, background-color 0.2s ease;
 }
 
 .slider-card:hover .slider-card__icon-container {
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.12);
-  background-color: rgba(255, 255, 255, 0.07);
-}
-
-.slider-card--active .slider-card__icon-container {
-  color: #fff;
-  background-color: #e50914;
-  border-color: #e50914;
-}
-
-.slider-card__icon {
-  transition: transform 0.2s ease;
-}
-
-.slider-card:hover .slider-card__icon {
-  transform: scale(1.05);
+  transform: scale(1.08);
 }
 
 .slider-card__text {
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 0.1rem;
   flex: 1;
   text-align: left;
 }
 
 .slider-card__label {
-  font-size: 1.05rem;
+  font-size: 0.92rem;
   font-weight: 700;
   color: #f3f4f6;
   line-height: 1.2;
 }
 
 .slider-card__sub {
-  font-size: 0.65rem;
+  font-size: 0.63rem;
   font-weight: 600;
-  color: #6b7280;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.slider-card:hover .slider-card__sub {
   color: #9ca3af;
-}
-
-.slider-card--active .slider-card__sub {
-  color: #fca5a5;
+  letter-spacing: 0.02em;
 }
 
 .slider-card__desc {
-  font-size: 0.72rem;
-  color: #4b5563;
-  margin-top: 0.15rem;
-  line-height: 1.3;
+  font-size: 0.68rem;
+  color: #6b7280;
+  line-height: 1.2;
 }
 
 .slider-card:hover .slider-card__desc {
-  color: #6b7280;
-}
-
-.slider-card--active .slider-card__desc {
   color: #9ca3af;
 }
 
 .slider-card__check {
-  font-size: 1rem;
-  color: #e50914;
-  font-weight: 700;
+  font-size: 0.95rem;
+  font-weight: 800;
   align-self: center;
   flex-shrink: 0;
 }
 
 /* ── Panel Footer ── */
 .slider-panel__footer {
-  padding: 1.2rem 1.7rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 1rem 1.4rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.2);
 }
 
 .slider-panel__footer-hint {
-  font-size: 0.65rem;
-  color: #4b5563;
+  font-size: 0.64rem;
+  color: #6b7280;
   letter-spacing: 0.04em;
 }
 
 /* ── Mobile Responsive ── */
 @media (max-width: 768px) {
   .slider-panel {
-    width: 280px;
+    width: 290px;
   }
-
-  .slider-hotzone {
-    width: 20px;
-  }
-
-  .slider-tab-hint {
-    height: 60px;
-    width: 12px;
-  }
-}
-
-/* ── Premium logo section badge (Navbar) ── */
-.section-badge {
-  font-size: 0.65rem;
-  font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #9ca3af !important;
-  -webkit-text-fill-color: #9ca3af !important;
-  margin-left: 0.6rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  vertical-align: middle;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.04);
-  transform: translateY(-1px);
-}
-
-/* We style the badge depending on section */
-.section-badge--anime {
-  border-color: rgba(229, 9, 20, 0.3);
-  color: #fca5a5 !important;
-  -webkit-text-fill-color: #fca5a5 !important;
-  background: rgba(229, 9, 20, 0.05);
-}
-
-.section-badge--drama {
-  border-color: rgba(14, 165, 233, 0.3);
-  color: #7dd3fc !important;
-  -webkit-text-fill-color: #7dd3fc !important;
-  background: rgba(14, 165, 233, 0.05);
-}
-
-.section-badge--comic {
-  border-color: rgba(16, 185, 129, 0.3);
-  color: #6ee7b7 !important;
-  -webkit-text-fill-color: #6ee7b7 !important;
-  background: rgba(16, 185, 129, 0.05);
 }

@@ -136,18 +136,6 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
             Home
           </button>
           <button
-            className={`nav-pill-btn ${activeView === 'movies' ? 'active' : ''}`}
-            onClick={() => handleNavClick('movies', 'movies')}
-          >
-            Movies
-          </button>
-          <button
-            className={`nav-pill-btn ${activeView === 'tv-shows' ? 'active' : ''}`}
-            onClick={() => handleNavClick('tv-shows', 'anime')}
-          >
-            TV Shows
-          </button>
-          <button
             className={`nav-pill-btn ${activeView === 'anime' ? 'active' : ''}`}
             onClick={() => handleNavClick('anime', 'anime')}
           >
@@ -158,6 +146,12 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
             onClick={() => handleNavClick('dramas', 'drama')}
           >
             Drama
+          </button>
+          <button
+            className={`nav-pill-btn ${activeView === 'movies' ? 'active' : ''}`}
+            onClick={() => handleNavClick('movies', 'movies')}
+          >
+            Movies
           </button>
           <button
             className={`nav-pill-btn ${activeView === 'manhwa' ? 'active' : ''}`}

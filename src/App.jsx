@@ -915,8 +915,32 @@ function App() {
     window.scrollTo(0, 0);
   };
 
+  const [animeCategory, setAnimeCategory] = useState('topanime');
+
+  const handleAnimeCategoryChange = (catId) => {
+    const id = (catId || 'topanime').toLowerCase();
+    setAnimeCategory(id);
+    resetSearch();
+    setActiveSection('anime');
+    setSelectedAnime(null);
+    setCurrentEpisode(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    if (id === 'hindi') {
+      setView('hindi');
+    } else if (id === 'topanime') {
+      setView('new-popular');
+    } else {
+      setView('anime');
+    }
+  };
+
   // Called by SectionSlider when user picks Anime / Drama / Comic / Movies
-  const handleSectionChange = (sectionId) => {
+  const handleSectionChange = (sectionId, catId) => {
+    if (catId) {
+      handleAnimeCategoryChange(catId);
+      return;
+    }
     if (sectionId === 'anime') {
       goAnime();
     } else if (sectionId === 'drama') {
@@ -1324,7 +1348,12 @@ function App() {
     <div className="app-container">
       {/* SectionSlider hidden on mobile — replaced by bottom nav */}
       <div className="desktop-only-section-slider">
-        <SectionSlider activeSection={activeSection} onSectionChange={handleSectionChange} />
+        <SectionSlider
+          activeSection={activeSection}
+          onSectionChange={handleSectionChange}
+          activeCategory={animeCategory}
+          onCategoryChange={handleAnimeCategoryChange}
+        />
       </div>
       <Navbar
         onSearch={handleSearch}
