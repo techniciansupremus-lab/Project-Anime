@@ -779,7 +779,18 @@ export const api = {
   // Get Manga Chapter Pages
   getMangaChapterPages: async (chapterId) => {
     try {
-      const res = await fetch(apiUrl(`/api/manga/read/${encodeURIComponent(chapterId)}`));
+      // Hard 15s abort — guarantees no infinite loading even if server hangs
+      const controller = new AbortController();
+      const abortTimer = setTimeout(() => {
+        controller.abort();
+        console.warn('[API] getMangaChapterPages aborted after 15s timeout');
+      }, 15000);
+
+      const res = await fetch(apiUrl(`/api/manga/read/${encodeURIComponent(chapterId)}`), {
+        signal: controller.signal
+      });
+      clearTimeout(abortTimer);
+
       if (res.ok) {
         return await res.json();
       }

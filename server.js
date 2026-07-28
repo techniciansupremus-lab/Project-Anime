@@ -2291,41 +2291,67 @@ app.get('/api/manga/info/:id', async (req, res) => {
 // GET /api/manga/read/:chapterId
 app.get('/api/manga/read/:chapterId', async (req, res) => {
   const { chapterId } = req.params;
+  console.log(`[MANGA READ] Request received for chapter: ${chapterId}`);
 
-  // Try MangaDex At-Home API
+  // Hard global timeout — if we can't get pages in 12s, bail immediately
+  const routeTimeout = setTimeout(() => {
+    if (!res.headersSent) {
+      console.error(`[MANGA READ] TIMEOUT for ${chapterId} — sending empty response`);
+      res.json({ chapterId, pageCount: 0, pages: [] });
+    }
+  }, 12000);
+
   try {
-    const atHomeRes = await axios.get(`https://api.mangadex.org/at-home/server/${chapterId}`, { timeout: 8000 });
-    const { baseUrl, chapter } = atHomeRes.data || {};
+    // 1) MangaDex@Home API — fast CDN, direct URLs
+    try {
+      const atHomeRes = await axios.get(`https://api.mangadex.org/at-home/server/${chapterId}`, { timeout: 8000 });
+      const { baseUrl, chapter } = atHomeRes.data || {};
 
-    if (baseUrl && chapter?.data?.length) {
-      // Return DIRECT CDN URLs — browser downloads images from MangaDex CDN directly
-      const pages = chapter.data.map((fileName, index) => ({
-        page: index + 1,
-        url: `${baseUrl}/data/${chapter.hash}/${fileName}`,
-      }));
-      console.log(`[MANGA READ] OK ${chapterId} — ${pages.length} pages (MangaDex@Home direct)`);
-      return res.json({ chapterId, pageCount: pages.length, pages });
+      if (baseUrl && chapter?.data?.length) {
+        clearTimeout(routeTimeout);
+        const pages = chapter.data.map((fileName, index) => ({
+          page: index + 1,
+          url: `${baseUrl}/data/${chapter.hash}/${fileName}`,
+        }));
+        console.log(`[MANGA READ] OK ${chapterId} — ${pages.length} pages (MangaDex@Home direct)`);
+        return res.json({ chapterId, pageCount: pages.length, pages });
+      }
+    } catch (e) {
+      console.warn(`[MANGA READ] MangaDex@Home failed (${e.message}), trying Consumet...`);
+    }
+
+    // 2) Consumet fallback — strict 9s timeout via Promise.race
+    try {
+      const pagesData = await Promise.race([
+        mangaDexConsumet.fetchChapterPages(chapterId),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Consumet 9s timeout')), 9000))
+      ]);
+
+      if (Array.isArray(pagesData) && pagesData.length) {
+        clearTimeout(routeTimeout);
+        const pages = pagesData.map((p, index) => ({
+          page: p.page || index + 1,
+          url: p.img || p.url,
+        }));
+        console.log(`[MANGA READ] OK ${chapterId} — ${pages.length} pages (Consumet direct)`);
+        return res.json({ chapterId, pageCount: pages.length, pages });
+      }
+    } catch (e) {
+      console.warn(`[MANGA READ] Consumet also failed (${e.message})`);
+    }
+
+    // Both providers failed — return empty so the frontend can show an error
+    clearTimeout(routeTimeout);
+    if (!res.headersSent) {
+      console.error(`[MANGA READ] All providers failed for ${chapterId}`);
+      res.json({ chapterId, pageCount: 0, pages: [] });
     }
   } catch (e) {
-    console.warn('[MANGA READ] MangaDex at-home server error, trying Consumet fallback:', e.message);
-  }
-
-  // Fallback to Consumet
-  try {
-    const pagesData = await mangaDexConsumet.fetchChapterPages(chapterId);
-    if (Array.isArray(pagesData) && pagesData.length) {
-      const pages = pagesData.map((p, index) => ({
-        page: p.page || index + 1,
-        url: p.img || p.url,
-      }));
-      console.log(`[MANGA READ] OK ${chapterId} — ${pages.length} pages (Consumet direct)`);
-      return res.json({ chapterId, pageCount: pages.length, pages });
-    }
-  } catch (e) {
-    console.error('[MANGA READ] All page reading providers failed:', e.message);
-    res.status(502).json({ error: 'Failed to fetch chapter pages', message: e.message });
+    clearTimeout(routeTimeout);
+    if (!res.headersSent) res.json({ chapterId, pageCount: 0, pages: [] });
   }
 });
+
 
 // GET /api/manga/image-proxy?url=<url>
 app.get('/api/manga/image-proxy', async (req, res) => {
