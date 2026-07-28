@@ -4985,7 +4985,17 @@ function MangaReaderView({ manga, chapter, pages, isLoading, onBack, onChapterSe
     }
   };
 
-  const handleImgError = (pageIdx) => {
+  // Track which images have tried their fallback URL already
+  const [triedFallback, setTriedFallback] = React.useState(new Set());
+
+  const handleImgError = (pageIdx, e, page) => {
+    // If there's a fallbackUrl and we haven't tried it yet, switch to it
+    if (page?.fallbackUrl && !triedFallback.has(pageIdx)) {
+      setTriedFallback(prev => new Set([...prev, pageIdx]));
+      e.target.src = page.fallbackUrl;
+      return;
+    }
+    // Both URLs failed — mark page as unavailable
     setFailedImages(prev => new Set([...prev, pageIdx]));
   };
 
@@ -5047,7 +5057,7 @@ function MangaReaderView({ manga, chapter, pages, isLoading, onBack, onChapterSe
                     src={p.url}
                     alt={`Page ${p.page}`}
                     className="manga-page-img"
-                    onError={() => handleImgError(idx)}
+                    onError={(e) => handleImgError(idx, e, p)}
                     loading="lazy"
                   />
                 )}
@@ -5063,7 +5073,7 @@ function MangaReaderView({ manga, chapter, pages, isLoading, onBack, onChapterSe
                 src={pages[currentPage]?.url}
                 alt={`Page ${currentPage + 1}`}
                 className="manga-page-img-single"
-                onError={() => handleImgError(currentPage)}
+                onError={(e) => handleImgError(currentPage, e, pages[currentPage])}
               />
             )}
             <div className="manga-page-nav">

@@ -2314,26 +2314,33 @@ app.get('/api/manga/read/:chapterId', async (req, res) => {
       { timeout: 8000 }
     );
     const { baseUrl, chapter } = atHomeRes.data || {};
-    console.log(`[MANGA READ] at-home baseUrl=${baseUrl}, data=${chapter?.data?.length ?? 'none'}, dataSaver=${chapter?.dataSaver?.length ?? 'none'}`);
+    console.log(`[MANGA READ] at-home data=${chapter?.data?.length ?? 0}, dataSaver=${chapter?.dataSaver?.length ?? 0}, node=${baseUrl}`);
 
-    // Try full-quality pages first, then dataSaver (compressed) as fallback
+    // Choose full-quality first, dataSaver as fallback
     const files    = chapter?.data?.length    ? chapter.data    : null;
     const quality  = files ? 'data' : (chapter?.dataSaver?.length ? 'data-saver' : null);
     const pageList = files || chapter?.dataSaver || [];
 
-    if (baseUrl && quality && pageList.length) {
+    if (quality && pageList.length) {
       clearTimeout(routeTimeout);
+      const hash = chapter.hash;
+
+      // PRIMARY: uploads.mangadex.org — MangaDex's own authoritative CDN
+      // (community at-home nodes often return 404 when chapter isn't cached on that node)
+      // FALLBACK: the at-home node URL, included so client can retry if uploads CDN is slow
       const pages = pageList.map((fileName, index) => ({
         page: index + 1,
-        url: `${baseUrl}/${quality}/${chapter.hash}/${fileName}`,
+        url:         `https://uploads.mangadex.org/${quality}/${hash}/${fileName}`,
+        fallbackUrl: baseUrl ? `${baseUrl}/${quality}/${hash}/${fileName}` : null,
       }));
-      console.log(`[MANGA READ] OK — ${pages.length} pages (${quality}) for ${chapterId}`);
+
+      console.log(`[MANGA READ] OK — ${pages.length} pages (${quality}, uploads.mangadex.org) for ${chapterId}`);
       return res.json({ chapterId, pageCount: pages.length, pages });
     }
 
-    // No pages at all from at-home (chapter may be external/restricted)
+    // No pages available (external/licensed chapter slipped through filter)
     clearTimeout(routeTimeout);
-    console.error(`[MANGA READ] No pages available for ${chapterId} — baseUrl=${baseUrl}, data=${chapter?.data?.length}, dataSaver=${chapter?.dataSaver?.length}`);
+    console.error(`[MANGA READ] No pages — data=${chapter?.data?.length}, dataSaver=${chapter?.dataSaver?.length}, chapterId=${chapterId}`);
     if (!res.headersSent) res.json({ chapterId, pageCount: 0, pages: [] });
 
   } catch (e) {
@@ -2342,6 +2349,7 @@ app.get('/api/manga/read/:chapterId', async (req, res) => {
     if (!res.headersSent) res.json({ chapterId, pageCount: 0, pages: [] });
   }
 });
+
 
 
 
