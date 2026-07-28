@@ -3,7 +3,7 @@ import cors from 'cors';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import https from 'https';
-import { ANIME, META } from '@consumet/extensions';
+import { ANIME, META, MANGA } from '@consumet/extensions';
 
 const app = express();
 app.set('trust proxy', true);
@@ -1970,6 +1970,400 @@ app.get('/api/movies/info/:id', async (req, res) => {
   } catch (err) {
     console.error('[MOVIES INFO] Error:', err.message);
     res.status(502).json({ error: 'TMDB movie info failed', message: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────
+// MANGA API ENDPOINTS (MangaDex Primary + Consumet & AniList Fallbacks)
+// ─────────────────────────────────────────────────────
+
+const mangaDexConsumet = new MANGA.MangaDex();
+const comicKConsumet = new MANGA.ComicK();
+
+// Helper: Fetch AniList Manga Catalog
+async function fetchAniListMangaSection(sort, limit = 18) {
+  const query = `
+    query ($sort: [MediaSort], $perPage: Int) {
+      Page(page: 1, perPage: $perPage) {
+        media(type: MANGA, sort: $sort, countryOfOrigin: "JP") {
+          id
+          title { romaji english native }
+          coverImage { extraLarge large medium color }
+          bannerImage
+          description
+          status
+          chapters
+          volumes
+          averageScore
+          genres
+          format
+          startDate { year }
+        }
+      }
+    }
+  `;
+  try {
+    const res = await axios.post('https://graphql.anilist.co', {
+      query,
+      variables: { sort: [sort], perPage: limit }
+    }, { headers: { 'Content-Type': 'application/json' }, timeout: 8000 });
+    return (res.data?.data?.Page?.media || []).map(m => ({
+      id: m.id,
+      anilistId: m.id,
+      title: m.title.english || m.title.romaji || m.title.native,
+      cover: m.coverImage?.extraLarge || m.coverImage?.large,
+      banner: m.bannerImage || m.coverImage?.extraLarge,
+      description: m.description ? m.description.replace(/<[^>]*>?/gm, '') : '',
+      status: m.status,
+      chapters: m.chapters || '?',
+      volumes: m.volumes || '?',
+      rating: m.averageScore ? (m.averageScore / 10).toFixed(1) : '8.5',
+      genres: m.genres || ['Action', 'Fantasy'],
+      year: m.startDate?.year || '2024',
+      type: 'manga'
+    }));
+  } catch (e) {
+    console.error(`[MANGA ANILIST] Error fetching ${sort}:`, e.message);
+    return [];
+  }
+}
+
+// GET /api/manga/home
+app.get('/api/manga/home', async (req, res) => {
+  try {
+    const [trending, popular, topRated] = await Promise.all([
+      fetchAniListMangaSection('TRENDING_DESC', 18),
+      fetchAniListMangaSection('POPULARITY_DESC', 18),
+      fetchAniListMangaSection('SCORE_DESC', 18)
+    ]);
+    res.json({
+      trending,
+      popular,
+      topRated,
+      featured: trending[0] || popular[0] || null
+    });
+  } catch (err) {
+    console.error('[MANGA HOME] Error:', err.message);
+    res.status(500).json({ error: 'Failed to load manga home', message: err.message });
+  }
+});
+
+// GET /api/manga/search?q=<query>
+app.get('/api/manga/search', async (req, res) => {
+  const q = req.query.q;
+  if (!q) return res.json([]);
+
+  // Try MangaDex REST API
+  try {
+    const mdRes = await axios.get(`https://api.mangadex.org/manga`, {
+      params: {
+        title: q,
+        limit: 20,
+        'includes[]': ['cover_art', 'author', 'artist']
+      },
+      timeout: 8000
+    });
+    
+    if (mdRes.data?.data?.length) {
+      const results = mdRes.data.data.map(m => {
+        const titleObj = m.attributes.title || {};
+        const title = titleObj.en || Object.values(titleObj)[0] || 'Unknown Title';
+        const relCover = m.relationships?.find(r => r.type === 'cover_art');
+        const coverFile = relCover?.attributes?.fileName;
+        const cover = coverFile ? `https://uploads.mangadex.org/covers/${m.id}/${coverFile}.256.jpg` : null;
+
+        return {
+          id: m.id,
+          mangadexId: m.id,
+          title,
+          cover,
+          description: m.attributes.description?.en || '',
+          status: m.attributes.status,
+          rating: '8.5',
+          genres: (m.attributes.tags || []).slice(0, 4).map(t => t.attributes?.name?.en).filter(Boolean),
+          type: 'manga'
+        };
+      });
+      return res.json(results);
+    }
+  } catch (e) {
+    console.warn('[MANGA SEARCH] MangaDex search failed, attempting Consumet fallback:', e.message);
+  }
+
+  // Fallback 1: Consumet MangaDex
+  try {
+    const consumetRes = await mangaDexConsumet.search(q);
+    if (consumetRes?.results?.length) {
+      const results = consumetRes.results.map(m => ({
+        id: m.id,
+        mangadexId: m.id,
+        title: typeof m.title === 'string' ? m.title : (m.title?.userPreferred || m.title?.english || 'Manga'),
+        cover: m.image,
+        description: m.description || '',
+        status: m.status,
+        rating: m.rating ? (m.rating / 10).toFixed(1) : '8.0',
+        genres: m.genres || [],
+        type: 'manga'
+      }));
+      return res.json(results);
+    }
+  } catch (e) {
+    console.warn('[MANGA SEARCH] Consumet MangaDex search failed:', e.message);
+  }
+
+  // Fallback 2: AniList search
+  try {
+    const query = `
+      query ($search: String) {
+        Page(page: 1, perPage: 20) {
+          media(type: MANGA, search: $search) {
+            id
+            title { romaji english native }
+            coverImage { extraLarge large }
+            description
+            status
+            averageScore
+            genres
+          }
+        }
+      }
+    `;
+    const aniRes = await axios.post('https://graphql.anilist.co', { query, variables: { search: q } });
+    const results = (aniRes.data?.data?.Page?.media || []).map(m => ({
+      id: m.id,
+      anilistId: m.id,
+      title: m.title.english || m.title.romaji || m.title.native,
+      cover: m.coverImage?.extraLarge || m.coverImage?.large,
+      description: m.description ? m.description.replace(/<[^>]*>?/gm, '') : '',
+      status: m.status,
+      rating: m.averageScore ? (m.averageScore / 10).toFixed(1) : '8.5',
+      genres: m.genres || [],
+      type: 'manga'
+    }));
+    return res.json(results);
+  } catch (e) {
+    console.error('[MANGA SEARCH] All search providers failed:', e.message);
+    res.json([]);
+  }
+});
+
+// GET /api/manga/info/:id
+app.get('/api/manga/info/:id', async (req, res) => {
+  const { id } = req.params;
+  
+  let mangadexId = id;
+
+  // If numeric ID (AniList ID), resolve to MangaDex UUID
+  if (/^\d+$/.test(id)) {
+    try {
+      // Get title from AniList first
+      const aniQuery = `
+        query ($id: Int) {
+          Media(id: $id, type: MANGA) {
+            id
+            title { romaji english native }
+            coverImage { extraLarge large }
+            bannerImage
+            description
+            status
+            chapters
+            volumes
+            averageScore
+            genres
+          }
+        }
+      `;
+      const aniRes = await axios.post('https://graphql.anilist.co', { query: aniQuery, variables: { id: parseInt(id) } });
+      const media = aniRes.data?.data?.Media;
+      const searchTitle = media?.title?.english || media?.title?.romaji || media?.title?.native;
+
+      if (searchTitle) {
+        const mdSearch = await axios.get(`https://api.mangadex.org/manga`, {
+          params: { title: searchTitle, limit: 5 },
+          timeout: 6000
+        });
+        if (mdSearch.data?.data?.[0]?.id) {
+          mangadexId = mdSearch.data.data[0].id;
+        }
+      }
+    } catch (e) {
+      console.warn('[MANGA INFO] AniList to MangaDex resolution failed:', e.message);
+    }
+  }
+
+  // Fetch from MangaDex REST API
+  try {
+    const mdRes = await axios.get(`https://api.mangadex.org/manga/${mangadexId}`, {
+      params: { 'includes[]': ['cover_art', 'author', 'artist'] },
+      timeout: 8000
+    });
+
+    const mangaData = mdRes.data?.data;
+    if (mangaData) {
+      const titleObj = mangaData.attributes.title || {};
+      const title = titleObj.en || Object.values(titleObj)[0] || 'Unknown Title';
+      const relCover = mangaData.relationships?.find(r => r.type === 'cover_art');
+      const coverFile = relCover?.attributes?.fileName;
+      const cover = coverFile ? `https://uploads.mangadex.org/covers/${mangadexId}/${coverFile}.512.jpg` : null;
+
+      // Fetch chapter feed
+      let chapters = [];
+      try {
+        const feedRes = await axios.get(`https://api.mangadex.org/manga/${mangadexId}/feed`, {
+          params: {
+            'translatedLanguage[]': ['en'],
+            limit: 500,
+            'order[chapter]': 'asc',
+            'contentRating[]': ['safe', 'suggestive', 'erotica']
+          },
+          timeout: 10000
+        });
+
+        const rawChs = feedRes.data?.data || [];
+        const seenChapters = new Set();
+
+        chapters = rawChs.map(c => {
+          const chNum = c.attributes.chapter || '1';
+          const title = c.attributes.title || `Chapter ${chNum}`;
+          const volume = c.attributes.volume || null;
+          return {
+            id: c.id,
+            chapter: chNum,
+            title: title,
+            volume: volume,
+            pages: c.attributes.pages || 0,
+            publishAt: c.attributes.publishAt
+          };
+        }).filter(c => {
+          if (seenChapters.has(c.chapter)) return false;
+          seenChapters.add(c.chapter);
+          return true;
+        }).sort((a, b) => parseFloat(a.chapter) - parseFloat(b.chapter));
+      } catch (e) {
+        console.warn('[MANGA INFO] Chapter feed fetch error:', e.message);
+      }
+
+      return res.json({
+        id: mangadexId,
+        mangadexId,
+        title,
+        cover,
+        banner: cover,
+        description: mangaData.attributes.description?.en || 'No description available.',
+        status: mangaData.attributes.status,
+        rating: '8.8',
+        genres: (mangaData.attributes.tags || []).map(t => t.attributes?.name?.en).filter(Boolean),
+        chapters
+      });
+    }
+  } catch (e) {
+    console.warn('[MANGA INFO] Direct MangaDex API failed, trying Consumet:', e.message);
+  }
+
+  // Fallback to Consumet
+  try {
+    const info = await mangaDexConsumet.fetchMangaInfo(mangadexId);
+    if (info) {
+      return res.json({
+        id: info.id,
+        mangadexId: info.id,
+        title: typeof info.title === 'string' ? info.title : (info.title?.userPreferred || info.title?.english || 'Manga'),
+        cover: info.image,
+        banner: info.headerForImage || info.image,
+        description: info.description || '',
+        status: info.status,
+        rating: info.rating ? (info.rating / 10).toFixed(1) : '8.5',
+        genres: info.genres || [],
+        chapters: (info.chapters || []).map(c => ({
+          id: c.id,
+          chapter: c.chapterNumber || c.title || '1',
+          title: c.title || `Chapter ${c.chapterNumber || 1}`,
+          pages: 0
+        }))
+      });
+    }
+  } catch (e) {
+    console.error('[MANGA INFO] All info providers failed:', e.message);
+    res.status(502).json({ error: 'Failed to fetch manga info', message: e.message });
+  }
+});
+
+// GET /api/manga/read/:chapterId
+app.get('/api/manga/read/:chapterId', async (req, res) => {
+  const { chapterId } = req.params;
+
+  // Try MangaDex At-Home API
+  try {
+    const atHomeRes = await axios.get(`https://api.mangadex.org/at-home/server/${chapterId}`, { timeout: 8000 });
+    const { baseUrl, chapter } = atHomeRes.data || {};
+
+    if (baseUrl && chapter?.data?.length) {
+      const host = publicHost(req);
+      const pages = chapter.data.map((fileName, index) => {
+        const rawUrl = `${baseUrl}/data/${chapter.hash}/${fileName}`;
+        return {
+          page: index + 1,
+          url: `${host}/api/manga/image-proxy?url=${encodeURIComponent(rawUrl)}`,
+          rawUrl
+        };
+      });
+
+      return res.json({
+        chapterId,
+        pageCount: pages.length,
+        pages
+      });
+    }
+  } catch (e) {
+    console.warn('[MANGA READ] MangaDex at-home server error, trying Consumet fallback:', e.message);
+  }
+
+  // Fallback to Consumet
+  try {
+    const pagesData = await mangaDexConsumet.fetchChapterPages(chapterId);
+    if (Array.isArray(pagesData) && pagesData.length) {
+      const host = publicHost(req);
+      const pages = pagesData.map((p, index) => ({
+        page: p.page || index + 1,
+        url: `${host}/api/manga/image-proxy?url=${encodeURIComponent(p.img || p.url)}`,
+        rawUrl: p.img || p.url
+      }));
+
+      return res.json({
+        chapterId,
+        pageCount: pages.length,
+        pages
+      });
+    }
+  } catch (e) {
+    console.error('[MANGA READ] All page reading providers failed:', e.message);
+    res.status(502).json({ error: 'Failed to fetch chapter pages', message: e.message });
+  }
+});
+
+// GET /api/manga/image-proxy?url=<url>
+app.get('/api/manga/image-proxy', async (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).send('Missing url parameter');
+
+  try {
+    const targetUrl = decodeURIComponent(url);
+    const response = await axios.get(targetUrl, {
+      responseType: 'arraybuffer',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://mangadex.org/'
+      },
+      timeout: 10000
+    });
+
+    const contentType = response.headers['content-type'] || 'image/jpeg';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.send(Buffer.from(response.data));
+  } catch (err) {
+    console.error('[MANGA IMAGE PROXY] Error:', err.message);
+    res.status(500).send('Image proxy error');
   }
 });
 

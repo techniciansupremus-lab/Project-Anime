@@ -29,11 +29,11 @@ export function MobileBottomNav({ activeSection, activeView, setView, setSection
       </button>
 
       <button
-        className={`mobile-nav-item ${activeSection === 'comic' ? 'active' : ''}`}
-        onClick={() => { setSection('comic'); setView('manhwa'); window.scrollTo(0,0); }}
+        className={`mobile-nav-item ${activeSection === 'manga' || activeView === 'manga' ? 'active' : ''}`}
+        onClick={() => { setSection('manga'); setView('manga'); window.scrollTo(0,0); }}
       >
         <Tv size={20} />
-        <span>Comic</span>
+        <span>Manga</span>
       </button>
 
       <button
@@ -102,6 +102,8 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
       setView('movies');
     } else if (sectionName === 'comic') {
       setView('manhwa');
+    } else if (sectionName === 'manga') {
+      setView('manga');
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -154,10 +156,10 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
             Movies
           </button>
           <button
-            className={`nav-pill-btn ${activeView === 'manhwa' ? 'active' : ''}`}
-            onClick={() => handleNavClick('manhwa', 'comic')}
+            className={`nav-pill-btn ${activeView === 'manga' ? 'active' : ''}`}
+            onClick={() => handleNavClick('manga', 'manga')}
           >
-            Manhwa
+            Manga
           </button>
         </div>
 

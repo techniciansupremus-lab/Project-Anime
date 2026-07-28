@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertCircle, Info, Play, Star, X, ArrowLeft, Flame, Trophy, Sparkles, Compass, History, Tv, Globe, ChevronLeft, ChevronRight } from 'lucide-react';
+import { AlertCircle, Info, Play, Star, X, ArrowLeft, Flame, Trophy, Sparkles, Compass, History, Tv, Globe, ChevronLeft, ChevronRight, BookOpen } from 'lucide-react';
 import Navbar, { MobileBottomNav } from './components/Navbar';
 import SectionSlider from './components/SectionSlider';
 import AnimeCard from './components/AnimeCard';
@@ -74,6 +74,19 @@ function App() {
   const [movieSearchResults, setMovieSearchResults] = useState([]);
   const [movieSearchLoading, setMovieSearchLoading] = useState(false);
   const [movieActiveCategory, setMovieActiveCategory] = useState('All');
+
+  // ── Manga state ──
+  const [mangaHomeData, setMangaHomeData] = useState(null);
+  const [mangaHomeLoading, setMangaHomeLoading] = useState(false);
+  const [mangaHomeError, setMangaHomeError] = useState('');
+  const [selectedManga, setSelectedManga] = useState(null);
+  const [mangaDetailLoading, setMangaDetailLoading] = useState(false);
+  const [currentMangaChapter, setCurrentMangaChapter] = useState(null);
+  const [mangaPages, setMangaPages] = useState([]);
+  const [mangaPageLoading, setMangaPageLoading] = useState(false);
+  const [mangaSearchQuery, setMangaSearchQuery] = useState('');
+  const [mangaSearchResults, setMangaSearchResults] = useState([]);
+  const [mangaSearchLoading, setMangaSearchLoading] = useState(false);
 
   // ── Scroll Intro Overlay state ──
   const [showIntroOverlay, setShowIntroOverlay] = useState(() => {
@@ -231,6 +244,12 @@ function App() {
       targetUrl = '/dramas';
     } else if (view === 'manhwa') {
       targetUrl = '/manhwa';
+    } else if (view === 'manga') {
+      targetUrl = '/manga';
+    } else if (view === 'manga-detail') {
+      if (selectedManga?.id) targetUrl = `/manga/${encodeURIComponent(selectedManga.id)}`;
+    } else if (view === 'manga-reader') {
+      if (selectedManga?.id) targetUrl = `/read/manga/${encodeURIComponent(selectedManga.id)}?ch=${encodeURIComponent(currentMangaChapter?.id || 1)}`;
     } else if (view === 'new-popular') {
       targetUrl = '/new-popular';
     } else if (view === 'my-list') {
@@ -757,6 +776,32 @@ function App() {
       });
   }, [view]);
 
+  // Load manga home when switching to manga view
+  useEffect(() => {
+    if (view !== 'manga') return;
+    if (mangaHomeData) return;
+    let mounted = true;
+    setMangaHomeLoading(true);
+    setMangaHomeError('');
+    api.getMangaHomeData().then(data => {
+      if (!mounted) return;
+      if (data && (data.trending?.length || data.popular?.length)) {
+        setMangaHomeData(data);
+      } else {
+        setMangaHomeData(null);
+        setMangaHomeError('Could not load manga catalog.');
+      }
+      setMangaHomeLoading(false);
+    }).catch(err => {
+      if (!mounted) return;
+      console.warn('[Manga Home] Fetch failed:', err);
+      setMangaHomeLoading(false);
+      setMangaHomeData(null);
+      setMangaHomeError(err.message || 'Could not load manga home.');
+    });
+    return () => { mounted = false; };
+  }, [view]);
+
   const toggleWatchlist = async (animeItem) => {
     // Require login to use watchlist
     if (!user) {
@@ -912,6 +957,63 @@ function App() {
     setManhwaSearchQuery('');
     setManhwaSearchResults([]);
     window.scrollTo(0, 0);
+  };
+
+  const goManga = () => {
+    resetSearch();
+    setView('manga');
+    setActiveSection('manga');
+    setSelectedManga(null);
+    setCurrentMangaChapter(null);
+    setMangaPages([]);
+    setMangaSearchQuery('');
+    setMangaSearchResults([]);
+    window.scrollTo(0, 0);
+  };
+
+  const handleMangaClick = async (manga) => {
+    resetSearch();
+    setSelectedManga({ ...manga, chapters: [] });
+    setView('manga-detail');
+    setMangaDetailLoading(true);
+    window.scrollTo(0, 0);
+    try {
+      const data = await api.getMangaInfo(manga.mangadexId || manga.id);
+      if (data) setSelectedManga(prev => ({ ...prev, ...data }));
+    } catch (e) {
+      console.error('Manga info load failed', e);
+    } finally {
+      setMangaDetailLoading(false);
+    }
+  };
+
+  const handleMangaRead = async (manga, chapter) => {
+    setCurrentMangaChapter(chapter);
+    setMangaPages([]);
+    setMangaPageLoading(true);
+    setView('manga-reader');
+    window.scrollTo(0, 0);
+    try {
+      const data = await api.getMangaChapterPages(chapter.id);
+      setMangaPages(data?.pages || []);
+    } catch (e) {
+      console.error('Manga chapter pages load failed', e);
+      setMangaPages([]);
+    } finally {
+      setMangaPageLoading(false);
+    }
+  };
+
+  const handleMangaSearch = (q) => {
+    setMangaSearchQuery(q);
+    if (!q.trim()) { setMangaSearchResults([]); return; }
+    setMangaSearchLoading(true);
+    api.searchManga(q)
+      .then(data => {
+        setMangaSearchResults(Array.isArray(data) ? data : []);
+        setMangaSearchLoading(false);
+      })
+      .catch(() => { setMangaSearchResults([]); setMangaSearchLoading(false); });
   };
 
   const goAnime = () => {
@@ -1212,6 +1314,12 @@ function App() {
       setSearchQuery('');
       setView('manhwa');
       handleManhwaSearch(query);
+      return;
+    }
+    if (activeSection === 'manga') {
+      setSearchQuery('');
+      setView('manga');
+      handleMangaSearch(query);
       return;
     }
 
@@ -1711,6 +1819,40 @@ function App() {
                 movie={selectedMovie}
                 onBack={() => { setView('movie-detail'); window.scrollTo(0, 0); }}
                 onProgress={(prog) => handleWatchProgress(selectedMovie, { id: 'full', number: 1 }, 'movie', prog)}
+              />
+            )}
+
+            {/* ── Manga Views ── */}
+            {view === 'manga' && (
+              <MangaHomeView
+                data={mangaHomeData}
+                error={mangaHomeError}
+                isLoading={mangaHomeLoading}
+                searchQuery={mangaSearchQuery}
+                searchResults={mangaSearchResults}
+                searchLoading={mangaSearchLoading}
+                onSearch={handleMangaSearch}
+                onMangaClick={handleMangaClick}
+              />
+            )}
+
+            {view === 'manga-detail' && selectedManga && (
+              <MangaDetailView
+                manga={selectedManga}
+                isLoading={mangaDetailLoading}
+                onBack={goManga}
+                onReadChapter={(ch) => handleMangaRead(selectedManga, ch)}
+              />
+            )}
+
+            {view === 'manga-reader' && selectedManga && currentMangaChapter && (
+              <MangaReaderView
+                manga={selectedManga}
+                chapter={currentMangaChapter}
+                pages={mangaPages}
+                isLoading={mangaPageLoading}
+                onBack={() => { setView('manga-detail'); window.scrollTo(0, 0); }}
+                onChapterSelect={(ch) => handleMangaRead(selectedManga, ch)}
               />
             )}
           </>
@@ -3623,20 +3765,7 @@ function ManhwaRow({ title, series, onSeriesClick }) {
 
 function ManhwaHomeView({ data, error, isLoading, searchQuery, searchResults, searchLoading, onSearch, onSeriesClick }) {
   return (
-    <div className="manhwa-home">
-      {/* Search */}
-      <div className="manhwa-search-bar-wrap">
-        <div className="manhwa-search-inner">
-          <span className="manhwa-search-icon"></span>
-          <input
-            className="manhwa-search-input"
-            type="text"
-            placeholder="Search Manhwa, Manga, Manhua..."
-            value={searchQuery}
-            onChange={e => onSearch(e.target.value)}
-          />
-        </div>
-      </div>
+    <div className="manhwa-home" style={{ paddingTop: '5rem' }}>
 
       {searchQuery.trim() ? (
         <div className="container manhwa-search-results">
@@ -3947,17 +4076,7 @@ function DramaHomeView({ data, error, isLoading, searchQuery, searchResults, sea
   const featured = data?.show?.[0];
 
   return (
-    <div className="netflix-home drama-home">
-      {/* Search bar */}
-      <div className="drama-search-bar-wrap">
-        <input
-          className="drama-search-input"
-          type="text"
-          placeholder="Search Dramas, Chinese, Thai..."
-          value={searchQuery}
-          onChange={e => onSearch(e.target.value)}
-        />
-      </div>
+    <div className="netflix-home drama-home" style={{ paddingTop: '5rem' }}>
 
       {searchQuery.trim() ? (
         <div className="container drama-search-results" style={{ marginTop: '2rem' }}>
@@ -4327,17 +4446,7 @@ function MovieHomeView({
   }
 
   return (
-    <div className="netflix-home movie-home">
-      {/* Search bar */}
-      <div className="drama-search-bar-wrap">
-        <input
-          className="drama-search-input"
-          type="text"
-          placeholder="Search Bollywood, Hollywood Hindi Dubbed, Classics..."
-          value={searchQuery}
-          onChange={e => onSearch(e.target.value)}
-        />
-      </div>
+    <div className="netflix-home movie-home" style={{ paddingTop: '5rem' }}>
 
       {searchQuery.trim() ? (
         <div className="container drama-search-results" style={{ marginTop: '2rem' }}>
@@ -4600,6 +4709,379 @@ function MovieWatchView({ movie, onBack, onProgress }) {
             {s.name}
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────
+// MANGA COMPONENTS
+// ─────────────────────────────────────────────────────
+
+function MangaCard({ manga, onClick }) {
+  const [imgError, setImgError] = React.useState(false);
+  return (
+    <div className="manga-card" onClick={() => onClick(manga)}>
+      <div className="manga-card-art">
+        {manga.cover && !imgError ? (
+          <img src={manga.cover} alt={manga.title} onError={() => setImgError(true)} loading="lazy" />
+        ) : (
+          <div className="manga-card-placeholder">
+            <BookOpen size={32} style={{ opacity: 0.4 }} />
+          </div>
+        )}
+        <div className="manga-card-overlay">
+          <span className="manga-card-read">Read</span>
+        </div>
+        {manga.status && (
+          <span className={`manga-status-badge ${manga.status === 'ongoing' ? 'ongoing' : manga.status === 'completed' ? 'completed' : ''}`}>
+            {manga.status}
+          </span>
+        )}
+      </div>
+      <div className="manga-card-info">
+        <p className="manga-card-title">{manga.title}</p>
+        {manga.rating && <span className="manga-card-rating">★ {manga.rating}</span>}
+      </div>
+    </div>
+  );
+}
+
+function MangaRow({ title, icon, mangas, onMangaClick }) {
+  return (
+    <section className="manga-row">
+      <div className="hv-section-header">
+        <h2 className="hv-section-title">{icon} {title}</h2>
+        <span className="hv-section-line" />
+      </div>
+      <div className="manga-row-slider">
+        {mangas.map((m, i) => (
+          <MangaCard key={m.id || i} manga={m} onClick={onMangaClick} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function MangaHomeView({ data, error, isLoading, searchQuery, searchResults, searchLoading, onSearch, onMangaClick }) {
+  const featured = data?.featured;
+
+  return (
+    <div className="manga-home" style={{ paddingTop: '5rem' }}>
+      {searchQuery.trim() ? (
+        <div className="container manga-search-results">
+          <div className="hv-section-header" style={{ marginBottom: '1.5rem' }}>
+            <h2 className="hv-section-title">
+              <Sparkles size={20} style={{ color: '#eab308' }} /> Results for &quot;{searchQuery}&quot;
+            </h2>
+            <span className="hv-section-line" />
+          </div>
+          {searchLoading ? (
+            <div className="manga-loading"><InlineLoader /></div>
+          ) : searchResults.length ? (
+            <div className="manga-grid">
+              {searchResults.map((m, i) => <MangaCard key={m.id || i} manga={m} onClick={onMangaClick} />)}
+            </div>
+          ) : (
+            <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '3rem 0' }}>No manga found.</p>
+          )}
+        </div>
+      ) : isLoading ? (
+        <CategorySkeleton />
+      ) : !data || (!data.trending?.length && !data.popular?.length) ? (
+        <div style={{ minHeight: '60vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.2rem' }}>
+          <BookOpen size={48} style={{ color: 'var(--text-muted)' }} />
+          <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem', textAlign: 'center', maxWidth: '640px' }}>
+            {error || 'Could not load manga catalog. Check your connection.'}
+          </p>
+          <button className="btn btn-primary" onClick={() => window.location.reload()}>Retry</button>
+        </div>
+      ) : (
+        <>
+          {/* Hero Banner */}
+          {featured && (
+            <div className="manga-hero" style={{ backgroundImage: `url(${featured.banner || featured.cover})` }}>
+              <div className="manga-hero-overlay" />
+              <div className="container manga-hero-content">
+                <div className="hero-eyebrow" style={{ marginBottom: '0.75rem' }}>
+                  <span className="hero-eyebrow-badge" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>
+                    <BookOpen size={14} />
+                  </span>
+                  <span className="hero-eyebrow-text">Manga Spotlight</span>
+                  <span className="hero-live-tag" style={{ background: 'rgba(245, 158, 11, 0.15)', borderColor: 'rgba(245, 158, 11, 0.4)', color: '#f59e0b' }}>TRENDING</span>
+                </div>
+                <h1 className="manga-hero-title">{featured.title}</h1>
+                <div className="hero-meta">
+                  {featured.genres?.slice(0, 3).map(g => (
+                    <span key={g} className="manga-genre-chip">{g}</span>
+                  ))}
+                  {featured.rating && <span className="hero-star"><Star size={13} fill="#f59e0b" style={{ color: '#f59e0b' }} />{featured.rating}</span>}
+                </div>
+                {featured.description && <p className="manga-hero-desc">{featured.description.slice(0, 200)}...</p>}
+                <div className="btn-group" style={{ marginTop: '1.25rem' }}>
+                  <button className="btn btn-primary manga-hero-btn" onClick={() => onMangaClick(featured)}>
+                    <BookOpen size={18} /> Read Now
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Catalog Rows */}
+          <div className="manga-rows-container container">
+            {data.trending?.length > 0 && (
+              <MangaRow
+                title="Trending Now"
+                icon={<Flame size={18} style={{ color: '#f97316' }} />}
+                mangas={data.trending}
+                onMangaClick={onMangaClick}
+              />
+            )}
+            {data.popular?.length > 0 && (
+              <MangaRow
+                title="Most Popular"
+                icon={<Trophy size={18} style={{ color: '#eab308' }} />}
+                mangas={data.popular}
+                onMangaClick={onMangaClick}
+              />
+            )}
+            {data.topRated?.length > 0 && (
+              <MangaRow
+                title="Top Rated"
+                icon={<Star size={18} fill="#a855f7" style={{ color: '#a855f7' }} />}
+                mangas={data.topRated}
+                onMangaClick={onMangaClick}
+              />
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function MangaDetailView({ manga, isLoading, onBack, onReadChapter }) {
+  const [chapterSearch, setChapterSearch] = React.useState('');
+  const [sortDesc, setSortDesc] = React.useState(true);
+
+  const filteredChapters = React.useMemo(() => {
+    let chs = manga.chapters || [];
+    if (chapterSearch.trim()) {
+      const q = chapterSearch.toLowerCase();
+      chs = chs.filter(c => (c.chapter + '').includes(q) || (c.title || '').toLowerCase().includes(q));
+    }
+    return sortDesc ? [...chs].reverse() : chs;
+  }, [manga.chapters, chapterSearch, sortDesc]);
+
+  return (
+    <div className="manga-detail">
+      {/* Hero */}
+      <div className="manga-detail-hero" style={{ backgroundImage: `url(${manga.banner || manga.cover})` }}>
+        <div className="manga-detail-hero-overlay" />
+        <div className="container manga-detail-hero-content">
+          <button className="drama-back-btn" onClick={onBack}>← Back</button>
+        </div>
+      </div>
+
+      {/* Meta Row */}
+      <div className="container manga-detail-meta-row">
+        <div className="manga-detail-cover">
+          {manga.cover && <img src={manga.cover} alt={manga.title} />}
+        </div>
+        <div className="manga-detail-info">
+          <h1 className="manga-detail-title">{manga.title}</h1>
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center', margin: '0.6rem 0' }}>
+            {manga.status && (
+              <span className={`manga-status-badge inline ${manga.status === 'ongoing' ? 'ongoing' : 'completed'}`}>{manga.status}</span>
+            )}
+            {manga.rating && <span style={{ color: '#f59e0b', fontWeight: 600 }}>★ {manga.rating}</span>}
+            {manga.chapters?.length > 0 && <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{manga.chapters.length} chapters</span>}
+          </div>
+          {manga.genres?.length > 0 && (
+            <div className="manhwa-genres" style={{ marginBottom: '0.75rem' }}>
+              {manga.genres.slice(0, 6).map(g => <span key={g} className="manhwa-genre-tag">{g}</span>)}
+            </div>
+          )}
+          {manga.description && <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', lineHeight: 1.6 }}>{manga.description.slice(0, 400)}{manga.description.length > 400 ? '...' : ''}</p>}
+        </div>
+      </div>
+
+      {/* Chapter List */}
+      <div className="container manga-detail-body">
+        {isLoading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}><InlineLoader /></div>
+        ) : (
+          <>
+            <div className="manga-chapter-controls">
+              <h3 style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: '1.1rem' }}>
+                <BookOpen size={16} style={{ marginRight: '0.4rem', verticalAlign: 'middle' }} />
+                Chapters
+              </h3>
+              <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <input
+                  className="manga-chapter-search"
+                  type="text"
+                  placeholder="Search chapters..."
+                  value={chapterSearch}
+                  onChange={e => setChapterSearch(e.target.value)}
+                />
+                <button
+                  className="manga-sort-btn"
+                  onClick={() => setSortDesc(p => !p)}
+                  title="Toggle sort order"
+                >
+                  {sortDesc ? '↓ Newest' : '↑ Oldest'}
+                </button>
+              </div>
+            </div>
+            {filteredChapters.length > 0 ? (
+              <div className="manga-chapter-list">
+                {filteredChapters.map((ch) => (
+                  <button
+                    key={ch.id}
+                    className="manga-chapter-item"
+                    onClick={() => onReadChapter(ch)}
+                  >
+                    <span className="manga-chapter-num">Ch. {ch.chapter}</span>
+                    <span className="manga-chapter-title">{ch.title && ch.title !== `Chapter ${ch.chapter}` ? ch.title : ''}</span>
+                    {ch.pages > 0 && <span className="manga-chapter-pages">{ch.pages}p</span>}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem 0' }}>
+                {chapterSearch ? 'No chapters match your search.' : 'Chapter list unavailable.'}
+              </p>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MangaReaderView({ manga, chapter, pages, isLoading, onBack, onChapterSelect }) {
+  const [readMode, setReadMode] = React.useState('scroll'); // 'scroll' | 'page'
+  const [currentPage, setCurrentPage] = React.useState(0);
+  const [showControls, setShowControls] = React.useState(true);
+  const [failedImages, setFailedImages] = React.useState(new Set());
+
+  const allChapters = manga.chapters || [];
+  const currentChIdx = allChapters.findIndex(c => c.id === chapter.id);
+
+  const goNextChapter = () => {
+    if (currentChIdx < allChapters.length - 1) {
+      onChapterSelect(allChapters[currentChIdx + 1]);
+      setCurrentPage(0);
+    }
+  };
+  const goPrevChapter = () => {
+    if (currentChIdx > 0) {
+      onChapterSelect(allChapters[currentChIdx - 1]);
+      setCurrentPage(0);
+    }
+  };
+
+  const handleImgError = (pageIdx) => {
+    setFailedImages(prev => new Set([...prev, pageIdx]));
+  };
+
+  return (
+    <div className="manga-reader" onClick={() => setShowControls(p => !p)}>
+      {/* Top Toolbar */}
+      <div className={`manga-reader-toolbar top ${showControls ? 'visible' : ''}`} onClick={e => e.stopPropagation()}>
+        <button className="manga-reader-back-btn" onClick={onBack}>
+          <ArrowLeft size={18} /> {manga.title}
+        </button>
+        <span className="manga-reader-chapter-label">Ch. {chapter.chapter}</span>
+        <div className="manga-reader-controls">
+          <button className={`manga-mode-btn ${readMode === 'scroll' ? 'active' : ''}`} onClick={() => setReadMode('scroll')}>Scroll</button>
+          <button className={`manga-mode-btn ${readMode === 'page' ? 'active' : ''}`} onClick={() => { setReadMode('page'); setCurrentPage(0); }}>Page</button>
+        </div>
+      </div>
+
+      {/* Chapter nav */}
+      <div className={`manga-reader-toolbar bottom ${showControls ? 'visible' : ''}`} onClick={e => e.stopPropagation()}>
+        <button className="manga-chapter-nav-btn" disabled={currentChIdx <= 0} onClick={goPrevChapter}>
+          <ChevronLeft size={18} /> Prev Ch
+        </button>
+        {allChapters.length > 0 && (
+          <select
+            className="manga-chapter-select"
+            value={chapter.id}
+            onChange={e => {
+              const ch = allChapters.find(c => c.id === e.target.value);
+              if (ch) { onChapterSelect(ch); setCurrentPage(0); }
+            }}
+          >
+            {allChapters.map(c => (
+              <option key={c.id} value={c.id}>Ch. {c.chapter}</option>
+            ))}
+          </select>
+        )}
+        <button className="manga-chapter-nav-btn" disabled={currentChIdx >= allChapters.length - 1} onClick={goNextChapter}>
+          Next Ch <ChevronRight size={18} />
+        </button>
+      </div>
+
+      {/* Pages */}
+      <div className="manga-reader-content">
+        {isLoading ? (
+          <div className="manga-reader-loading"><InlineLoader /><p>Loading chapter...</p></div>
+        ) : pages.length === 0 ? (
+          <div className="manga-reader-loading">
+            <BookOpen size={48} style={{ opacity: 0.4 }} />
+            <p>Pages could not be loaded.<br />Try a different chapter.</p>
+          </div>
+        ) : readMode === 'scroll' ? (
+          <div className="manga-reader-scroll">
+            {pages.map((p, idx) => (
+              <div key={idx} className="manga-page-wrap">
+                {failedImages.has(idx) ? (
+                  <div className="manga-page-error">Page {p.page} unavailable</div>
+                ) : (
+                  <img
+                    src={p.url}
+                    alt={`Page ${p.page}`}
+                    className="manga-page-img"
+                    onError={() => handleImgError(idx)}
+                    loading="lazy"
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="manga-reader-page-mode">
+            {failedImages.has(currentPage) ? (
+              <div className="manga-page-error">Page unavailable</div>
+            ) : (
+              <img
+                src={pages[currentPage]?.url}
+                alt={`Page ${currentPage + 1}`}
+                className="manga-page-img-single"
+                onError={() => handleImgError(currentPage)}
+              />
+            )}
+            <div className="manga-page-nav">
+              <button
+                className="manga-page-btn"
+                disabled={currentPage === 0}
+                onClick={e => { e.stopPropagation(); setCurrentPage(p => Math.max(0, p - 1)); }}
+              >
+                <ChevronLeft size={22} />
+              </button>
+              <span className="manga-page-counter">{currentPage + 1} / {pages.length}</span>
+              <button
+                className="manga-page-btn"
+                disabled={currentPage >= pages.length - 1}
+                onClick={e => { e.stopPropagation(); setCurrentPage(p => Math.min(pages.length - 1, p + 1)); }}
+              >
+                <ChevronRight size={22} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

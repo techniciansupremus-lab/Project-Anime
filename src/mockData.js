@@ -688,5 +688,104 @@ export const api = {
 
     console.log(`[API] Found ${sortedList.length} items in franchise franchise for "${baseTitle}"`);
     return sortedList;
+  },
+
+  // ─────────────────────────────────────────────────────
+  // MANGA SECTION HELPERS
+  // ─────────────────────────────────────────────────────
+
+  // Manga Home Data
+  getMangaHomeData: async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/manga/home`);
+      if (res.ok) {
+        const data = await res.json();
+        return data;
+      }
+    } catch (e) {
+      console.warn('[API] Manga home endpoint failed, falling back to direct AniList:', e.message);
+    }
+    // Client-side fallback via AniList
+    try {
+      const query = `
+        query {
+          trending: Page(page: 1, perPage: 18) { media(type: MANGA, sort: TRENDING_DESC, countryOfOrigin: "JP") { ${MEDIA_FRAGMENT} } }
+          popular: Page(page: 1, perPage: 18) { media(type: MANGA, sort: POPULARITY_DESC, countryOfOrigin: "JP") { ${MEDIA_FRAGMENT} } }
+          topRated: Page(page: 1, perPage: 18) { media(type: MANGA, sort: SCORE_DESC, countryOfOrigin: "JP") { ${MEDIA_FRAGMENT} } }
+        }
+      `;
+      const data = await fetchAniList(query);
+      const mapM = m => mapMediaToDetail(m);
+      const trending = (data?.trending?.media || []).map(mapM);
+      const popular = (data?.popular?.media || []).map(mapM);
+      const topRated = (data?.topRated?.media || []).map(mapM);
+      return {
+        trending,
+        popular,
+        topRated,
+        featured: trending[0] || popular[0] || null
+      };
+    } catch (err) {
+      console.error('[API] Direct AniList manga fallback failed:', err.message);
+      return { trending: [], popular: [], topRated: [], featured: null };
+    }
+  },
+
+  // Search Manga
+  searchManga: async (query) => {
+    if (!query) return [];
+    try {
+      const res = await fetch(`${API_BASE}/api/manga/search?q=${encodeURIComponent(query)}`);
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn('[API] Manga search endpoint failed:', e.message);
+    }
+    // Client-side AniList fallback
+    try {
+      const data = await fetchAniList(`
+        query ($search: String) {
+          Page(page: 1, perPage: 20) {
+            media(type: MANGA, search: $search) { ${MEDIA_FRAGMENT} }
+          }
+        }
+      `, { search: query });
+      return (data?.Page?.media || []).map(mapMediaToDetail);
+    } catch (e) {
+      return [];
+    }
+  },
+
+  // Get Manga Details + Chapters
+  getMangaInfo: async (mangaId) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/manga/info/${mangaId}`);
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn('[API] Manga info endpoint failed:', e.message);
+    }
+    // Fallback if backend offline
+    return {
+      id: mangaId,
+      title: 'Manga Details Unavailable',
+      description: 'Could not fetch manga information from server. Check your connection or backend tunnel status.',
+      chapters: []
+    };
+  },
+
+  // Get Manga Chapter Pages
+  getMangaChapterPages: async (chapterId) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/manga/read/${encodeURIComponent(chapterId)}`);
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.error('[API] Manga read endpoint failed:', e.message);
+    }
+    return { chapterId, pageCount: 0, pages: [] };
   }
 };
