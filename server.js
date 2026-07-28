@@ -2298,66 +2298,51 @@ app.get('/api/manga/info/:id', async (req, res) => {
 // GET /api/manga/read/:chapterId
 app.get('/api/manga/read/:chapterId', async (req, res) => {
   const { chapterId } = req.params;
-  console.log(`[MANGA READ] Request received for chapter: ${chapterId}`);
+  console.log(`[MANGA READ] Fetching pages for: ${chapterId}`);
 
-  // Hard global timeout — if we can't get pages in 12s, bail immediately
+  // Hard 12s global timeout
   const routeTimeout = setTimeout(() => {
     if (!res.headersSent) {
-      console.error(`[MANGA READ] TIMEOUT for ${chapterId} — sending empty response`);
+      console.error(`[MANGA READ] TIMEOUT — ${chapterId}`);
       res.json({ chapterId, pageCount: 0, pages: [] });
     }
   }, 12000);
 
   try {
-    // 1) MangaDex@Home API — fast CDN, direct URLs
-    try {
-      const atHomeRes = await axios.get(`https://api.mangadex.org/at-home/server/${chapterId}`, { timeout: 8000 });
-      const { baseUrl, chapter } = atHomeRes.data || {};
+    const atHomeRes = await axios.get(
+      `https://api.mangadex.org/at-home/server/${chapterId}`,
+      { timeout: 8000 }
+    );
+    const { baseUrl, chapter } = atHomeRes.data || {};
+    console.log(`[MANGA READ] at-home baseUrl=${baseUrl}, data=${chapter?.data?.length ?? 'none'}, dataSaver=${chapter?.dataSaver?.length ?? 'none'}`);
 
-      if (baseUrl && chapter?.data?.length) {
-        clearTimeout(routeTimeout);
-        const pages = chapter.data.map((fileName, index) => ({
-          page: index + 1,
-          url: `${baseUrl}/data/${chapter.hash}/${fileName}`,
-        }));
-        console.log(`[MANGA READ] OK ${chapterId} — ${pages.length} pages (MangaDex@Home direct)`);
-        return res.json({ chapterId, pageCount: pages.length, pages });
-      }
-    } catch (e) {
-      console.warn(`[MANGA READ] MangaDex@Home failed (${e.message}), trying Consumet...`);
+    // Try full-quality pages first, then dataSaver (compressed) as fallback
+    const files    = chapter?.data?.length    ? chapter.data    : null;
+    const quality  = files ? 'data' : (chapter?.dataSaver?.length ? 'data-saver' : null);
+    const pageList = files || chapter?.dataSaver || [];
+
+    if (baseUrl && quality && pageList.length) {
+      clearTimeout(routeTimeout);
+      const pages = pageList.map((fileName, index) => ({
+        page: index + 1,
+        url: `${baseUrl}/${quality}/${chapter.hash}/${fileName}`,
+      }));
+      console.log(`[MANGA READ] OK — ${pages.length} pages (${quality}) for ${chapterId}`);
+      return res.json({ chapterId, pageCount: pages.length, pages });
     }
 
-    // 2) Consumet fallback — strict 9s timeout via Promise.race
-    try {
-      const pagesData = await Promise.race([
-        mangaDexConsumet.fetchChapterPages(chapterId),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Consumet 9s timeout')), 9000))
-      ]);
-
-      if (Array.isArray(pagesData) && pagesData.length) {
-        clearTimeout(routeTimeout);
-        const pages = pagesData.map((p, index) => ({
-          page: p.page || index + 1,
-          url: p.img || p.url,
-        }));
-        console.log(`[MANGA READ] OK ${chapterId} — ${pages.length} pages (Consumet direct)`);
-        return res.json({ chapterId, pageCount: pages.length, pages });
-      }
-    } catch (e) {
-      console.warn(`[MANGA READ] Consumet also failed (${e.message})`);
-    }
-
-    // Both providers failed — return empty so the frontend can show an error
+    // No pages at all from at-home (chapter may be external/restricted)
     clearTimeout(routeTimeout);
-    if (!res.headersSent) {
-      console.error(`[MANGA READ] All providers failed for ${chapterId}`);
-      res.json({ chapterId, pageCount: 0, pages: [] });
-    }
+    console.error(`[MANGA READ] No pages available for ${chapterId} — baseUrl=${baseUrl}, data=${chapter?.data?.length}, dataSaver=${chapter?.dataSaver?.length}`);
+    if (!res.headersSent) res.json({ chapterId, pageCount: 0, pages: [] });
+
   } catch (e) {
     clearTimeout(routeTimeout);
+    console.error(`[MANGA READ] at-home request failed: ${e.message}`);
     if (!res.headersSent) res.json({ chapterId, pageCount: 0, pages: [] });
   }
 });
+
 
 
 // GET /api/manga/image-proxy?url=<url>
