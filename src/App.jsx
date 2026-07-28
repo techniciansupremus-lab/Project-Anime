@@ -4950,7 +4950,10 @@ function MangaDetailView({ manga, isLoading, onBack, onReadChapter }) {
               </div>
             ) : (
               <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem 0' }}>
-                {chapterSearch ? 'No chapters match your search.' : 'Chapter list unavailable.'}
+                {chapterSearch
+                  ? 'No chapters match your search.'
+                  : 'No readable chapters available. This manga may be licensed exclusively on Manga Plus or Bilibili — chapters are hosted externally and cannot be read here.'
+                }
               </p>
             )}
           </>

@@ -2206,7 +2206,8 @@ app.get('/api/manga/info/:id', async (req, res) => {
       const coverFile = relCover?.attributes?.fileName;
       const cover = coverFile ? `https://uploads.mangadex.org/covers/${mangadexId}/${coverFile}.512.jpg` : null;
 
-      // Fetch chapter feed
+      // Fetch chapter feed — filter out external chapters (Manga Plus, Bilibili, etc.)
+      // External chapters have externalUrl set and pages=0, no CDN data available
       let chapters = [];
       try {
         const feedRes = await axios.get(`https://api.mangadex.org/manga/${mangadexId}/feed`, {
@@ -2214,7 +2215,8 @@ app.get('/api/manga/info/:id', async (req, res) => {
             'translatedLanguage[]': ['en'],
             limit: 500,
             'order[chapter]': 'asc',
-            'contentRating[]': ['safe', 'suggestive', 'erotica']
+            'contentRating[]': ['safe', 'suggestive', 'erotica'],
+            'includes[]': ['scanlation_group']
           },
           timeout: 10000
         });
@@ -2222,23 +2224,28 @@ app.get('/api/manga/info/:id', async (req, res) => {
         const rawChs = feedRes.data?.data || [];
         const seenChapters = new Set();
 
-        chapters = rawChs.map(c => {
-          const chNum = c.attributes.chapter || '1';
-          const title = c.attributes.title || `Chapter ${chNum}`;
-          const volume = c.attributes.volume || null;
-          return {
-            id: c.id,
-            chapter: chNum,
-            title: title,
-            volume: volume,
-            pages: c.attributes.pages || 0,
-            publishAt: c.attributes.publishAt
-          };
-        }).filter(c => {
-          if (seenChapters.has(c.chapter)) return false;
-          seenChapters.add(c.chapter);
-          return true;
-        }).sort((a, b) => parseFloat(a.chapter) - parseFloat(b.chapter));
+        chapters = rawChs
+          // Skip external chapters (Manga Plus, Bilibili etc.) — have no CDN pages
+          .filter(c => !c.attributes.externalUrl && c.attributes.pages > 0)
+          .map(c => {
+            const chNum = c.attributes.chapter || '1';
+            const title = c.attributes.title || `Chapter ${chNum}`;
+            const volume = c.attributes.volume || null;
+            return {
+              id: c.id,
+              chapter: chNum,
+              title: title,
+              volume: volume,
+              pages: c.attributes.pages || 0,
+              publishAt: c.attributes.publishAt
+            };
+          }).filter(c => {
+            if (seenChapters.has(c.chapter)) return false;
+            seenChapters.add(c.chapter);
+            return true;
+          }).sort((a, b) => parseFloat(a.chapter) - parseFloat(b.chapter));
+
+        console.log(`[MANGA INFO] ${chapters.length} readable chapters (${rawChs.length - chapters.length} external/empty skipped)`);
       } catch (e) {
         console.warn('[MANGA INFO] Chapter feed fetch error:', e.message);
       }
