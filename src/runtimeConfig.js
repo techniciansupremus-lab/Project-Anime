@@ -87,8 +87,8 @@ export async function loadRuntimeConfig() {
   }
 
   const configBase =
-    pickApiBase(runtimeEndpoint) ||
     pickApiBase(staticConfig) ||
+    pickApiBase(runtimeEndpoint) ||
     envBase;
 
   const apiBase =
