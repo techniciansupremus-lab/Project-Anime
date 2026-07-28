@@ -1988,6 +1988,105 @@ function proxyCoverUrl(host, rawUrl) {
   return rawUrl;
 }
 
+const MANGA_GENRE_CACHE_TTL_MS = 15 * 60 * 1000;
+const MANGA_GENRE_CACHE_MAX_ITEMS = 240;
+const mangaGenreCatalogCache = new Map();
+
+function mapComicKCatalogItem(host, item, countryCode, type) {
+  const rawCover = item.default_thumbnail || (item.cover ? `${item.cover}` : null);
+  return {
+    id: item.slug || String(item.id),
+    comickSlug: item.slug,
+    hid: item.hid,
+    title: item.title || 'Manga',
+    cover: proxyCoverUrl(host, rawCover),
+    banner: proxyCoverUrl(host, rawCover),
+    description: item.desc ? item.desc.replace(/<[^>]*>?/gm, '') : (item.description || ''),
+    rating: item.bayesian_rating ? (parseFloat(item.bayesian_rating)).toFixed(1) : '8.7',
+    country: item.country || countryCode,
+    status: item.status === 2 ? 'Completed' : 'Ongoing',
+    type: type.toLowerCase()
+  };
+}
+
+function buildComicKGenreUrl(countryCode, genre) {
+  const params = new URLSearchParams({ country: countryCode, genres: genre, limit: '50' });
+  return `${COMICKZ_BASE}/api/search?${params.toString()}`;
+}
+
+function normalizeComicKPageUrl(candidate) {
+  if (!candidate) return null;
+  try {
+    const url = new URL(candidate, COMICKZ_BASE);
+    const trustedHosts = new Set([
+      new URL(COMICKZ_BASE).host,
+      'api.comick.dev',
+      'api.comick.fun',
+      'api.comick.io'
+    ]);
+    if (!trustedHosts.has(url.host) || !url.pathname.includes('search')) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+async function fetchComicKGenreBatch(url) {
+  const response = await axios.get(url, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', Referer: `${COMICKZ_BASE}/` },
+    timeout: 10000
+  });
+  return {
+    items: response.data?.data || (Array.isArray(response.data) ? response.data : []),
+    nextPageUrl: normalizeComicKPageUrl(response.data?.next_page_url)
+  };
+}
+
+async function getComicKGenreCatalog(countryCode, genre, requiredCount) {
+  const cacheKey = `${countryCode}:${genre}`;
+  const now = Date.now();
+  let cache = mangaGenreCatalogCache.get(cacheKey);
+
+  if (!cache || now - cache.updatedAt > MANGA_GENRE_CACHE_TTL_MS) {
+    cache = {
+      items: [],
+      seenIds: new Set(),
+      seenPageUrls: new Set(),
+      nextPageUrl: buildComicKGenreUrl(countryCode, genre),
+      updatedAt: now,
+      fetching: null
+    };
+    mangaGenreCatalogCache.set(cacheKey, cache);
+  }
+
+  while (cache.items.length < requiredCount && cache.nextPageUrl && cache.items.length < MANGA_GENRE_CACHE_MAX_ITEMS) {
+    if (cache.seenPageUrls.has(cache.nextPageUrl)) {
+      cache.nextPageUrl = null;
+      break;
+    }
+    if (!cache.fetching) {
+      const nextUrl = cache.nextPageUrl;
+      cache.seenPageUrls.add(nextUrl);
+      cache.fetching = fetchComicKGenreBatch(nextUrl)
+        .then(({ items, nextPageUrl }) => {
+          for (const item of items) {
+            const id = item.slug || String(item.id || '');
+            if (!id || cache.seenIds.has(id)) continue;
+            cache.seenIds.add(id);
+            cache.items.push(item);
+            if (cache.items.length >= MANGA_GENRE_CACHE_MAX_ITEMS) break;
+          }
+          cache.nextPageUrl = nextPageUrl && !cache.seenPageUrls.has(nextPageUrl) ? nextPageUrl : null;
+          cache.updatedAt = Date.now();
+        })
+        .finally(() => { cache.fetching = null; });
+    }
+    await cache.fetching;
+  }
+
+  return cache;
+}
+
 // GET /api/manga/home — Main Manga Landing Data (Bento Top 10 + Category Previews)
 app.get('/api/manga/home', async (req, res) => {
   const host = publicHost(req);
@@ -2055,7 +2154,8 @@ app.get('/api/manga/home', async (req, res) => {
 app.get('/api/manga/category/:type', async (req, res) => {
   const { type } = req.params;
   const { genre } = req.query;
-  const requestedPage = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+  const perPage = Math.min(50, Math.max(12, Number.parseInt(req.query.perPage, 10) || 24));
   const host = publicHost(req);
 
   const countryMap = {
@@ -2067,11 +2167,34 @@ app.get('/api/manga/category/:type', async (req, res) => {
   const countryCode = countryMap[type?.toLowerCase()] || 'jp';
 
   try {
-    const limit = genre && genre !== 'all' ? 24 : 48;
-    let url = `${COMICKZ_BASE}/api/search?country=${countryCode}&limit=${limit}&page=${requestedPage}`;
     if (genre && genre !== 'all') {
-      url = `${COMICKZ_BASE}/api/search?q=${encodeURIComponent(genre)}&country=${countryCode}&limit=${limit}&page=${requestedPage}`;
+      const catalog = await getComicKGenreCatalog(countryCode, genre, page * perPage);
+      const start = (page - 1) * perPage;
+      const pageItems = catalog.items
+        .slice(start, start + perPage)
+        .map(item => mapComicKCatalogItem(host, item, countryCode, type));
+      const hasCachedItemsAhead = catalog.items.length > start + pageItems.length;
+      const canFetchMore = Boolean(catalog.nextPageUrl) && catalog.items.length < MANGA_GENRE_CACHE_MAX_ITEMS;
+
+      return res.json({
+        type,
+        country: countryCode,
+        genre,
+        page,
+        perPage,
+        total: catalog.items.length,
+        hasMore: hasCachedItemsAhead || canFetchMore,
+        items: pageItems,
+        trending: [],
+        popular: [],
+        topPick: [],
+        recent: []
+      });
     }
+
+    const limit = 48;
+    const searchParams = new URLSearchParams({ country: countryCode, limit: String(limit) });
+    const url = `${COMICKZ_BASE}/api/search?${searchParams.toString()}`;
 
     const r = await axios.get(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', Referer: `${COMICKZ_BASE}/` },
@@ -2079,22 +2202,7 @@ app.get('/api/manga/category/:type', async (req, res) => {
     });
 
     const rawList = r.data?.data || (Array.isArray(r.data) ? r.data : []);
-    const items = rawList.map(item => {
-      const rawCover = item.default_thumbnail || (item.cover ? `${item.cover}` : null);
-      return {
-        id: item.slug || String(item.id),
-        comickSlug: item.slug,
-        hid: item.hid,
-        title: item.title || 'Manga',
-        cover: proxyCoverUrl(host, rawCover),
-        banner: proxyCoverUrl(host, rawCover),
-        description: item.desc ? item.desc.replace(/<[^>]*>?/gm, '') : (item.description || ''),
-        rating: item.bayesian_rating ? (parseFloat(item.bayesian_rating)).toFixed(1) : '8.7',
-        country: item.country || countryCode,
-        status: item.status === 2 ? 'Completed' : 'Ongoing',
-        type: type.toLowerCase()
-      };
-    });
+    const items = rawList.map(item => mapComicKCatalogItem(host, item, countryCode, type));
 
     // Split into curated sections for the hub page
     const trending = items.slice(0, 12);
@@ -2106,9 +2214,10 @@ app.get('/api/manga/category/:type', async (req, res) => {
       type,
       country: countryCode,
       genre: genre || 'all',
-      page: requestedPage,
+      page,
+      perPage,
       total: items.length,
-      hasMore: rawList.length === limit,
+      hasMore: false,
       trending,
       popular,
       topPick,

@@ -4708,10 +4708,13 @@ function MovieWatchView({ movie, onBack, onProgress }) {
 // MANGA COMPONENTS
 // ─────────────────────────────────────────────────────
 
-function MangaCard({ manga, onClick }) {
+function MangaCard({ manga, onClick, index = 0 }) {
   const [imgError, setImgError] = React.useState(false);
+  const rating = Number.parseFloat(manga.rating);
+  const hasRating = Number.isFinite(rating) && rating > 0;
+  if (!hasRating) manga = { ...manga, rating: '' };
   return (
-    <div className="manga-card" onClick={() => onClick(manga)}>
+    <button type="button" className="manga-card" style={{ '--manga-card-index': index }} onClick={() => onClick(manga)}>
       <div className="manga-card-art">
         {manga.cover && !imgError ? (
           <img src={manga.cover} alt={manga.title} onError={() => setImgError(true)} loading="lazy" />
@@ -4733,20 +4736,23 @@ function MangaCard({ manga, onClick }) {
         <p className="manga-card-title">{manga.title}</p>
         {manga.rating && <span className="manga-card-rating">★ {manga.rating}</span>}
       </div>
-    </div>
+    </button>
   );
 }
 
 function MangaRow({ title, icon, mangas, onMangaClick }) {
   return (
     <section className="manga-row">
-      <div className="hv-section-header">
-        <h2 className="hv-section-title">{icon} {title}</h2>
-        <span className="hv-section-line" />
-      </div>
+      <header className="manga-row-heading">
+        <div className="hv-section-header">
+          <h2 className="hv-section-title">{icon} {title}</h2>
+          <span className="hv-section-line" />
+        </div>
+        <span className="manga-row-count">{mangas.length} titles</span>
+      </header>
       <div className="manga-row-slider">
         {mangas.map((m, i) => (
-          <MangaCard key={m.id || i} manga={m} onClick={onMangaClick} />
+          <MangaCard key={m.id || i} manga={m} index={i} onClick={onMangaClick} />
         ))}
       </div>
     </section>
@@ -5055,6 +5061,70 @@ function MangaHomeView({ data, error, isLoading, searchQuery, searchResults, sea
   );
 }
 
+function MangaLandingShowcase({ items, onMangaClick }) {
+  if (!items?.length) return null;
+  const featured = items[0];
+  const railItems = items.slice(1, 10);
+
+  return (
+    <section className="manga-landing-showcase">
+      <article className="manga-featured-story" style={{ backgroundImage: `url(${featured.banner || featured.cover})` }}>
+        <div className="manga-featured-scrim" />
+        <div className="manga-featured-content">
+          <span className="manga-featured-kicker">Top story this week</span>
+          <h1>{featured.title}</h1>
+          {featured.description && <p>{featured.description}</p>}
+          <div className="manga-featured-actions">
+            <button type="button" className="manga-featured-read" onClick={() => onMangaClick(featured)}>
+              <BookOpen size={17} /> Read now
+            </button>
+            <span className="manga-featured-rating"><Star size={15} fill="currentColor" /> {featured.rating || '8.8'}</span>
+          </div>
+        </div>
+        <span className="manga-featured-rank">01</span>
+      </article>
+
+      {railItems.length > 0 && (
+        <div className="manga-story-rail-wrap">
+          <div className="manga-story-rail-heading">
+            <div>
+              <span>Top 10</span>
+              <h2>Keep exploring</h2>
+            </div>
+            <span className="manga-story-rail-note">This week&apos;s most-read stories</span>
+          </div>
+          <div className="manga-story-rail">
+            {railItems.map((item, index) => (
+              <button key={item.id || index} type="button" className="manga-story-rail-card" onClick={() => onMangaClick(item)}>
+                <img src={item.cover || item.banner} alt="" loading="lazy" />
+                <span className="manga-story-rail-rank">{String(index + 2).padStart(2, '0')}</span>
+                <span className="manga-story-rail-title">{item.title}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function MangaShelfSpotlight({ item, category, onMangaClick }) {
+  if (!item) return null;
+  const labels = { manga: 'Featured manga', manhwa: 'Featured manhwa', manhua: 'Featured donghua' };
+
+  return (
+    <article className="manga-shelf-spotlight" style={{ backgroundImage: `url(${item.banner || item.cover})` }}>
+      <div className="manga-shelf-spotlight-scrim" />
+      <div className="manga-shelf-spotlight-content">
+        <span>{labels[category] || 'Featured story'}</span>
+        <h2>{item.title}</h2>
+        {item.description && <p>{item.description}</p>}
+        <button type="button" onClick={() => onMangaClick(item)}><BookOpen size={16} /> Start reading</button>
+      </div>
+    </article>
+  );
+}
+
 function MangaCategoryCardsV2({ onSelectCategory }) {
   const categories = [
     { id: 'manga', title: 'Manga', country: 'Japan', description: 'Shonen, seinen, shojo and every kind of panel-to-panel escape.', icon: BookOpen },
@@ -5094,7 +5164,7 @@ function MangaGenreBrowse({ category, genre, onMangaClick }) {
   const keyRef = React.useRef('');
   const knownIdsRef = React.useRef(new Set());
 
-  const loadPage = React.useCallback(async (page, replace = false) => {
+  const loadBatch = React.useCallback(async (page, replace = false) => {
     const requestKey = `${category}:${genre}`;
     if (keyRef.current !== requestKey) return;
 
@@ -5117,10 +5187,7 @@ function MangaGenreBrowse({ category, genre, onMangaClick }) {
 
       setItems(previous => replace ? unique : [...previous, ...unique]);
       pageRef.current = page;
-      const providerHasMore = typeof response?.hasMore === 'boolean'
-        ? response.hasMore
-        : incoming.length >= 24;
-      setHasMore(providerHasMore && unique.length > 0);
+      setHasMore(Boolean(response?.hasMore && unique.length > 0));
     } catch (err) {
       if (keyRef.current === requestKey) setError('Could not load more titles right now.');
     } finally {
@@ -5137,12 +5204,12 @@ function MangaGenreBrowse({ category, genre, onMangaClick }) {
     knownIdsRef.current = new Set();
     setItems([]);
     setHasMore(true);
-    loadPage(1, true);
-  }, [category, genre, loadPage]);
+    loadBatch(1, true);
+  }, [category, genre, loadBatch]);
 
   const loadMore = React.useCallback(() => {
-    if (!isLoading && !isLoadingMore && hasMore) loadPage(pageRef.current + 1);
-  }, [hasMore, isLoading, isLoadingMore, loadPage]);
+    if (!isLoading && !isLoadingMore && hasMore) loadBatch(pageRef.current + 1);
+  }, [hasMore, isLoading, isLoadingMore, loadBatch]);
 
   React.useEffect(() => {
     const node = sentinelRef.current;
@@ -5215,7 +5282,7 @@ function MangaCategoryHubV2({ category, onBack, onMangaClick }) {
     }
     let active = true;
     setIsLoading(true);
-    api.getMangaCategoryData(category, 'all', 1)
+    api.getMangaCategoryData(category, 'all')
       .then(result => { if (active) setData(result); })
       .catch(() => { if (active) setData(null); })
       .finally(() => { if (active) setIsLoading(false); });
@@ -5235,6 +5302,10 @@ function MangaCategoryHubV2({ category, onBack, onMangaClick }) {
         <h1 className="manga-subhub-heading">{categoryMeta.title}</h1>
         <p className="manga-subhub-subtitle">{categoryMeta.subtitle}</p>
       </header>
+
+      {selectedGenre === 'all' && data?.trending?.[0] && (
+        <MangaShelfSpotlight item={data.trending[0]} category={category} onMangaClick={onMangaClick} />
+      )}
 
       <section className="manga-genre-deck" aria-label={`${categoryMeta.title} genres`}>
         <div className="manga-genre-deck-heading">
@@ -5307,7 +5378,7 @@ function MangaHomeViewV2({ data, error, isLoading, searchQuery, searchResults, s
   return (
     <div className="manga-home manga-home--v2" style={{ paddingTop: '4rem' }}>
       <div className="container">
-        <MangaBentoGrid items={bentoItems} onMangaClick={onMangaClick} />
+        <MangaLandingShowcase items={bentoItems} onMangaClick={onMangaClick} />
         <MangaCategoryCardsV2 onSelectCategory={category => {
           setSelectedCategory(category);
           window.scrollTo({ top: 0, behavior: 'smooth' });
