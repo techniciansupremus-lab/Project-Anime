@@ -2298,21 +2298,13 @@ app.get('/api/manga/read/:chapterId', async (req, res) => {
     const { baseUrl, chapter } = atHomeRes.data || {};
 
     if (baseUrl && chapter?.data?.length) {
-      const host = publicHost(req);
-      const pages = chapter.data.map((fileName, index) => {
-        const rawUrl = `${baseUrl}/data/${chapter.hash}/${fileName}`;
-        return {
-          page: index + 1,
-          url: `${host}/api/manga/image-proxy?url=${encodeURIComponent(rawUrl)}`,
-          rawUrl
-        };
-      });
-
-      return res.json({
-        chapterId,
-        pageCount: pages.length,
-        pages
-      });
+      // Return DIRECT CDN URLs — browser downloads images from MangaDex CDN directly
+      const pages = chapter.data.map((fileName, index) => ({
+        page: index + 1,
+        url: `${baseUrl}/data/${chapter.hash}/${fileName}`,
+      }));
+      console.log(`[MANGA READ] OK ${chapterId} — ${pages.length} pages (MangaDex@Home direct)`);
+      return res.json({ chapterId, pageCount: pages.length, pages });
     }
   } catch (e) {
     console.warn('[MANGA READ] MangaDex at-home server error, trying Consumet fallback:', e.message);
@@ -2322,18 +2314,12 @@ app.get('/api/manga/read/:chapterId', async (req, res) => {
   try {
     const pagesData = await mangaDexConsumet.fetchChapterPages(chapterId);
     if (Array.isArray(pagesData) && pagesData.length) {
-      const host = publicHost(req);
       const pages = pagesData.map((p, index) => ({
         page: p.page || index + 1,
-        url: `${host}/api/manga/image-proxy?url=${encodeURIComponent(p.img || p.url)}`,
-        rawUrl: p.img || p.url
+        url: p.img || p.url,
       }));
-
-      return res.json({
-        chapterId,
-        pageCount: pages.length,
-        pages
-      });
+      console.log(`[MANGA READ] OK ${chapterId} — ${pages.length} pages (Consumet direct)`);
+      return res.json({ chapterId, pageCount: pages.length, pages });
     }
   } catch (e) {
     console.error('[MANGA READ] All page reading providers failed:', e.message);
@@ -2367,13 +2353,8 @@ app.get('/api/manga/image-proxy', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────
-// MANGA ROUTES (MangaDex API + Consumet MANGA fallback)
-// ─────────────────────────────────────────────────────
 
-const MANGADEX_API = 'https://api.mangadex.org';
-const ANILIST_API  = 'https://graphql.anilist.co';
-const mangaDex     = new MANGA.MangaDex();
+
 
 // Helper: AniList manga query
 async function anilistManga(query, variables = {}) {
