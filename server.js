@@ -1979,40 +1979,68 @@ app.get('/api/movies/info/:id', async (req, res) => {
 
 const COMICKZ_BASE = 'https://comickz.co.uk';
 
-// GET /api/manga/home — Top/Trending Manga & Manhwa from ComicKz
+// GET /api/manga/home — Top/Trending Manga & Manhwa from ComicKz with AniList fallback
 app.get('/api/manga/home', async (req, res) => {
   try {
-    const [trendingRes, popularRes, topRes] = await Promise.all([
-      axios.get(`${COMICKZ_BASE}/api/comics/top?day=7&type=trending`, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', Referer: `${COMICKZ_BASE}/` },
-        timeout: 8000
-      }).catch(() => ({ data: [] })),
-      axios.get(`${COMICKZ_BASE}/api/comics/top?day=30&type=hot`, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', Referer: `${COMICKZ_BASE}/` },
-        timeout: 8000
-      }).catch(() => ({ data: [] })),
-      axios.get(`${COMICKZ_BASE}/api/comics/top?day=30&type=rating`, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', Referer: `${COMICKZ_BASE}/` },
-        timeout: 8000
-      }).catch(() => ({ data: [] }))
+    const fetchComicKzSection = async (query) => {
+      try {
+        const r = await axios.get(`${COMICKZ_BASE}/api/search?q=${encodeURIComponent(query)}&limit=24`, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', Referer: `${COMICKZ_BASE}/` },
+          timeout: 6000
+        });
+        const rawList = r.data?.data || (Array.isArray(r.data) ? r.data : []);
+        return rawList.map(item => ({
+          id: item.slug || String(item.id),
+          comickSlug: item.slug,
+          hid: item.hid,
+          title: item.title || 'Manga',
+          cover: item.default_thumbnail || (item.cover ? `${item.cover}` : null),
+          banner: item.default_thumbnail || null,
+          description: item.desc ? item.desc.replace(/<[^>]*>?/gm, '') : '',
+          rating: '8.8',
+          status: item.status === 2 ? 'Completed' : 'Ongoing',
+          type: 'manga'
+        }));
+      } catch (e) {
+        return [];
+      }
+    };
+
+    let [trending, popular, topRated] = await Promise.all([
+      fetchComicKzSection('leveling'),
+      fetchComicKzSection('dragon'),
+      fetchComicKzSection('rank')
     ]);
 
-    const formatComic = (item) => ({
-      id: item.slug || String(item.id),
-      comickSlug: item.slug,
-      hid: item.hid,
-      title: item.title || 'Manga',
-      cover: item.default_thumbnail || (item.cover ? `${item.cover}` : null),
-      banner: item.default_thumbnail || null,
-      description: item.desc ? item.desc.replace(/<[^>]*>?/gm, '') : '',
-      rating: item.rating || item.score ? (item.rating || item.score).toString() : '8.8',
-      status: item.status === 2 ? 'Completed' : 'Ongoing',
-      type: 'manga'
-    });
-
-    const trending = Array.isArray(trendingRes.data) ? trendingRes.data.map(formatComic) : [];
-    const popular  = Array.isArray(popularRes.data)  ? popularRes.data.map(formatComic)  : [];
-    const topRated = Array.isArray(topRes.data)      ? topRes.data.map(formatComic)      : [];
+    // Fallback to AniList if ComicKz search returned empty
+    if (!trending.length || !popular.length) {
+      console.warn('[MANGA HOME] ComicKz search returned empty, fetching AniList catalog fallback...');
+      try {
+        const query = `
+          query {
+            trending: Page(page: 1, perPage: 18) { media(type: MANGA, sort: TRENDING_DESC, countryOfOrigin: "JP") { id title { english romaji } coverImage { extraLarge large } description averageScore status } }
+            popular: Page(page: 1, perPage: 18) { media(type: MANGA, sort: POPULARITY_DESC, countryOfOrigin: "JP") { id title { english romaji } coverImage { extraLarge large } description averageScore status } }
+            topRated: Page(page: 1, perPage: 18) { media(type: MANGA, sort: SCORE_DESC, countryOfOrigin: "JP") { id title { english romaji } coverImage { extraLarge large } description averageScore status } }
+          }
+        `;
+        const aniRes = await axios.post('https://graphql.anilist.co', { query }, { timeout: 6000 });
+        const mapAL = m => ({
+          id: String(m.id),
+          title: m.title.english || m.title.romaji || 'Manga',
+          cover: m.coverImage?.extraLarge || m.coverImage?.large,
+          banner: m.coverImage?.extraLarge,
+          description: m.description ? m.description.replace(/<[^>]*>?/gm, '') : '',
+          rating: m.averageScore ? (m.averageScore / 10).toFixed(1) : '8.5',
+          status: m.status,
+          type: 'manga'
+        });
+        if (!trending.length) trending = (aniRes.data?.data?.trending?.media || []).map(mapAL);
+        if (!popular.length) popular = (aniRes.data?.data?.popular?.media || []).map(mapAL);
+        if (!topRated.length) topRated = (aniRes.data?.data?.topRated?.media || []).map(mapAL);
+      } catch (e) {
+        console.error('[MANGA HOME] AniList fallback also error:', e.message);
+      }
+    }
 
     return res.json({
       trending,
@@ -2021,7 +2049,7 @@ app.get('/api/manga/home', async (req, res) => {
       featured: trending[0] || popular[0] || null
     });
   } catch (err) {
-    console.error('[MANGA HOME] ComicKz error:', err.message);
+    console.error('[MANGA HOME] Error:', err.message);
     res.status(500).json({ error: 'Failed to load manga home', message: err.message });
   }
 });
