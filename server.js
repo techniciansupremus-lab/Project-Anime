@@ -2055,6 +2055,7 @@ app.get('/api/manga/home', async (req, res) => {
 app.get('/api/manga/category/:type', async (req, res) => {
   const { type } = req.params;
   const { genre } = req.query;
+  const requestedPage = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
   const host = publicHost(req);
 
   const countryMap = {
@@ -2066,9 +2067,10 @@ app.get('/api/manga/category/:type', async (req, res) => {
   const countryCode = countryMap[type?.toLowerCase()] || 'jp';
 
   try {
-    let url = `${COMICKZ_BASE}/api/search?country=${countryCode}&limit=48`;
+    const limit = genre && genre !== 'all' ? 24 : 48;
+    let url = `${COMICKZ_BASE}/api/search?country=${countryCode}&limit=${limit}&page=${requestedPage}`;
     if (genre && genre !== 'all') {
-      url = `${COMICKZ_BASE}/api/search?q=${encodeURIComponent(genre)}&country=${countryCode}&limit=48`;
+      url = `${COMICKZ_BASE}/api/search?q=${encodeURIComponent(genre)}&country=${countryCode}&limit=${limit}&page=${requestedPage}`;
     }
 
     const r = await axios.get(url, {
@@ -2104,7 +2106,9 @@ app.get('/api/manga/category/:type', async (req, res) => {
       type,
       country: countryCode,
       genre: genre || 'all',
+      page: requestedPage,
       total: items.length,
+      hasMore: rawList.length === limit,
       trending,
       popular,
       topPick,

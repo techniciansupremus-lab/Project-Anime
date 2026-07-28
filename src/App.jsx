@@ -19,7 +19,7 @@ function App() {
   const [featured, setFeatured] = useState([]);
   const [trending, setTrending] = useState([]);
   const [top10Famous, setTop10Famous] = useState([]);
-  const [searchResults, setSearchResults] = useState({ anime: [], dramas: [] });
+  const [searchResults, setSearchResults] = useState({ anime: [], dramas: [], manga: [] });
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
   const [selectedAnime, setSelectedAnime] = useState(null);
@@ -911,7 +911,7 @@ function App() {
   const resetSearch = () => {
     searchRequestRef.current += 1;
     setSearchQuery('');
-    setSearchResults({ anime: [], dramas: [] });
+    setSearchResults({ anime: [], dramas: [], manga: [] });
     setSearchLoading(false);
   };
 
@@ -1298,35 +1298,10 @@ function App() {
   };
 
   const handleSearch = (query) => {
-    if (activeSection === 'drama') {
-      setSearchQuery('');
-      setView('dramas');
-      handleDramaSearch(query);
-      return;
-    }
-    if (activeSection === 'movies') {
-      setSearchQuery('');
-      setView('movies');
-      handleMovieSearch(query);
-      return;
-    }
-    if (activeSection === 'comic') {
-      setSearchQuery('');
-      setView('manhwa');
-      handleManhwaSearch(query);
-      return;
-    }
-    if (activeSection === 'manga') {
-      setSearchQuery('');
-      setView('manga');
-      handleMangaSearch(query);
-      return;
-    }
-
     setSearchQuery(query);
 
     if (query.trim() === '') {
-      setSearchResults({ anime: [], dramas: [] });
+      setSearchResults({ anime: [], dramas: [], manga: [] });
       setSearchLoading(false);
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
       return;
@@ -1348,8 +1323,9 @@ function App() {
           return Array.isArray(data) ? data : (Array.isArray(data?.value) ? data.value : []);
         })
         .catch(() => []);
+      const mangaPromise = api.searchManga(query).catch(() => []);
 
-      Promise.all([animePromise, dramaPromise]).then(([animeItems, dramaItems]) => {
+      Promise.all([animePromise, dramaPromise, mangaPromise]).then(([animeItems, dramaItems, mangaItems]) => {
         if (requestId === searchRequestRef.current) {
           const animeList = Array.isArray(animeItems) ? animeItems : [];
           const dramaRaw = Array.isArray(dramaItems) ? dramaItems : [];
@@ -1363,13 +1339,14 @@ function App() {
 
           setSearchResults({
             anime: animeList,
-            dramas: cleanDramas
+            dramas: cleanDramas,
+            manga: Array.isArray(mangaItems) ? mangaItems : []
           });
           setSearchLoading(false);
         }
       }).catch(() => {
         if (requestId === searchRequestRef.current) {
-          setSearchResults({ anime: [], dramas: [] });
+          setSearchResults({ anime: [], dramas: [], manga: [] });
           setSearchLoading(false);
         }
       });
@@ -1600,9 +1577,11 @@ function App() {
             query={searchQuery}
             animeResults={searchResults.anime}
             dramaResults={searchResults.dramas}
+            mangaResults={searchResults.manga}
             loading={searchLoading}
             onAnimeClick={handleAnimeClick}
             onDramaClick={handleDramaClick}
+            onMangaClick={handleMangaClick}
           />
         ) : (
           <>
@@ -1824,7 +1803,7 @@ function App() {
 
             {/* ── Manga Views ── */}
             {view === 'manga' && (
-              <MangaHomeView
+              <MangaHomeViewV2
                 data={mangaHomeData}
                 error={mangaHomeError}
                 isLoading={mangaHomeLoading}
@@ -1883,8 +1862,8 @@ function App() {
   );
 }
 
-function SearchResults({ query, animeResults = [], dramaResults = [], loading, onAnimeClick, onDramaClick }) {
-  const hasResults = animeResults.length > 0 || dramaResults.length > 0;
+function SearchResults({ query, animeResults = [], dramaResults = [], mangaResults = [], loading, onAnimeClick, onDramaClick, onMangaClick }) {
+  const hasResults = animeResults.length > 0 || dramaResults.length > 0 || mangaResults.length > 0;
 
   return (
     <div className="container" style={{ marginTop: '2rem', paddingBottom: '4rem' }}>
@@ -1893,7 +1872,7 @@ function SearchResults({ query, animeResults = [], dramaResults = [], loading, o
       </div>
 
       {loading ? (
-        <InlineLoader label="Searching anime and dramas..." />
+        <InlineLoader label="Searching the catalog..." />
       ) : hasResults ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '3rem' }}>
           {/* Anime Results */}
@@ -1923,6 +1902,17 @@ function SearchResults({ query, animeResults = [], dramaResults = [], loading, o
                     drama={drama}
                     onClick={() => onDramaClick(drama)}
                   />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {mangaResults.length > 0 && (
+            <div>
+              <h3 style={{ fontSize: '1.4rem', fontWeight: '700', marginBottom: '1.2rem', color: 'var(--text-primary)', borderLeft: '4px solid #f59e0b', paddingLeft: '0.8rem' }}>Manga, Manhwa &amp; Donghua</h3>
+              <div className="manga-grid">
+                {mangaResults.map((manga, index) => (
+                  <MangaCard key={manga.id || index} manga={manga} onClick={onMangaClick} />
                 ))}
               </div>
             </div>
@@ -5061,6 +5051,268 @@ function MangaHomeView({ data, error, isLoading, searchQuery, searchResults, sea
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function MangaCategoryCardsV2({ onSelectCategory }) {
+  const categories = [
+    { id: 'manga', title: 'Manga', country: 'Japan', description: 'Shonen, seinen, shojo and every kind of panel-to-panel escape.', icon: BookOpen },
+    { id: 'manhwa', title: 'Manhwa', country: 'Korea', description: 'Webtoons, action fantasy, romance and cliffhangers worth chasing.', icon: Sparkles },
+    { id: 'manhua', title: 'Donghua', country: 'China', description: 'Chinese manhua, cultivation stories and worlds built on scale.', icon: Globe }
+  ];
+
+  return (
+    <section className="manga-categories-section manga-categories-section--v2">
+      <div className="hv-section-header manga-shelf-header">
+        <h2 className="hv-section-title"><Compass size={20} /> Choose Your Shelf</h2>
+        <span className="hv-section-line" />
+      </div>
+      <div className="manga-category-grid manga-category-grid--v2">
+        {categories.map(({ icon: Icon, ...category }) => (
+          <button key={category.id} type="button" className={`manga-cat-card manga-cat-card--v2 ${category.id}`} onClick={() => onSelectCategory(category.id)}>
+            <span className="manga-cat-icon"><Icon size={23} /></span>
+            <span className="manga-cat-eyebrow">{category.country}</span>
+            <strong className="manga-cat-title">{category.title}</strong>
+            <span className="manga-cat-desc">{category.description}</span>
+            <span className="manga-cat-enter">Explore <ChevronRight size={16} /></span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function MangaGenreBrowse({ category, genre, onMangaClick }) {
+  const [items, setItems] = React.useState([]);
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [isLoadingMore, setIsLoadingMore] = React.useState(false);
+  const [hasMore, setHasMore] = React.useState(true);
+  const [error, setError] = React.useState('');
+  const sentinelRef = React.useRef(null);
+  const pageRef = React.useRef(0);
+  const keyRef = React.useRef('');
+  const knownIdsRef = React.useRef(new Set());
+
+  const loadPage = React.useCallback(async (page, replace = false) => {
+    const requestKey = `${category}:${genre}`;
+    if (keyRef.current !== requestKey) return;
+
+    if (replace) setIsLoading(true);
+    else setIsLoadingMore(true);
+    setError('');
+
+    try {
+      const response = await api.getMangaCategoryData(category, genre, page);
+      if (keyRef.current !== requestKey) return;
+
+      const incoming = Array.isArray(response?.items) ? response.items : [];
+      if (replace) knownIdsRef.current = new Set();
+      const unique = incoming.filter(item => {
+        const id = item.id || item.comickSlug || item.title;
+        if (!id || knownIdsRef.current.has(id)) return false;
+        knownIdsRef.current.add(id);
+        return true;
+      });
+
+      setItems(previous => replace ? unique : [...previous, ...unique]);
+      pageRef.current = page;
+      const providerHasMore = typeof response?.hasMore === 'boolean'
+        ? response.hasMore
+        : incoming.length >= 24;
+      setHasMore(providerHasMore && unique.length > 0);
+    } catch (err) {
+      if (keyRef.current === requestKey) setError('Could not load more titles right now.');
+    } finally {
+      if (keyRef.current === requestKey) {
+        setIsLoading(false);
+        setIsLoadingMore(false);
+      }
+    }
+  }, [category, genre]);
+
+  React.useEffect(() => {
+    keyRef.current = `${category}:${genre}`;
+    pageRef.current = 0;
+    knownIdsRef.current = new Set();
+    setItems([]);
+    setHasMore(true);
+    loadPage(1, true);
+  }, [category, genre, loadPage]);
+
+  const loadMore = React.useCallback(() => {
+    if (!isLoading && !isLoadingMore && hasMore) loadPage(pageRef.current + 1);
+  }, [hasMore, isLoading, isLoadingMore, loadPage]);
+
+  React.useEffect(() => {
+    const node = sentinelRef.current;
+    if (!node || !hasMore || isLoading) return undefined;
+    const observer = new IntersectionObserver(entries => {
+      if (entries[0]?.isIntersecting) loadMore();
+    }, { rootMargin: '500px 0px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMore, isLoading, loadMore]);
+
+  return (
+    <section className="manga-genre-results" aria-live="polite">
+      <div className="manga-genre-results-heading">
+        <div>
+          <span className="manga-results-kicker">{category}</span>
+          <h2>{genre}</h2>
+        </div>
+        {!isLoading && <span className="manga-results-count">{items.length} titles</span>}
+      </div>
+
+      {isLoading ? (
+        <div className="manga-genre-loading"><InlineLoader /></div>
+      ) : items.length ? (
+        <>
+          <div className="manga-genre-grid">
+            {items.map((manga, index) => <MangaCard key={manga.id || manga.comickSlug || index} manga={manga} onClick={onMangaClick} />)}
+          </div>
+          <div ref={sentinelRef} className="manga-load-sentinel">
+            {isLoadingMore && <InlineLoader />}
+            {error && <p className="manga-load-message">{error}</p>}
+            {!isLoadingMore && hasMore && <button type="button" className="manga-load-more" onClick={loadMore}>Load more</button>}
+            {!hasMore && <p className="manga-load-message">You have reached the end of this shelf.</p>}
+          </div>
+        </>
+      ) : (
+        <p className="manga-empty-state">No titles were found in this genre.</p>
+      )}
+    </section>
+  );
+}
+
+function MangaCategoryHubV2({ category, onBack, onMangaClick }) {
+  const [selectedGenre, setSelectedGenre] = React.useState('all');
+  const [data, setData] = React.useState(null);
+  const [isLoading, setIsLoading] = React.useState(true);
+
+  const categoryMeta = {
+    manga: { title: 'Manga', eyebrow: 'Japanese comics', subtitle: 'A home for long-running favorites, new discoveries and every genre in between.' },
+    manhwa: { title: 'Manhwa', eyebrow: 'Korean webtoons', subtitle: 'The stories people cannot stop reading, arranged for relaxed browsing.' },
+    manhua: { title: 'Donghua', eyebrow: 'Chinese comics', subtitle: 'Manhua, cultivation epics and wide-open worlds with room to roam.' }
+  }[category] || { title: 'Manga', eyebrow: 'Comic library', subtitle: 'Browse the catalog.' };
+
+  const genres = [
+    { id: 'all', label: 'For You' },
+    { id: 'action', label: 'Action' },
+    { id: 'fantasy', label: 'Fantasy' },
+    { id: 'romance', label: 'Romance' },
+    { id: 'system', label: 'System' },
+    { id: 'isekai', label: 'Isekai' },
+    { id: 'adventure', label: 'Adventure' },
+    { id: 'drama', label: 'Drama' },
+    { id: 'sci-fi', label: 'Sci-Fi' }
+  ];
+
+  React.useEffect(() => {
+    if (selectedGenre !== 'all') {
+      setIsLoading(false);
+      return undefined;
+    }
+    let active = true;
+    setIsLoading(true);
+    api.getMangaCategoryData(category, 'all', 1)
+      .then(result => { if (active) setData(result); })
+      .catch(() => { if (active) setData(null); })
+      .finally(() => { if (active) setIsLoading(false); });
+    return () => { active = false; };
+  }, [category, selectedGenre]);
+
+  return (
+    <div className={`container manga-subhub-header manga-subhub-header--v2 manga-subhub-header--${category}`}>
+      <div className="manga-breadcrumb">
+        <button type="button" className="manga-breadcrumb-link" onClick={onBack}>Manga Hub</button>
+        <ChevronRight size={15} />
+        <span>{categoryMeta.title}</span>
+      </div>
+
+      <header className="manga-subhub-title-row manga-subhub-title-row--v2">
+        <p className="manga-subhub-eyebrow">{categoryMeta.eyebrow}</p>
+        <h1 className="manga-subhub-heading">{categoryMeta.title}</h1>
+        <p className="manga-subhub-subtitle">{categoryMeta.subtitle}</p>
+      </header>
+
+      <section className="manga-genre-deck" aria-label={`${categoryMeta.title} genres`}>
+        <div className="manga-genre-deck-heading">
+          <span>Explore by genre</span>
+          <span>Choose a lane</span>
+        </div>
+        <div className="manga-genre-slider manga-genre-slider--v2">
+          {genres.map(genre => (
+            <button key={genre.id} type="button" className={`manga-genre-pill ${selectedGenre === genre.id ? 'active' : ''}`} onClick={() => setSelectedGenre(genre.id)}>
+              {genre.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {selectedGenre !== 'all' ? (
+        <MangaGenreBrowse category={category} genre={selectedGenre} onMangaClick={onMangaClick} />
+      ) : isLoading ? (
+        <div className="manga-category-loading"><InlineLoader /></div>
+      ) : !data?.trending?.length ? (
+        <p className="manga-empty-state">No titles are available in this shelf right now.</p>
+      ) : (
+        <div className="manga-rows-container manga-category-rows">
+          <MangaRow title="Trending Now" icon={<Flame size={18} />} mangas={data.trending || []} onMangaClick={onMangaClick} />
+          <MangaRow title="Most Read" icon={<Trophy size={18} />} mangas={data.popular || []} onMangaClick={onMangaClick} />
+          <MangaRow title="Fan Favorites" icon={<Sparkles size={18} />} mangas={data.topPick || []} onMangaClick={onMangaClick} />
+          <MangaRow title="Fresh Chapters" icon={<BookOpen size={18} />} mangas={data.recent || []} onMangaClick={onMangaClick} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MangaHomeViewV2({ data, error, isLoading, searchQuery, searchResults, searchLoading, onMangaClick }) {
+  const [selectedCategory, setSelectedCategory] = React.useState(null);
+  const bentoItems = data?.bentoTop10 || data?.trending || [];
+
+  if (searchQuery.trim()) {
+    return (
+      <div className="manga-home" style={{ paddingTop: '4rem' }}>
+        <div className="container manga-search-results">
+          <div className="hv-section-header" style={{ marginBottom: '1.5rem' }}>
+            <h2 className="hv-section-title"><Sparkles size={20} /> Results for &quot;{searchQuery}&quot;</h2>
+            <span className="hv-section-line" />
+          </div>
+          {searchLoading ? <div className="manga-loading"><InlineLoader /></div> : searchResults.length ? (
+            <div className="manga-grid">{searchResults.map((manga, index) => <MangaCard key={manga.id || index} manga={manga} onClick={onMangaClick} />)}</div>
+          ) : <p className="manga-empty-state">No manga found.</p>}
+        </div>
+      </div>
+    );
+  }
+
+  if (selectedCategory) {
+    return <MangaCategoryHubV2 category={selectedCategory} onBack={() => setSelectedCategory(null)} onMangaClick={onMangaClick} />;
+  }
+
+  if (isLoading) return <CategorySkeleton />;
+
+  if (!data || !bentoItems.length) {
+    return (
+      <div className="manga-empty-screen">
+        <BookOpen size={48} />
+        <p>{error || 'Could not load the manga catalog. Check your connection.'}</p>
+        <button className="btn btn-primary" onClick={() => window.location.reload()}>Retry</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="manga-home manga-home--v2" style={{ paddingTop: '4rem' }}>
+      <div className="container">
+        <MangaBentoGrid items={bentoItems} onMangaClick={onMangaClick} />
+        <MangaCategoryCardsV2 onSelectCategory={category => {
+          setSelectedCategory(category);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }} />
+      </div>
     </div>
   );
 }

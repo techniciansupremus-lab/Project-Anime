@@ -732,9 +732,9 @@ export const api = {
   },
 
   // Get Manga Category Data (manga, manhwa, manhua) with optional genre filter
-  getMangaCategoryData: async (type, genre = 'all') => {
+  getMangaCategoryData: async (type, genre = 'all', page = 1) => {
     try {
-      const res = await fetch(apiUrl(`/api/manga/category/${type}?genre=${encodeURIComponent(genre)}`));
+      const res = await fetch(apiUrl(`/api/manga/category/${type}?genre=${encodeURIComponent(genre)}&page=${encodeURIComponent(page)}`));
       if (res.ok) {
         return await res.json();
       }
@@ -816,5 +816,4 @@ export const api = {
     return { chapterId, pageCount: 0, pages: [] };
   }
 };
-
 
