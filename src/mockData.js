@@ -778,25 +778,53 @@ export const api = {
 
   // Get Manga Chapter Pages
   getMangaChapterPages: async (chapterId) => {
+    // ── PRIMARY: Call MangaDex@Home API directly from browser ──────────────
+    // MangaDex supports CORS — browser can fetch chapter image URLs directly.
+    // This completely bypasses Termux's mobile IP which MangaDex rate-limits.
     try {
-      // Hard 15s abort — guarantees no infinite loading even if server hangs
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 10000);
+      const r = await fetch(`https://api.mangadex.org/at-home/server/${encodeURIComponent(chapterId)}`, {
+        signal: ctrl.signal
+      });
+      clearTimeout(t);
+      if (r.ok) {
+        const data = await r.json();
+        const { baseUrl, chapter } = data;
+        if (baseUrl && chapter?.data?.length) {
+          console.log(`[API] MangaDex@Home direct: ${chapter.data.length} pages`);
+          return {
+            chapterId,
+            pageCount: chapter.data.length,
+            pages: chapter.data.map((f, i) => ({
+              page: i + 1,
+              url: `${baseUrl}/data/${chapter.hash}/${f}`,
+            }))
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('[API] Direct MangaDex@Home failed, falling back to backend:', e.message);
+    }
+
+    // ── FALLBACK: Ask Termux backend (Consumet) ────────────────────────────
+    try {
       const controller = new AbortController();
       const abortTimer = setTimeout(() => {
         controller.abort();
-        console.warn('[API] getMangaChapterPages aborted after 15s timeout');
+        console.warn('[API] getMangaChapterPages backend request aborted after 15s');
       }, 15000);
-
       const res = await fetch(apiUrl(`/api/manga/read/${encodeURIComponent(chapterId)}`), {
         signal: controller.signal
       });
       clearTimeout(abortTimer);
-
       if (res.ok) {
         return await res.json();
       }
     } catch (e) {
-      console.error('[API] Manga read endpoint failed:', e.message);
+      console.error('[API] Manga read backend failed:', e.message);
     }
+
     return { chapterId, pageCount: 0, pages: [] };
   }
 };
