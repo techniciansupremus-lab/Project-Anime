@@ -4763,11 +4763,240 @@ function MangaRow({ title, icon, mangas, onMangaClick }) {
   );
 }
 
-function MangaHomeView({ data, error, isLoading, searchQuery, searchResults, searchLoading, onSearch, onMangaClick }) {
-  const featured = data?.featured;
+function MangaBentoGrid({ items, onMangaClick }) {
+  if (!items || items.length === 0) return null;
+  const heroItem = items[0];
+  const restItems = items.slice(1, 10);
 
   return (
-    <div className="manga-home" style={{ paddingTop: '5rem' }}>
+    <div className="manga-bento-container">
+      <div className="manga-bento-header">
+        <h2 className="manga-bento-title">
+          <Trophy size={22} style={{ color: '#f59e0b' }} /> Top 10 Comics
+        </h2>
+      </div>
+
+      <div className="manga-bento-grid">
+        {/* Item #1: Hero Bento Card (2x2) */}
+        {heroItem && (
+          <div className="bento-card-hero" onClick={() => onMangaClick(heroItem)}>
+            <img src={heroItem.cover || heroItem.banner} alt={heroItem.title} className="bento-hero-bg" />
+            <div className="bento-hero-overlay" />
+            <div className="bento-rank-badge rank-1">
+              <Trophy size={14} /> #1 TOP COMIC
+            </div>
+            <div className="bento-hero-content">
+              <span style={{ color: '#f59e0b', fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                ★ {heroItem.rating || '9.0'} • SPOTLIGHT
+              </span>
+              <h3 style={{ color: '#ffffff', fontSize: '1.6rem', fontWeight: 800, margin: '0.2rem 0' }}>
+                {heroItem.title}
+              </h3>
+              {heroItem.description && (
+                <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.85rem', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                  {heroItem.description}
+                </p>
+              )}
+              <div style={{ marginTop: '0.6rem' }}>
+                <button className="btn btn-primary" style={{ padding: '0.4rem 1rem', fontSize: '0.85rem' }}>
+                  <BookOpen size={15} style={{ marginRight: '0.3rem' }} /> Read Now
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Items #2 to #10 */}
+        {restItems.map((item, idx) => {
+          const rank = idx + 2;
+          const rankClass = rank === 2 ? 'rank-2' : rank === 3 ? 'rank-3' : 'rank-standard';
+          return (
+            <div key={item.id || idx} className="bento-card-standard" onClick={() => onMangaClick(item)}>
+              <img src={item.cover || item.banner} alt={item.title} className="bento-card-img" />
+              <div className="bento-card-overlay" />
+              <div className={`bento-rank-badge ${rankClass}`}>
+                #{rank}
+              </div>
+              <div className="bento-card-info">
+                <div style={{ color: '#f59e0b', fontSize: '0.72rem', fontWeight: 700 }}>
+                  ★ {item.rating || '8.5'}
+                </div>
+                <div className="bento-card-title">{item.title}</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MangaCategoryCards({ onSelectCategory }) {
+  const categories = [
+    {
+      id: 'manga',
+      title: 'Manga',
+      flag: '🇯🇵',
+      desc: 'Japanese Comics • Shonen, Seinen, Shojo & Romance',
+      className: 'manga'
+    },
+    {
+      id: 'manhwa',
+      title: 'Manhwa',
+      flag: '🇰🇷',
+      desc: 'Korean Webtoons • Solo Leveling, System, Reincarnation & Action',
+      className: 'manhwa'
+    },
+    {
+      id: 'manhua',
+      title: 'Manhua / Donghua Comic',
+      flag: '🇨🇳',
+      desc: 'Chinese Webtoons • Martial Arts, Cultivation & Donghua Adaptations',
+      className: 'manhua'
+    }
+  ];
+
+  return (
+    <div className="manga-categories-section">
+      <div className="hv-section-header" style={{ marginBottom: '1.25rem' }}>
+        <h2 className="hv-section-title">
+          <Compass size={20} style={{ color: '#3b82f6' }} /> Browse by Format
+        </h2>
+        <span className="hv-section-line" />
+      </div>
+      <div className="manga-category-grid">
+        {categories.map(cat => (
+          <div key={cat.id} className={`manga-cat-card ${cat.className}`} onClick={() => onSelectCategory(cat.id)}>
+            <div className="manga-cat-flag">{cat.flag}</div>
+            <div className="manga-cat-title">{cat.title}</div>
+            <div className="manga-cat-desc">{cat.desc}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MangaCategoryHub({ category, onBack, onMangaClick }) {
+  const [selectedGenre, setSelectedGenre] = React.useState('all');
+  const [catData, setCatData] = React.useState(null);
+  const [isLoading, setIsLoading] = React.useState(true);
+
+  const categoryMeta = {
+    manga: { title: 'Manga Hub', flag: '🇯🇵', subtitle: 'Explore Japanese Manga Comics' },
+    manhwa: { title: 'Manhwa Hub', flag: '🇰🇷', subtitle: 'Explore Korean Webtoons & Manhwa' },
+    manhua: { title: 'Manhua Hub', flag: '🇨🇳', subtitle: 'Explore Chinese Manhua & Cultivation Comics' }
+  }[category] || { title: 'Manga Hub', flag: '📖', subtitle: 'Browse Catalog' };
+
+  const genres = [
+    { id: 'all', label: 'All Genres' },
+    { id: 'action', label: '⚔️ Action' },
+    { id: 'fantasy', label: '🔮 Fantasy' },
+    { id: 'romance', label: '💖 Romance' },
+    { id: 'system', label: '🎮 System' },
+    { id: 'isekai', label: '🌌 Isekai' },
+    { id: 'adventure', label: '🗺️ Adventure' },
+    { id: 'drama', label: '🎭 Drama' },
+    { id: 'sci-fi', label: '🤖 Sci-Fi' }
+  ];
+
+  React.useEffect(() => {
+    let isMounted = true;
+    setIsLoading(true);
+    api.getMangaCategoryData(category, selectedGenre).then(res => {
+      if (isMounted) {
+        setCatData(res);
+        setIsLoading(false);
+      }
+    });
+    return () => { isMounted = false; };
+  }, [category, selectedGenre]);
+
+  return (
+    <div className="container manga-subhub-header">
+      {/* Breadcrumb Header */}
+      <div className="manga-breadcrumb">
+        <span className="manga-breadcrumb-link" onClick={onBack}>← Back to Manga Landing</span>
+        <span>/</span>
+        <span style={{ color: '#ffffff', fontWeight: 600 }}>{categoryMeta.title}</span>
+      </div>
+
+      <div className="manga-subhub-title-row">
+        <span className="manga-subhub-flag">{categoryMeta.flag}</span>
+        <div>
+          <h1 className="manga-subhub-heading">{categoryMeta.title}</h1>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem' }}>{categoryMeta.subtitle}</p>
+        </div>
+      </div>
+
+      {/* Horizontal Genre Slider */}
+      <div className="manga-genre-slider">
+        {genres.map(g => (
+          <button
+            key={g.id}
+            className={`manga-genre-pill ${selectedGenre === g.id ? 'active' : ''}`}
+            onClick={() => setSelectedGenre(g.id)}
+          >
+            {g.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Rows */}
+      {isLoading ? (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '4rem' }}>
+          <InlineLoader />
+        </div>
+      ) : !catData || !catData.trending?.length ? (
+        <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '3rem 0' }}>
+          No titles found for this genre filter.
+        </p>
+      ) : (
+        <div className="manga-rows-container">
+          {catData.trending?.length > 0 && (
+            <MangaRow
+              title="🔥 Trending Now"
+              icon={<Flame size={18} style={{ color: '#f97316' }} />}
+              mangas={catData.trending}
+              onMangaClick={onMangaClick}
+            />
+          )}
+          {catData.popular?.length > 0 && (
+            <MangaRow
+              title="📈 Most Popular"
+              icon={<Trophy size={18} style={{ color: '#eab308' }} />}
+              mangas={catData.popular}
+              onMangaClick={onMangaClick}
+            />
+          )}
+          {catData.topPick?.length > 0 && (
+            <MangaRow
+              title="🌟 Fan's Top Pick"
+              icon={<Star size={18} fill="#a855f7" style={{ color: '#a855f7' }} />}
+              mangas={catData.topPick}
+              onMangaClick={onMangaClick}
+            />
+          )}
+          {catData.recent?.length > 0 && (
+            <MangaRow
+              title="🆕 Recently Updated"
+              icon={<Sparkles size={18} style={{ color: '#3b82f6' }} />}
+              mangas={catData.recent}
+              onMangaClick={onMangaClick}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MangaHomeView({ data, error, isLoading, searchQuery, searchResults, searchLoading, onSearch, onMangaClick }) {
+  const [selectedCategory, setSelectedCategory] = React.useState(null);
+  const bentoItems = data?.bentoTop10 || data?.trending || [];
+
+  return (
+    <div className="manga-home" style={{ paddingTop: '4rem' }}>
       {searchQuery.trim() ? (
         <div className="container manga-search-results">
           <div className="hv-section-header" style={{ marginBottom: '1.5rem' }}>
@@ -4786,9 +5015,16 @@ function MangaHomeView({ data, error, isLoading, searchQuery, searchResults, sea
             <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '3rem 0' }}>No manga found.</p>
           )}
         </div>
+      ) : selectedCategory ? (
+        /* Render Dedicated Category Hub Sub-Page (Manga / Manhwa / Manhua) */
+        <MangaCategoryHub
+          category={selectedCategory}
+          onBack={() => setSelectedCategory(null)}
+          onMangaClick={onMangaClick}
+        />
       ) : isLoading ? (
         <CategorySkeleton />
-      ) : !data || (!data.trending?.length && !data.popular?.length) ? (
+      ) : !data || (!data.bentoTop10?.length && !data.trending?.length) ? (
         <div style={{ minHeight: '60vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.2rem' }}>
           <BookOpen size={48} style={{ color: 'var(--text-muted)' }} />
           <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem', textAlign: 'center', maxWidth: '640px' }}>
@@ -4797,64 +5033,33 @@ function MangaHomeView({ data, error, isLoading, searchQuery, searchResults, sea
           <button className="btn btn-primary" onClick={() => window.location.reload()}>Retry</button>
         </div>
       ) : (
-        <>
-          {/* Hero Banner */}
-          {featured && (
-            <div className="manga-hero" style={{ backgroundImage: `url(${featured.banner || featured.cover})` }}>
-              <div className="manga-hero-overlay" />
-              <div className="container manga-hero-content">
-                <div className="hero-eyebrow" style={{ marginBottom: '0.75rem' }}>
-                  <span className="hero-eyebrow-badge" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>
-                    <BookOpen size={14} />
-                  </span>
-                  <span className="hero-eyebrow-text">Manga Spotlight</span>
-                  <span className="hero-live-tag" style={{ background: 'rgba(245, 158, 11, 0.15)', borderColor: 'rgba(245, 158, 11, 0.4)', color: '#f59e0b' }}>TRENDING</span>
-                </div>
-                <h1 className="manga-hero-title">{featured.title}</h1>
-                <div className="hero-meta">
-                  {featured.genres?.slice(0, 3).map(g => (
-                    <span key={g} className="manga-genre-chip">{g}</span>
-                  ))}
-                  {featured.rating && <span className="hero-star"><Star size={13} fill="#f59e0b" style={{ color: '#f59e0b' }} />{featured.rating}</span>}
-                </div>
-                {featured.description && <p className="manga-hero-desc">{featured.description.slice(0, 200)}...</p>}
-                <div className="btn-group" style={{ marginTop: '1.25rem' }}>
-                  <button className="btn btn-primary manga-hero-btn" onClick={() => onMangaClick(featured)}>
-                    <BookOpen size={18} /> Read Now
-                  </button>
-                </div>
-              </div>
-            </div>
+        /* Main Bento Top 10 Landing Page + Category Selector Cards */
+        <div className="container">
+          {/* Top 10 Bento Grid */}
+          <MangaBentoGrid items={bentoItems} onMangaClick={onMangaClick} />
+
+          {/* Category Choice Cards (Manga, Manhwa, Manhua) */}
+          <MangaCategoryCards onSelectCategory={(catId) => setSelectedCategory(catId)} />
+
+          {/* Previews */}
+          {data.manhwaPreview?.length > 0 && (
+            <MangaRow
+              title="🇰🇷 Trending Manhwa Webtoons"
+              icon={<Flame size={18} style={{ color: '#3b82f6' }} />}
+              mangas={data.manhwaPreview}
+              onMangaClick={onMangaClick}
+            />
           )}
 
-          {/* Catalog Rows */}
-          <div className="manga-rows-container container">
-            {data.trending?.length > 0 && (
-              <MangaRow
-                title="Trending Now"
-                icon={<Flame size={18} style={{ color: '#f97316' }} />}
-                mangas={data.trending}
-                onMangaClick={onMangaClick}
-              />
-            )}
-            {data.popular?.length > 0 && (
-              <MangaRow
-                title="Most Popular"
-                icon={<Trophy size={18} style={{ color: '#eab308' }} />}
-                mangas={data.popular}
-                onMangaClick={onMangaClick}
-              />
-            )}
-            {data.topRated?.length > 0 && (
-              <MangaRow
-                title="Top Rated"
-                icon={<Star size={18} fill="#a855f7" style={{ color: '#a855f7' }} />}
-                mangas={data.topRated}
-                onMangaClick={onMangaClick}
-              />
-            )}
-          </div>
-        </>
+          {data.mangaPreview?.length > 0 && (
+            <MangaRow
+              title="🇯🇵 Popular Japanese Manga"
+              icon={<Trophy size={18} style={{ color: '#ef4444' }} />}
+              mangas={data.mangaPreview}
+              onMangaClick={onMangaClick}
+            />
+          )}
+        </div>
       )}
     </div>
   );

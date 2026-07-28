@@ -731,6 +731,19 @@ export const api = {
     }
   },
 
+  // Get Manga Category Data (manga, manhwa, manhua) with optional genre filter
+  getMangaCategoryData: async (type, genre = 'all') => {
+    try {
+      const res = await fetch(apiUrl(`/api/manga/category/${type}?genre=${encodeURIComponent(genre)}`));
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn(`[API] Manga category endpoint failed for ${type}:`, e.message);
+    }
+    return { type, genre, trending: [], popular: [], topPick: [], recent: [], items: [] };
+  },
+
   // Search Manga
   searchManga: async (query) => {
     if (!query) return [];

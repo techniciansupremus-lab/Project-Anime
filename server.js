@@ -1988,15 +1988,19 @@ function proxyCoverUrl(host, rawUrl) {
   return rawUrl;
 }
 
-// GET /api/manga/home — Top/Trending Manga & Manhwa from ComicKz with AniList fallback
+// GET /api/manga/home — Main Manga Landing Data (Bento Top 10 + Category Previews)
 app.get('/api/manga/home', async (req, res) => {
   const host = publicHost(req);
   try {
-    const fetchComicKzSection = async (query) => {
+    const fetchComicKzList = async (query = '', country = '', limit = 16) => {
       try {
-        const r = await axios.get(`${COMICKZ_BASE}/api/search?q=${encodeURIComponent(query)}&limit=24`, {
+        let url = `${COMICKZ_BASE}/api/search?limit=${limit}`;
+        if (query) url += `&q=${encodeURIComponent(query)}`;
+        if (country) url += `&country=${encodeURIComponent(country)}`;
+
+        const r = await axios.get(url, {
           headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', Referer: `${COMICKZ_BASE}/` },
-          timeout: 6000
+          timeout: 7000
         });
         const rawList = r.data?.data || (Array.isArray(r.data) ? r.data : []);
         return rawList.map(item => {
@@ -2008,10 +2012,11 @@ app.get('/api/manga/home', async (req, res) => {
             title: item.title || 'Manga',
             cover: proxyCoverUrl(host, rawCover),
             banner: proxyCoverUrl(host, rawCover),
-            description: item.desc ? item.desc.replace(/<[^>]*>?/gm, '') : '',
-            rating: '8.8',
+            description: item.desc ? item.desc.replace(/<[^>]*>?/gm, '') : (item.description || ''),
+            rating: item.bayesian_rating ? (parseFloat(item.bayesian_rating)).toFixed(1) : '8.8',
+            country: item.country || country || 'jp',
             status: item.status === 2 ? 'Completed' : 'Ongoing',
-            type: 'manga'
+            type: item.country === 'kr' ? 'manhwa' : item.country === 'cn' ? 'manhua' : 'manga'
           };
         });
       } catch (e) {
@@ -2019,51 +2024,97 @@ app.get('/api/manga/home', async (req, res) => {
       }
     };
 
-    let [trending, popular, topRated] = await Promise.all([
-      fetchComicKzSection('leveling'),
-      fetchComicKzSection('dragon'),
-      fetchComicKzSection('rank')
+    let [bentoRaw, manhwaPreview, mangaPreview, manhuaPreview] = await Promise.all([
+      fetchComicKzList('leveling', '', 12),
+      fetchComicKzList('', 'kr', 12),
+      fetchComicKzList('', 'jp', 12),
+      fetchComicKzList('', 'cn', 12)
     ]);
 
-    // Fallback to AniList if ComicKz search returned empty
-    if (!trending.length || !popular.length) {
-      console.warn('[MANGA HOME] ComicKz search returned empty, fetching AniList catalog fallback...');
-      try {
-        const query = `
-          query {
-            trending: Page(page: 1, perPage: 18) { media(type: MANGA, sort: TRENDING_DESC, countryOfOrigin: "JP") { id title { english romaji } coverImage { extraLarge large } description averageScore status } }
-            popular: Page(page: 1, perPage: 18) { media(type: MANGA, sort: POPULARITY_DESC, countryOfOrigin: "JP") { id title { english romaji } coverImage { extraLarge large } description averageScore status } }
-            topRated: Page(page: 1, perPage: 18) { media(type: MANGA, sort: SCORE_DESC, countryOfOrigin: "JP") { id title { english romaji } coverImage { extraLarge large } description averageScore status } }
-          }
-        `;
-        const aniRes = await axios.post('https://graphql.anilist.co', { query }, { timeout: 6000 });
-        const mapAL = m => ({
-          id: String(m.id),
-          title: m.title.english || m.title.romaji || 'Manga',
-          cover: proxyCoverUrl(host, m.coverImage?.extraLarge || m.coverImage?.large),
-          banner: proxyCoverUrl(host, m.coverImage?.extraLarge),
-          description: m.description ? m.description.replace(/<[^>]*>?/gm, '') : '',
-          rating: m.averageScore ? (m.averageScore / 10).toFixed(1) : '8.5',
-          status: m.status,
-          type: 'manga'
-        });
-        if (!trending.length) trending = (aniRes.data?.data?.trending?.media || []).map(mapAL);
-        if (!popular.length) popular = (aniRes.data?.data?.popular?.media || []).map(mapAL);
-        if (!topRated.length) topRated = (aniRes.data?.data?.topRated?.media || []).map(mapAL);
-      } catch (e) {
-        console.error('[MANGA HOME] AniList fallback also error:', e.message);
-      }
-    }
+    // Ensure 10 items for Bento grid
+    const bentoTop10 = bentoRaw.slice(0, 10);
 
     return res.json({
-      trending,
-      popular,
-      topRated,
-      featured: trending[0] || popular[0] || null
+      bentoTop10,
+      manhwaPreview,
+      mangaPreview,
+      manhuaPreview,
+      trending: bentoRaw,
+      popular: manhwaPreview,
+      topRated: mangaPreview,
+      featured: bentoTop10[0] || null
     });
   } catch (err) {
     console.error('[MANGA HOME] Error:', err.message);
     res.status(500).json({ error: 'Failed to load manga home', message: err.message });
+  }
+});
+
+// GET /api/manga/category/:type?genre=<genre>
+// :type can be 'manga' (jp), 'manhwa' (kr), 'manhua' (cn)
+app.get('/api/manga/category/:type', async (req, res) => {
+  const { type } = req.params;
+  const { genre } = req.query;
+  const host = publicHost(req);
+
+  const countryMap = {
+    manga: 'jp',
+    manhwa: 'kr',
+    manhua: 'cn'
+  };
+
+  const countryCode = countryMap[type?.toLowerCase()] || 'jp';
+
+  try {
+    let url = `${COMICKZ_BASE}/api/search?country=${countryCode}&limit=48`;
+    if (genre && genre !== 'all') {
+      url = `${COMICKZ_BASE}/api/search?q=${encodeURIComponent(genre)}&country=${countryCode}&limit=48`;
+    }
+
+    const r = await axios.get(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', Referer: `${COMICKZ_BASE}/` },
+      timeout: 8000
+    });
+
+    const rawList = r.data?.data || (Array.isArray(r.data) ? r.data : []);
+    const items = rawList.map(item => {
+      const rawCover = item.default_thumbnail || (item.cover ? `${item.cover}` : null);
+      return {
+        id: item.slug || String(item.id),
+        comickSlug: item.slug,
+        hid: item.hid,
+        title: item.title || 'Manga',
+        cover: proxyCoverUrl(host, rawCover),
+        banner: proxyCoverUrl(host, rawCover),
+        description: item.desc ? item.desc.replace(/<[^>]*>?/gm, '') : (item.description || ''),
+        rating: item.bayesian_rating ? (parseFloat(item.bayesian_rating)).toFixed(1) : '8.7',
+        country: item.country || countryCode,
+        status: item.status === 2 ? 'Completed' : 'Ongoing',
+        type: type.toLowerCase()
+      };
+    });
+
+    // Split into curated sections for the hub page
+    const trending = items.slice(0, 12);
+    const popular = items.slice(12, 24).length ? items.slice(12, 24) : items.slice(0, 12);
+    const topPick = items.slice(24, 36).length ? items.slice(24, 36) : items.slice(0, 12);
+    const recent = items.slice(36, 48).length ? items.slice(36, 48) : items.slice(0, 12);
+
+    return res.json({
+      type,
+      country: countryCode,
+      genre: genre || 'all',
+      total: items.length,
+      trending,
+      popular,
+      topPick,
+      recent,
+      items
+    });
+
+  } catch (err) {
+    console.error(`[MANGA CATEGORY] Error for ${type}:`, err.message);
+    return res.status(500).json({ error: `Failed to load ${type} category`, message: err.message });
   }
 });
 
