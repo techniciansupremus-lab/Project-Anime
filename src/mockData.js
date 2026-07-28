@@ -697,7 +697,7 @@ export const api = {
   // Manga Home Data
   getMangaHomeData: async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/manga/home`);
+      const res = await fetch(apiUrl('/api/manga/home'));
       if (res.ok) {
         const data = await res.json();
         return data;
@@ -735,7 +735,7 @@ export const api = {
   searchManga: async (query) => {
     if (!query) return [];
     try {
-      const res = await fetch(`${API_BASE}/api/manga/search?q=${encodeURIComponent(query)}`);
+      const res = await fetch(apiUrl(`/api/manga/search?q=${encodeURIComponent(query)}`));
       if (res.ok) {
         return await res.json();
       }
@@ -760,7 +760,7 @@ export const api = {
   // Get Manga Details + Chapters
   getMangaInfo: async (mangaId) => {
     try {
-      const res = await fetch(`${API_BASE}/api/manga/info/${mangaId}`);
+      const res = await fetch(apiUrl(`/api/manga/info/${mangaId}`));
       if (res.ok) {
         return await res.json();
       }
@@ -779,7 +779,7 @@ export const api = {
   // Get Manga Chapter Pages
   getMangaChapterPages: async (chapterId) => {
     try {
-      const res = await fetch(`${API_BASE}/api/manga/read/${encodeURIComponent(chapterId)}`);
+      const res = await fetch(apiUrl(`/api/manga/read/${encodeURIComponent(chapterId)}`));
       if (res.ok) {
         return await res.json();
       }
