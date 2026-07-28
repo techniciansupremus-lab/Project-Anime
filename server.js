@@ -1979,8 +1979,18 @@ app.get('/api/movies/info/:id', async (req, res) => {
 
 const COMICKZ_BASE = 'https://comickz.co.uk';
 
+// Helper: Wrap cover URLs with backend image-proxy to bypass hotlink 403
+function proxyCoverUrl(host, rawUrl) {
+  if (!rawUrl) return null;
+  if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+    return `${host}/api/manga/image-proxy?url=${encodeURIComponent(rawUrl)}`;
+  }
+  return rawUrl;
+}
+
 // GET /api/manga/home — Top/Trending Manga & Manhwa from ComicKz with AniList fallback
 app.get('/api/manga/home', async (req, res) => {
+  const host = publicHost(req);
   try {
     const fetchComicKzSection = async (query) => {
       try {
@@ -1989,18 +1999,21 @@ app.get('/api/manga/home', async (req, res) => {
           timeout: 6000
         });
         const rawList = r.data?.data || (Array.isArray(r.data) ? r.data : []);
-        return rawList.map(item => ({
-          id: item.slug || String(item.id),
-          comickSlug: item.slug,
-          hid: item.hid,
-          title: item.title || 'Manga',
-          cover: item.default_thumbnail || (item.cover ? `${item.cover}` : null),
-          banner: item.default_thumbnail || null,
-          description: item.desc ? item.desc.replace(/<[^>]*>?/gm, '') : '',
-          rating: '8.8',
-          status: item.status === 2 ? 'Completed' : 'Ongoing',
-          type: 'manga'
-        }));
+        return rawList.map(item => {
+          const rawCover = item.default_thumbnail || (item.cover ? `${item.cover}` : null);
+          return {
+            id: item.slug || String(item.id),
+            comickSlug: item.slug,
+            hid: item.hid,
+            title: item.title || 'Manga',
+            cover: proxyCoverUrl(host, rawCover),
+            banner: proxyCoverUrl(host, rawCover),
+            description: item.desc ? item.desc.replace(/<[^>]*>?/gm, '') : '',
+            rating: '8.8',
+            status: item.status === 2 ? 'Completed' : 'Ongoing',
+            type: 'manga'
+          };
+        });
       } catch (e) {
         return [];
       }
@@ -2027,8 +2040,8 @@ app.get('/api/manga/home', async (req, res) => {
         const mapAL = m => ({
           id: String(m.id),
           title: m.title.english || m.title.romaji || 'Manga',
-          cover: m.coverImage?.extraLarge || m.coverImage?.large,
-          banner: m.coverImage?.extraLarge,
+          cover: proxyCoverUrl(host, m.coverImage?.extraLarge || m.coverImage?.large),
+          banner: proxyCoverUrl(host, m.coverImage?.extraLarge),
           description: m.description ? m.description.replace(/<[^>]*>?/gm, '') : '',
           rating: m.averageScore ? (m.averageScore / 10).toFixed(1) : '8.5',
           status: m.status,
@@ -2058,6 +2071,7 @@ app.get('/api/manga/home', async (req, res) => {
 app.get('/api/manga/search', async (req, res) => {
   const q = req.query.q;
   if (!q) return res.json([]);
+  const host = publicHost(req);
 
   try {
     const searchRes = await axios.get(`${COMICKZ_BASE}/api/search?q=${encodeURIComponent(q)}&limit=20`, {
@@ -2074,7 +2088,7 @@ app.get('/api/manga/search', async (req, res) => {
       comickSlug: m.slug,
       hid: m.hid,
       title: m.title || 'Unknown Manga',
-      cover: m.default_thumbnail || null,
+      cover: proxyCoverUrl(host, m.default_thumbnail),
       description: m.desc ? m.desc.replace(/<[^>]*>?/gm, '') : '',
       rating: '8.5',
       status: m.status === 2 ? 'Completed' : 'Ongoing',
@@ -2089,10 +2103,11 @@ app.get('/api/manga/search', async (req, res) => {
   }
 });
 
-// GET /api/manga/info/:id (id is comic slug e.g. "00-solo-leveling" or numeric AniList ID)
+// GET /api/manga/info/:id (id is comic slug e.g. "maxed-out-leveling" or numeric AniList ID)
 app.get('/api/manga/info/:id', async (req, res) => {
   const { id } = req.params;
   console.log(`[MANGA INFO] Request for: ${id}`);
+  const host = publicHost(req);
   let slug = id;
 
   // If numeric ID (AniList ID), attempt AniList title lookup first
@@ -2116,24 +2131,35 @@ app.get('/api/manga/info/:id', async (req, res) => {
   }
 
   try {
-    // 1. Fetch chapter list
-    const chRes = await axios.get(`${COMICKZ_BASE}/api/comics/${encodeURIComponent(slug)}/chapter-list?lang=en`, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', Referer: `${COMICKZ_BASE}/` },
-      timeout: 10000
-    });
+    // 1. Fetch ALL pages of chapters with full pagination
+    let allRawChs = [];
+    let page = 1;
+    while (true) {
+      const chRes = await axios.get(`${COMICKZ_BASE}/api/comics/${encodeURIComponent(slug)}/chapter-list?lang=en&page=${page}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', Referer: `${COMICKZ_BASE}/` },
+        timeout: 10000
+      });
+      const list = chRes.data?.data || (Array.isArray(chRes.data) ? chRes.data : []);
+      if (!Array.isArray(list) || list.length === 0) break;
+      allRawChs = allRawChs.concat(list);
 
-    const rawChs = chRes.data?.data || (Array.isArray(chRes.data) ? chRes.data : []);
+      const lastPage = chRes.data?.pagination?.last_page || 1;
+      if (page >= lastPage) break;
+      page++;
+      if (page > 30) break; // safety ceiling
+    }
+
     const seenCh = new Set();
     const chapters = [];
 
-    for (const c of rawChs) {
+    for (const c of allRawChs) {
       const chNum = c.chap || '1';
       if (seenCh.has(chNum)) continue;
       seenCh.add(chNum);
 
       const chPath = `${c.hid}-chapter-${c.chap}-${c.lang || 'en'}`;
       chapters.push({
-        id: `${slug}___${chPath}`, // combine slug and chapter path
+        id: `${slug}___${chPath}`,
         chapter: chNum,
         title: c.title || `Chapter ${chNum}`,
         volume: c.vol || null,
@@ -2147,7 +2173,7 @@ app.get('/api/manga/info/:id', async (req, res) => {
 
     // 2. Fetch HTML page to get cover and title details
     let title = slug.replace(/^[0-9]+-/, '').replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-    let cover = null;
+    let rawCover = null;
     let description = '';
 
     try {
@@ -2160,14 +2186,16 @@ app.get('/api/manga/info/:id', async (req, res) => {
       if (cMatch) {
         const cData = JSON.parse(cMatch[1]);
         if (cData.title) title = cData.title;
-        if (cData.default_thumbnail) cover = cData.default_thumbnail;
+        if (cData.default_thumbnail) rawCover = cData.default_thumbnail;
         if (cData.desc) description = cData.desc.replace(/<[^>]*>?/gm, '');
       }
     } catch (e) {
       console.warn('[MANGA INFO] Comic page scrape failed, using defaults:', e.message);
     }
 
-    console.log(`[MANGA INFO] OK — ${chapters.length} chapters found for ${slug}`);
+    const cover = proxyCoverUrl(host, rawCover);
+    console.log(`[MANGA INFO] OK — ${chapters.length} unique chapters found across ${page} page(s) for ${slug}`);
+
     return res.json({
       id: slug,
       comickSlug: slug,
@@ -2192,7 +2220,6 @@ app.get('/api/manga/info/:id', async (req, res) => {
 app.get('/api/manga/read/:chapterId', async (req, res) => {
   const { chapterId } = req.params;
   console.log(`[MANGA READ] Fetching pages for ComicKz chapter: ${chapterId}`);
-
   const host = publicHost(req);
 
   try {
@@ -2248,294 +2275,48 @@ app.get('/api/manga/read/:chapterId', async (req, res) => {
   }
 });
 
-// GET /api/manga/image-proxy?url=<url>
+// GET /api/manga/image-proxy?url=<url> — proxy with Referer + exponential backoff retry on 429
 app.get('/api/manga/image-proxy', async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).send('Missing url parameter');
 
-  try {
-    const targetUrl = decodeURIComponent(url);
-    const response = await axios.get(targetUrl, {
-      responseType: 'arraybuffer',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': 'https://comickz.co.uk/'
-      },
-      timeout: 12000
-    });
+  const targetUrl = decodeURIComponent(url);
+  const maxRetries = 5;
 
-    const contentType = response.headers['content-type'] || 'image/webp';
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-    res.send(Buffer.from(response.data));
-  } catch (err) {
-    console.error('[MANGA IMAGE PROXY] Error fetching image:', err.message);
-    res.status(500).send('Image proxy error');
-  }
-});
-
-
-
-
-// GET /api/manga/image-proxy?url=<url>
-app.get('/api/manga/image-proxy', async (req, res) => {
-  const { url } = req.query;
-  if (!url) return res.status(400).send('Missing url parameter');
-
-  try {
-    const targetUrl = decodeURIComponent(url);
-    const response = await axios.get(targetUrl, {
-      responseType: 'arraybuffer',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': 'https://mangadex.org/'
-      },
-      timeout: 10000
-    });
-
-    const contentType = response.headers['content-type'] || 'image/jpeg';
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-    res.send(Buffer.from(response.data));
-  } catch (err) {
-    console.error('[MANGA IMAGE PROXY] Error:', err.message);
-    res.status(500).send('Image proxy error');
-  }
-});
-
-
-
-
-// Helper: AniList manga query
-async function anilistManga(query, variables = {}) {
-  const r = await axios.post(ANILIST_API, { query, variables }, {
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    timeout: 8000
-  });
-  return r.data?.data;
-}
-
-const MANGA_AL_FRAGMENT = `
-  id title { romaji english native } coverImage { extraLarge large } bannerImage
-  description(asHtml: false) genres averageScore status
-`;
-
-function mapALManga(m) {
-  return {
-    id: String(m.id),
-    title: m.title?.english || m.title?.romaji || m.title?.native || 'Unknown',
-    cover: m.coverImage?.extraLarge || m.coverImage?.large || null,
-    banner: m.bannerImage || null,
-    description: m.description || '',
-    genres: m.genres || [],
-    rating: m.averageScore ? (m.averageScore / 10).toFixed(1) : null,
-    status: (m.status || '').toLowerCase(),
-  };
-}
-
-// GET /api/manga/home — trending, popular, topRated, featured
-app.get('/api/manga/home', async (req, res) => {
-  try {
-    const data = await anilistManga(`
-      query {
-        trending: Page(page:1,perPage:18){ media(type:MANGA,sort:TRENDING_DESC,countryOfOrigin:"JP"){ ${MANGA_AL_FRAGMENT} } }
-        popular:  Page(page:1,perPage:18){ media(type:MANGA,sort:POPULARITY_DESC,countryOfOrigin:"JP"){ ${MANGA_AL_FRAGMENT} } }
-        topRated: Page(page:1,perPage:18){ media(type:MANGA,sort:SCORE_DESC,countryOfOrigin:"JP"){ ${MANGA_AL_FRAGMENT} } }
-      }
-    `);
-    const trending = (data?.trending?.media || []).map(mapALManga);
-    const popular  = (data?.popular?.media  || []).map(mapALManga);
-    const topRated = (data?.topRated?.media || []).map(mapALManga);
-    return res.json({ trending, popular, topRated, featured: trending[0] || popular[0] || null });
-  } catch (e) {
-    console.error('[manga/home] AniList failed:', e.message);
-    return res.status(500).json({ error: e.message });
-  }
-});
-
-// GET /api/manga/search?q=query
-app.get('/api/manga/search', async (req, res) => {
-  const q = (req.query.q || '').trim();
-  if (!q) return res.json([]);
-
-  // 1) Try MangaDex search
-  try {
-    const r = await axios.get(`${MANGADEX_API}/manga`, {
-      params: { title: q, limit: 24, 'contentRating[]': ['safe','suggestive'], 'includes[]': ['cover_art'] },
-      timeout: 8000
-    });
-    const results = (r.data?.data || []).map(m => {
-      const covRel = m.relationships?.find(r => r.type === 'cover_art');
-      const cover  = covRel ? `https://uploads.mangadex.org/covers/${m.id}/${covRel.attributes?.fileName}.256.jpg` : null;
-      const title  = m.attributes?.title?.en || Object.values(m.attributes?.title || {})[0] || 'Unknown';
-      return { id: m.id, mangadexId: m.id, title, cover, status: m.attributes?.status, rating: null };
-    });
-    if (results.length) return res.json(results);
-  } catch (e) {
-    console.warn('[manga/search] MangaDex failed, trying AniList:', e.message);
-  }
-
-  // 2) AniList fallback
-  try {
-    const data = await anilistManga(
-      `query($s:String){ Page(page:1,perPage:20){ media(type:MANGA,search:$s){ ${MANGA_AL_FRAGMENT} } } }`,
-      { s: q }
-    );
-    return res.json((data?.Page?.media || []).map(mapALManga));
-  } catch (e) {
-    console.error('[manga/search] AniList also failed:', e.message);
-    return res.json([]);
-  }
-});
-
-// GET /api/manga/info/:id — chapter list via MangaDex (id can be AniList int or MangaDex UUID)
-app.get('/api/manga/info/:id', async (req, res) => {
-  const rawId = req.params.id;
-  let mangadexId = rawId;
-  let baseInfo   = null;
-
-  // If it looks like an AniList numeric ID, resolve to MangaDex UUID via AniList → MangaDex link
-  if (/^\d+$/.test(rawId)) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const alData = await anilistManga(
-        `query($id:Int){ Media(id:$id,type:MANGA){ ${MANGA_AL_FRAGMENT} externalLinks{ url site } } }`,
-        { id: parseInt(rawId) }
-      );
-      const media = alData?.Media;
-      if (media) {
-        baseInfo = mapALManga(media);
-        // Try to find MangaDex link
-        const mdLink = (media.externalLinks || []).find(l =>
-          l.site?.toLowerCase().includes('mangadex') || l.url?.includes('mangadex.org')
-        );
-        if (mdLink) {
-          const match = mdLink.url.match(/title\/([\w-]+)/);
-          if (match) mangadexId = match[1];
-        } else {
-          // Search MangaDex by title
-          const title = baseInfo.title;
-          const sr = await axios.get(`${MANGADEX_API}/manga`, {
-            params: { title, limit: 5, 'contentRating[]': ['safe','suggestive'] },
-            timeout: 8000
-          });
-          const first = sr.data?.data?.[0];
-          if (first) mangadexId = first.id;
-        }
-      }
-    } catch (e) {
-      console.warn('[manga/info] AniList ID resolution failed:', e.message);
-    }
-  }
-
-  // Fetch chapters from MangaDex (paginate up to 500 chapters)
-  let chapters = [];
-  try {
-    const params = {
-      manga: mangadexId,
-      'translatedLanguage[]': ['en'],
-      limit: 100,
-      offset: 0,
-      order: { chapter: 'asc' },
-      'contentRating[]': ['safe', 'suggestive'],
-    };
-    let total = Infinity;
-    while (chapters.length < Math.min(total, 500)) {
-      const r = await axios.get(`${MANGADEX_API}/chapter`, { params: { ...params, offset: chapters.length }, timeout: 10000 });
-      total = r.data?.total || 0;
-      const batch = r.data?.data || [];
-      if (!batch.length) break;
-      chapters.push(...batch.map(c => ({
-        id: c.id,
-        chapter: c.attributes?.chapter || '?',
-        title: c.attributes?.title || '',
-        pages: c.attributes?.pages || 0,
-        publishAt: c.attributes?.publishAt,
-      })));
-    }
-    // Deduplicate by chapter number (keep first/highest page count)
-    const seen = new Map();
-    chapters = chapters.filter(c => {
-      if (seen.has(c.chapter)) return false;
-      seen.set(c.chapter, true);
-      return true;
-    });
-  } catch (e) {
-    console.warn('[manga/info] MangaDex chapter fetch failed:', e.message);
-  }
-
-  // Fetch cover if not already resolved
-  if (!baseInfo) {
-    try {
-      const r = await axios.get(`${MANGADEX_API}/manga/${mangadexId}`, {
-        params: { 'includes[]': ['cover_art'] }, timeout: 8000
+      const response = await axios.get(targetUrl, {
+        responseType: 'arraybuffer',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Referer': 'https://comickz.co.uk/'
+        },
+        timeout: 10000
       });
-      const m = r.data?.data;
-      const covRel = m?.relationships?.find(r => r.type === 'cover_art');
-      const cover = covRel ? `https://uploads.mangadex.org/covers/${mangadexId}/${covRel.attributes?.fileName}.512.jpg` : null;
-      const title = m?.attributes?.title?.en || Object.values(m?.attributes?.title || {})[0] || 'Unknown';
-      baseInfo = { id: mangadexId, title, cover, status: m?.attributes?.status, chapters: [] };
-    } catch (e) {
-      baseInfo = { id: rawId, title: 'Unknown Manga', cover: null };
+
+      const contentType = response.headers['content-type'] || 'image/webp';
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.send(Buffer.from(response.data));
+
+    } catch (err) {
+      const status = err.response?.status;
+      if (status === 429 && attempt < maxRetries) {
+        const backoff = attempt * 350 + Math.floor(Math.random() * 200);
+        await new Promise(r => setTimeout(r, backoff));
+        continue;
+      }
+      if (status === 403 && attempt < maxRetries) {
+        // 403 = wrong/missing referer — retry once just in case
+        await new Promise(r => setTimeout(r, 200));
+        continue;
+      }
+      console.error(`[MANGA IMAGE PROXY] Error (attempt ${attempt}/${maxRetries}):`, err.message);
+      if (!res.headersSent) {
+        return res.status(status || 500).send('Image proxy error');
+      }
+      return;
     }
-  }
-
-  return res.json({ ...baseInfo, mangadexId, chapters });
-});
-
-// GET /api/manga/read/:chapterId — direct page image URLs (no proxy = full CDN speed)
-app.get('/api/manga/read/:chapterId', async (req, res) => {
-  const { chapterId } = req.params;
-
-  // 1) Try MangaDex@Home
-  try {
-    const r = await axios.get(`${MANGADEX_API}/at-home/server/${chapterId}`, { timeout: 10000 });
-    const { baseUrl, chapter: ch } = r.data;
-    if (!ch?.data?.length) throw new Error('Empty chapter data from MangaDex@Home');
-    // Return DIRECT CDN URLs — browser fetches images directly, no Termux proxy bottleneck
-    const pages = ch.data.map((f, i) => ({
-      page: i + 1,
-      url: `${baseUrl}/data/${ch.hash}/${f}`,
-    }));
-    console.log(`[manga/read] OK ${chapterId} — ${pages.length} pages via MangaDex@Home`);
-    return res.json({ chapterId, pageCount: pages.length, pages });
-  } catch (e) {
-    console.warn('[manga/read] MangaDex@Home failed, trying Consumet:', e.message);
-  }
-
-  // 2) Consumet MANGA.MangaDex fallback — also direct URLs
-  try {
-    const data = await mangaDex.fetchChapterPages(chapterId);
-    const pages = (data || []).map((p, i) => ({
-      page: i + 1,
-      url: p.img || p.url,
-    }));
-    console.log(`[manga/read] OK ${chapterId} — ${pages.length} pages via Consumet`);
-    return res.json({ chapterId, pageCount: pages.length, pages });
-  } catch (e) {
-    console.error('[manga/read] Consumet also failed:', e.message);
-    return res.status(500).json({ error: 'Chapter pages unavailable', pages: [] });
-  }
-});
-
-// GET /api/manga/image-proxy?url=...&ref=...  — proxy manga page images with correct Referer
-app.get('/api/manga/image-proxy', async (req, res) => {
-  const { url, ref } = req.query;
-  if (!url) return res.status(400).send('Missing url');
-  try {
-    const r = await axios.get(decodeURIComponent(url), {
-      responseType: 'stream',
-      timeout: 15000,
-      headers: {
-        Referer:    ref ? decodeURIComponent(ref) : 'https://mangadex.org',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      },
-    });
-    res.set('Content-Type', r.headers['content-type'] || 'image/jpeg');
-    res.set('Cache-Control', 'public, max-age=86400');
-    r.data.pipe(res);
-  } catch (e) {
-    console.error('[manga/image-proxy] failed:', e.message);
-    res.status(502).send('Image proxy error');
   }
 });
 
