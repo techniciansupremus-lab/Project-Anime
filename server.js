@@ -2551,31 +2551,34 @@ app.get('/api/manga/info/:id', async (req, res) => {
   return res.json({ ...baseInfo, mangadexId, chapters });
 });
 
-// GET /api/manga/read/:chapterId — page image URLs for a chapter
+// GET /api/manga/read/:chapterId — direct page image URLs (no proxy = full CDN speed)
 app.get('/api/manga/read/:chapterId', async (req, res) => {
   const { chapterId } = req.params;
-  const BASE = `${req.protocol}://${req.get('host')}`;
 
   // 1) Try MangaDex@Home
   try {
-    const r = await axios.get(`${MANGADEX_API}/at-home/server/${chapterId}`, { timeout: 8000 });
+    const r = await axios.get(`${MANGADEX_API}/at-home/server/${chapterId}`, { timeout: 10000 });
     const { baseUrl, chapter: ch } = r.data;
-    const pages = (ch?.data || []).map((f, i) => ({
+    if (!ch?.data?.length) throw new Error('Empty chapter data from MangaDex@Home');
+    // Return DIRECT CDN URLs — browser fetches images directly, no Termux proxy bottleneck
+    const pages = ch.data.map((f, i) => ({
       page: i + 1,
-      url: `${BASE}/api/manga/image-proxy?url=${encodeURIComponent(`${baseUrl}/data/${ch.hash}/${f}`)}&ref=mangadex.org`,
+      url: `${baseUrl}/data/${ch.hash}/${f}`,
     }));
+    console.log(`[manga/read] OK ${chapterId} — ${pages.length} pages via MangaDex@Home`);
     return res.json({ chapterId, pageCount: pages.length, pages });
   } catch (e) {
     console.warn('[manga/read] MangaDex@Home failed, trying Consumet:', e.message);
   }
 
-  // 2) Consumet MANGA.MangaDex fallback
+  // 2) Consumet MANGA.MangaDex fallback — also direct URLs
   try {
     const data = await mangaDex.fetchChapterPages(chapterId);
     const pages = (data || []).map((p, i) => ({
       page: i + 1,
-      url: `${BASE}/api/manga/image-proxy?url=${encodeURIComponent(p.img || p.url)}&ref=mangadex.org`,
+      url: p.img || p.url,
     }));
+    console.log(`[manga/read] OK ${chapterId} — ${pages.length} pages via Consumet`);
     return res.json({ chapterId, pageCount: pages.length, pages });
   } catch (e) {
     console.error('[manga/read] Consumet also failed:', e.message);
