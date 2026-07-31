@@ -10161,3 +10161,254 @@ body {
     transition: none;
   }
 }
+
+/* Comics gateway: three editorial covers, then category-specific discovery. */
+.comic-gateway-page {
+  min-height: calc(100vh - 4rem);
+  background: #050505;
+}
+
+.comic-gateway {
+  display: grid;
+  min-height: calc(100vh - 6rem);
+  align-content: center;
+  padding: 3.5rem 0 5.5rem;
+}
+
+.comic-gateway-header {
+  max-width: 540px;
+  margin: 0 auto 3rem;
+  text-align: center;
+}
+
+.comic-gateway-header > span {
+  display: block;
+  margin-bottom: 0.6rem;
+  color: #f59e0b;
+  font-family: var(--font-manga);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.comic-gateway-header h1 {
+  margin: 0;
+  color: #fff;
+  font-family: var(--font-manga);
+  font-size: clamp(3rem, 6vw, 5.25rem);
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 0.95;
+}
+
+.comic-gateway-header p {
+  margin: 0.85rem 0 0;
+  color: var(--text-secondary);
+  font-family: var(--font-manga);
+  font-size: 1rem;
+}
+
+.comic-coverflow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 510px;
+  perspective: 1500px;
+  perspective-origin: center 45%;
+}
+
+.comic-coverflow-card {
+  --coverflow-accent: #f59e0b;
+  position: relative;
+  display: block;
+  isolation: isolate;
+  width: clamp(220px, 20vw, 320px);
+  aspect-ratio: 0.64;
+  margin-inline: clamp(-1.2rem, -1.8vw, -2.3rem);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 7px;
+  padding: 0;
+  background: #121212;
+  box-shadow: 0 22px 42px rgba(0, 0, 0, 0.42);
+  color: #fff;
+  cursor: pointer;
+  font-family: var(--font-manga);
+  text-align: left;
+  transform-style: preserve-3d;
+  transition: transform 360ms cubic-bezier(0.2, 0.8, 0.2, 1), border-color 260ms ease, box-shadow 260ms ease, filter 260ms ease;
+  animation: comic-cover-enter 650ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: calc(var(--coverflow-index) * 110ms);
+}
+
+.comic-coverflow-card::before {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: inherit;
+  content: '';
+  pointer-events: none;
+}
+
+.comic-coverflow-card--manga {
+  --coverflow-accent: #fb7185;
+  z-index: 1;
+  filter: brightness(0.78) saturate(0.86);
+  transform: rotateY(21deg) rotateZ(-1.8deg) translateX(1.8rem) scale(0.9);
+}
+
+.comic-coverflow-card--manhwa {
+  --coverflow-accent: #7dd3fc;
+  z-index: 3;
+  transform: translateY(-1.4rem) scale(1.05);
+}
+
+.comic-coverflow-card--manhua {
+  --coverflow-accent: #5eead4;
+  z-index: 1;
+  filter: brightness(0.78) saturate(0.86);
+  transform: rotateY(-21deg) rotateZ(1.8deg) translateX(-1.8rem) scale(0.9);
+}
+
+.comic-coverflow-card:hover,
+.comic-coverflow-card:focus-visible {
+  z-index: 5;
+  filter: brightness(1) saturate(1.04);
+  border-color: color-mix(in srgb, var(--coverflow-accent) 68%, rgba(255, 255, 255, 0.42));
+  box-shadow: 0 30px 54px rgba(0, 0, 0, 0.58), 0 0 0 1px color-mix(in srgb, var(--coverflow-accent) 15%, transparent);
+  transform: translateY(-1.8rem) scale(1.08);
+}
+
+.comic-coverflow-card img,
+.comic-coverflow-fallback {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.comic-coverflow-fallback {
+  background: #181818;
+}
+
+.comic-coverflow-card--manga .comic-coverflow-fallback { background: #25151a; }
+.comic-coverflow-card--manhwa .comic-coverflow-fallback { background: #12212c; }
+.comic-coverflow-card--manhua .comic-coverflow-fallback { background: #102421; }
+
+.comic-coverflow-scrim {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.94) 5%, rgba(0, 0, 0, 0.24) 57%, rgba(0, 0, 0, 0.04));
+}
+
+.comic-coverflow-copy {
+  position: absolute;
+  z-index: 3;
+  right: 1.25rem;
+  bottom: 1.2rem;
+  left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.comic-coverflow-label {
+  margin-bottom: 0.35rem;
+  color: var(--coverflow-accent);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.comic-coverflow-copy strong {
+  color: #fff;
+  font-size: clamp(1.6rem, 2.5vw, 2.35rem);
+  font-weight: 800;
+  line-height: 1;
+}
+
+.comic-coverflow-description {
+  display: -webkit-box;
+  max-width: 29ch;
+  margin-top: 0.65rem;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 0.78rem;
+  line-height: 1.52;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.comic-coverflow-enter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  margin-top: 0.9rem;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  opacity: 0;
+  transform: translateY(5px);
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.comic-coverflow-card:hover .comic-coverflow-enter,
+.comic-coverflow-card:focus-visible .comic-coverflow-enter {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@keyframes comic-cover-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (max-width: 800px) {
+  .comic-gateway { padding-top: 2.5rem; }
+  .comic-gateway-header { margin-bottom: 1.5rem; }
+  .comic-coverflow {
+    justify-content: flex-start;
+    min-height: 440px;
+    margin-inline: -1rem;
+    overflow-x: auto;
+    padding: 1.25rem calc(50vw - 120px) 1.8rem;
+    perspective: none;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+  }
+  .comic-coverflow::-webkit-scrollbar { display: none; }
+  .comic-coverflow-card,
+  .comic-coverflow-card--manga,
+  .comic-coverflow-card--manhwa,
+  .comic-coverflow-card--manhua {
+    width: 240px;
+    min-width: 240px;
+    margin-inline: 0.45rem;
+    filter: none;
+    transform: none;
+    scroll-snap-align: center;
+  }
+  .comic-coverflow-card:hover,
+  .comic-coverflow-card:focus-visible { transform: translateY(-0.6rem) scale(1.02); }
+  .comic-coverflow-enter { opacity: 1; transform: none; }
+}
+
+@media (max-width: 480px) {
+  .comic-gateway { padding-bottom: 3.2rem; }
+  .comic-gateway-header h1 { font-size: clamp(2.8rem, 16vw, 4rem); }
+  .comic-coverflow { min-height: 405px; padding-inline: calc(50vw - 105px); }
+  .comic-coverflow-card,
+  .comic-coverflow-card--manga,
+  .comic-coverflow-card--manhwa,
+  .comic-coverflow-card--manhua { width: 210px; min-width: 210px; }
+  .comic-coverflow-copy { right: 1rem; bottom: 1rem; left: 1rem; }
+  .comic-coverflow-description { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .comic-coverflow-card { animation: none; transition: none; }
+}

@@ -87,6 +87,7 @@ function App() {
   const [mangaSearchQuery, setMangaSearchQuery] = useState('');
   const [mangaSearchResults, setMangaSearchResults] = useState([]);
   const [mangaSearchLoading, setMangaSearchLoading] = useState(false);
+  const [comicCategory, setComicCategory] = useState(null);
 
   // ── Scroll Intro Overlay state ──
   const [showIntroOverlay, setShowIntroOverlay] = useState(() => {
@@ -110,6 +111,7 @@ function App() {
   const toastTimeoutRef = useRef(null);
 
   const isPopStateRef = useRef(false);
+  const [isInitialRouteReady, setInitialRouteReady] = useState(false);
 
   // Hook to handle Browser Back / Forward buttons (popstate)
   useEffect(() => {
@@ -124,6 +126,7 @@ function App() {
         selectedManhwa: null,
         currentManhwaChapter: null,
         manhwaChapterImages: [],
+        comicCategory: null,
         activeSection: 'anime'
       }, '');
     }
@@ -140,6 +143,7 @@ function App() {
         setDramaEpisode(state.dramaEpisode || null);
         setSelectedManhwa(state.selectedManhwa || null);
         setCurrentManhwaChapter(state.currentManhwaChapter || null);
+        setComicCategory(state.comicCategory || null);
         if (state.activeSection) setActiveSection(state.activeSection);
         
         // Clear search queries when navigating back to generic pages
@@ -154,6 +158,8 @@ function App() {
 
   // Hook to push views to browser history stack
   useEffect(() => {
+    if (!isInitialRouteReady) return;
+
     if (isPopStateRef.current) {
       isPopStateRef.current = false;
       return;
@@ -193,6 +199,7 @@ function App() {
       dramaEpisode: view === 'drama-watch' && dramaEpisode ? dramaEpisode : null,
       selectedManhwa: (view === 'manhwa-detail' || view === 'manhwa-read') && selectedManhwa ? selectedManhwa : null,
       currentManhwaChapter: view === 'manhwa-read' && currentManhwaChapter ? currentManhwaChapter : null,
+      comicCategory: view === 'comic-category' ? comicCategory : null,
     };
 
     const currentState = window.history.state;
@@ -244,12 +251,14 @@ function App() {
       targetUrl = '/dramas';
     } else if (view === 'manhwa') {
       targetUrl = '/manhwa';
-    } else if (view === 'manga') {
-      targetUrl = '/manga';
     } else if (view === 'manga-detail') {
-      if (selectedManga?.id) targetUrl = `/manga/${encodeURIComponent(selectedManga.id)}`;
+      if (selectedManga?.id) targetUrl = `/comic/title/${encodeURIComponent(selectedManga.id)}`;
     } else if (view === 'manga-reader') {
-      if (selectedManga?.id) targetUrl = `/read/manga/${encodeURIComponent(selectedManga.id)}?ch=${encodeURIComponent(currentMangaChapter?.id || 1)}`;
+      if (selectedManga?.id) targetUrl = `/read/comic/${encodeURIComponent(selectedManga.id)}?ch=${encodeURIComponent(currentMangaChapter?.id || 1)}`;
+    } else if (view === 'comic-category' && comicCategory) {
+      targetUrl = `/comic/${comicCategory}`;
+    } else if (view === 'manga') {
+      targetUrl = '/comic';
     } else if (view === 'new-popular') {
       targetUrl = '/new-popular';
     } else if (view === 'my-list') {
@@ -268,7 +277,7 @@ function App() {
         window.history.pushState(stateObj, '', targetUrl);
       }
     }
-  }, [view, selectedAnime?.id, currentEpisode?.number, selectedDrama?.id, dramaEpisode?.id, selectedManhwa?.slug, currentManhwaChapter?.slug, selectedMovie?.id]);
+  }, [isInitialRouteReady, view, comicCategory, selectedAnime?.id, currentEpisode?.number, selectedDrama?.id, dramaEpisode?.id, selectedManhwa?.slug, currentManhwaChapter?.slug, selectedMovie?.id, selectedManga?.id, currentMangaChapter?.id]);
 
   const showToast = (message, type = 'info') => {
     if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
@@ -346,6 +355,10 @@ function App() {
     } else if (path === '/manhwa') {
       setView('manhwa');
       setActiveSection('comic');
+    } else if (path === '/comic' || path === '/manga') {
+      setView('manga');
+      setComicCategory(null);
+      setActiveSection('manga');
     } else if (path === '/new-popular') {
       setView('new-popular');
     } else if (path === '/my-list') {
@@ -384,12 +397,31 @@ function App() {
       if (id) {
         handleDramaClick({ id, title: id });
       }
+    } else if (path.startsWith('/comic/title/')) {
+      const id = decodeURIComponent(path.replace('/comic/title/', ''));
+      if (id) {
+        handleMangaClick({ id, title: id });
+      }
+    } else if (path.startsWith('/comic/')) {
+      const category = path.replace('/comic/', '').toLowerCase();
+      if (['manga', 'manhwa', 'manhua'].includes(category)) {
+        setComicCategory(category);
+        setView('comic-category');
+        setActiveSection('manga');
+      }
     } else if (path.startsWith('/manhwa/')) {
       const slug = decodeURIComponent(path.replace('/manhwa/', ''));
       if (slug) {
         handleManhwaClick({ slug, title: slug });
       }
+    } else if (path.startsWith('/manga/')) {
+      const id = decodeURIComponent(path.replace('/manga/', ''));
+      if (id) {
+        handleMangaClick({ id, title: id });
+      }
     }
+
+    setInitialRouteReady(true);
 
     // 2. Auth State Change Listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
@@ -968,6 +1000,7 @@ function App() {
     setMangaPages([]);
     setMangaSearchQuery('');
     setMangaSearchResults([]);
+    setComicCategory(null);
     window.scrollTo(0, 0);
   };
 
@@ -1811,6 +1844,19 @@ function App() {
                 searchResults={mangaSearchResults}
                 searchLoading={mangaSearchLoading}
                 onSearch={handleMangaSearch}
+                onMangaClick={handleMangaClick}
+                onCategorySelect={(category) => {
+                  setComicCategory(category);
+                  setView('comic-category');
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+              />
+            )}
+
+            {view === 'comic-category' && comicCategory && (
+              <MangaCategoryHubV2
+                category={comicCategory}
+                onBack={goManga}
                 onMangaClick={handleMangaClick}
               />
             )}
@@ -5110,7 +5156,7 @@ function MangaLandingShowcase({ items, onMangaClick }) {
 
 function MangaShelfSpotlight({ item, category, onMangaClick }) {
   if (!item) return null;
-  const labels = { manga: 'Featured manga', manhwa: 'Featured manhwa', manhua: 'Featured donghua' };
+  const labels = { manga: 'Featured manga', manhwa: 'Featured manhwa', manhua: 'Featured manhua' };
 
   return (
     <article className="manga-shelf-spotlight" style={{ backgroundImage: `url(${item.banner || item.cover})` }}>
@@ -5260,7 +5306,7 @@ function MangaCategoryHubV2({ category, onBack, onMangaClick }) {
   const categoryMeta = {
     manga: { title: 'Manga', eyebrow: 'Japanese comics', subtitle: 'A home for long-running favorites, new discoveries and every genre in between.' },
     manhwa: { title: 'Manhwa', eyebrow: 'Korean webtoons', subtitle: 'The stories people cannot stop reading, arranged for relaxed browsing.' },
-    manhua: { title: 'Donghua', eyebrow: 'Chinese comics', subtitle: 'Manhua, cultivation epics and wide-open worlds with room to roam.' }
+    manhua: { title: 'Manhua', eyebrow: 'Chinese comics', subtitle: 'Manhua, donghua, cultivation epics and wide-open worlds with room to roam.' }
   }[category] || { title: 'Manga', eyebrow: 'Comic library', subtitle: 'Browse the catalog.' };
 
   const genres = [
@@ -5292,7 +5338,7 @@ function MangaCategoryHubV2({ category, onBack, onMangaClick }) {
   return (
     <div className={`container manga-subhub-header manga-subhub-header--v2 manga-subhub-header--${category}`}>
       <div className="manga-breadcrumb">
-        <button type="button" className="manga-breadcrumb-link" onClick={onBack}>Manga Hub</button>
+        <button type="button" className="manga-breadcrumb-link" onClick={onBack}>Comics</button>
         <ChevronRight size={15} />
         <span>{categoryMeta.title}</span>
       </div>
@@ -5339,9 +5385,66 @@ function MangaCategoryHubV2({ category, onBack, onMangaClick }) {
   );
 }
 
-function MangaHomeViewV2({ data, error, isLoading, searchQuery, searchResults, searchLoading, onMangaClick }) {
-  const [selectedCategory, setSelectedCategory] = React.useState(null);
-  const bentoItems = data?.bentoTop10 || data?.trending || [];
+function ComicCoverFlow({ data, onCategorySelect }) {
+  const fallbackCovers = data?.bentoTop10 || data?.trending || [];
+  const categories = [
+    {
+      id: 'manga',
+      title: 'Manga',
+      label: 'Japan',
+      description: 'Panel stories from Japan, from long-running classics to new favorites.',
+      cover: data?.mangaPreview?.[0]?.cover || fallbackCovers[1]?.cover || fallbackCovers[0]?.cover
+    },
+    {
+      id: 'manhwa',
+      title: 'Manhwa',
+      label: 'Korea',
+      description: 'Korean webcomics built for one more chapter.',
+      cover: data?.manhwaPreview?.[0]?.cover || fallbackCovers[2]?.cover || fallbackCovers[0]?.cover
+    },
+    {
+      id: 'manhua',
+      title: 'Manhua',
+      label: 'China / Donghua',
+      description: 'Chinese comics, cultivation worlds, and stories on a grand scale.',
+      cover: data?.manhuaPreview?.[0]?.cover || fallbackCovers[3]?.cover || fallbackCovers[0]?.cover
+    }
+  ];
+
+  return (
+    <section className="comic-gateway" aria-labelledby="comic-gateway-title">
+      <header className="comic-gateway-header">
+        <span>Explore EetNet</span>
+        <h1 id="comic-gateway-title">Comics</h1>
+        <p>Choose a world to enter.</p>
+      </header>
+
+      <div className="comic-coverflow" role="list">
+        {categories.map((category, index) => (
+          <button
+            key={category.id}
+            type="button"
+            className={`comic-coverflow-card comic-coverflow-card--${category.id}`}
+            style={{ '--coverflow-index': index }}
+            onClick={() => onCategorySelect(category.id)}
+            role="listitem"
+          >
+            {category.cover ? <img src={category.cover} alt="" loading={index === 1 ? 'eager' : 'lazy'} /> : <span className="comic-coverflow-fallback" />}
+            <span className="comic-coverflow-scrim" />
+            <span className="comic-coverflow-copy">
+              <span className="comic-coverflow-label">{category.label}</span>
+              <strong>{category.title}</strong>
+              <span className="comic-coverflow-description">{category.description}</span>
+              <span className="comic-coverflow-enter">Open library <ChevronRight size={16} /></span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function MangaHomeViewV2({ data, searchQuery, searchResults, searchLoading, onMangaClick, onCategorySelect }) {
 
   if (searchQuery.trim()) {
     return (
@@ -5359,30 +5462,10 @@ function MangaHomeViewV2({ data, error, isLoading, searchQuery, searchResults, s
     );
   }
 
-  if (selectedCategory) {
-    return <MangaCategoryHubV2 category={selectedCategory} onBack={() => setSelectedCategory(null)} onMangaClick={onMangaClick} />;
-  }
-
-  if (isLoading) return <CategorySkeleton />;
-
-  if (!data || !bentoItems.length) {
-    return (
-      <div className="manga-empty-screen">
-        <BookOpen size={48} />
-        <p>{error || 'Could not load the manga catalog. Check your connection.'}</p>
-        <button className="btn btn-primary" onClick={() => window.location.reload()}>Retry</button>
-      </div>
-    );
-  }
-
   return (
-    <div className="manga-home manga-home--v2" style={{ paddingTop: '4rem' }}>
+    <div className="manga-home manga-home--v2 comic-gateway-page" style={{ paddingTop: '4rem' }}>
       <div className="container">
-        <MangaLandingShowcase items={bentoItems} onMangaClick={onMangaClick} />
-        <MangaCategoryCardsV2 onSelectCategory={category => {
-          setSelectedCategory(category);
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }} />
+        <ComicCoverFlow data={data} onCategorySelect={onCategorySelect} />
       </div>
     </div>
   );
