@@ -28,7 +28,149 @@ function publicHost(req) {
     .toString().split(',')[0].trim();
   return `${proto}://${req.get('host')}`;
 }
+
+// Old Hindi stream responses may contain a proxy URL that was wrapped again by
+// a previous server process. Resolve it back to the provider URL before making
+// a new proxy URL so a cached response cannot create localhost -> localhost loops.
+function unwrapM3u8ProxyUrl(value, maxDepth = 8) {
+  let resolved = value;
+  for (let depth = 0; depth < maxDepth; depth += 1) {
+    try {
+      const parsed = new URL(resolved);
+      if (parsed.pathname !== '/api/m3u8-proxy') break;
+      const nested = parsed.searchParams.get('url');
+      if (!nested) break;
+      resolved = nested;
+    } catch {
+      break;
+    }
+  }
+  return resolved;
+}
+
+// StreamIndia's generated master playlists point at proxy.streamindia.co.in.
+// That relay currently returns 502 despite valid headers, while its embedded
+// as-cdn URL is reachable with the same protected HLS flow. Skip only that
+// failed relay; the CDN remains behind our manifest and segment proxies.
+function unwrapStreamIndiaRelayUrl(value) {
+  try {
+    const parsed = new URL(value);
+    if (parsed.hostname !== 'proxy.streamindia.co.in' || parsed.pathname !== '/proxy') return value;
+    const directUrl = parsed.searchParams.get('url');
+    return directUrl?.startsWith('http') ? directUrl : value;
+  } catch {
+    return value;
+  }
+}
+
+function streamProxyHeaders(targetUrl, referer, extraHeaders = {}) {
+  const isProtectedHls = targetUrl.includes('streamindia.co.in') || /https:\/\/as-cdn\d+\.top\//i.test(targetUrl);
+  return {
+    ...AXIOS_OPTS.headers,
+    ...extraHeaders,
+    // StreamIndia rejects the HTML-navigation Accept header used by AnimeKai.
+    ...(isProtectedHls ? {
+      'Accept': '*/*',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Sec-Fetch-Dest': 'empty',
+      'Sec-Fetch-Mode': 'cors',
+      'Sec-Fetch-Site': 'cross-site',
+    } : {}),
+    'Referer': referer,
+    'Origin': new URL(referer).origin,
+  };
+}
+
+function streamProxyReferers(targetUrl, primaryReferer) {
+  const candidates = [primaryReferer];
+  if (targetUrl.includes('streamindia.co.in')) {
+    candidates.push(
+      'https://animerulzapp.buzz/',
+      'https://animelok.streamindia.co.in/',
+      'https://extract.streamindia.co.in/',
+      'https://proxy.streamindia.co.in/',
+      new URL(targetUrl).origin + '/',
+    );
+  }
+  return [...new Set(candidates.filter(Boolean))];
+}
+
+async function fetchStreamProxyTarget(targetUrl, primaryReferer, options = {}) {
+  const { headers: extraHeaders = {}, ...axiosOptions } = options;
+  let lastError;
+
+  for (const referer of streamProxyReferers(targetUrl, primaryReferer)) {
+    try {
+      const response = await axios.get(targetUrl, {
+        ...AXIOS_OPTS,
+        ...axiosOptions,
+        headers: streamProxyHeaders(targetUrl, referer, extraHeaders),
+      });
+      if (referer !== primaryReferer) {
+        console.log(`[M3U8-PROXY] Recovered ${new URL(targetUrl).hostname} with ${new URL(referer).hostname}`);
+      }
+      return response;
+    } catch (err) {
+      lastError = err;
+      const status = err.response?.status;
+      const canRetry = targetUrl.includes('streamindia.co.in') && [401, 403, 429, 502].includes(status);
+      if (!canRetry) throw err;
+    }
+  }
+
+  throw lastError;
+}
+
 app.use(express.json());
+
+// Image Proxy Routes (Bypasses CORS & hotlink 403 for AniList / ComicK / TMDB images)
+const handleImageProxy = async (req, res) => {
+  const rawUrl = req.query.url;
+  if (!rawUrl) return res.status(400).send('Missing url');
+
+  let targetUrl = decodeURIComponent(rawUrl);
+  if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+    if (targetUrl.startsWith('//')) {
+      targetUrl = 'https:' + targetUrl;
+    } else {
+      targetUrl = 'https://meo.comick.pictures/' + targetUrl.replace(/^\/+/, '');
+    }
+  }
+
+  try {
+    const isComicK = targetUrl.includes('comick') || targetUrl.includes('comickz') || targetUrl.includes('comicknew');
+    const referer = isComicK ? 'https://comickz.co.uk/' : (safeOrigin(targetUrl) + '/');
+
+    const response = await axios.get(targetUrl, {
+      responseType: 'arraybuffer',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+        'Referer': referer
+      },
+      timeout: 12000
+    });
+
+    let contentType = response.headers['content-type'] || 'image/jpeg';
+    if (contentType === 'application/octet-stream' || contentType.includes('html')) {
+      contentType = 'image/jpeg';
+    }
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    return res.send(response.data);
+  } catch (err) {
+    console.warn(`[IMAGE PROXY WARNING] Failed to fetch "${targetUrl}":`, err.message);
+    if (targetUrl.startsWith('http')) {
+      return res.redirect(targetUrl);
+    }
+    return res.status(404).send('Image not found');
+  }
+};
+
+app.get('/api/img-proxy', handleImageProxy);
+app.get('/api/manga/image-proxy', handleImageProxy);
 
 // Disable SSL verification for scraping (needed for anikai.cc)
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
@@ -60,6 +202,34 @@ const hiAnimeEpCache = new Map();
 const HIANIME_TTL = 30 * 60 * 1000; // 30 minutes
 
 // ─────────────────────────────────────────────────────
+// Subtitle VTT Proxy — GET /api/subtitle-proxy?url=<url>
+// Proxies VTT subtitle files from external CDNs (cdn.anizara.store, etc.)
+// so that browser <track> elements can load them without CORS block.
+// ─────────────────────────────────────────────────────
+app.get('/api/subtitle-proxy', async (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).send('Missing url');
+  try {
+    const decodedUrl = decodeURIComponent(url);
+    const { data } = await axios.get(decodedUrl, {
+      ...AXIOS_OPTS,
+      responseType: 'text',
+      headers: {
+        ...AXIOS_OPTS.headers,
+        'Referer': safeOrigin(decodedUrl) + '/',
+      }
+    });
+    res.setHeader('Content-Type', 'text/vtt; charset=utf-8');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(data);
+  } catch (err) {
+    console.error('[SUBTITLE-PROXY] Error:', err.message);
+    res.status(502).send(err.message);
+  }
+});
+
+// ─────────────────────────────────────────────────────
 // HLS/M3U8 Referrer Bypass Proxy
 // Rewrites both sub-playlists AND .ts segment URLs so
 // the browser only ever talks to the backend's public URL.
@@ -69,25 +239,25 @@ app.get('/api/m3u8-proxy', async (req, res) => {
   if (!url) return res.status(400).send('Missing url');
 
   try {
-    const decodedUrl  = decodeURIComponent(url);
+    const decodedUrl  = unwrapM3u8ProxyUrl(decodeURIComponent(url));
     const decodedRef  = referer ? decodeURIComponent(referer) : (new URL(decodedUrl).origin + '/');
 
-    const { data } = await axios.get(decodedUrl, {
-      ...AXIOS_OPTS,
-      headers: {
-        ...AXIOS_OPTS.headers,
-        'Referer': decodedRef,
-        'Origin':  new URL(decodedRef).origin,
-      },
+    const { data } = await fetchStreamProxyTarget(decodedUrl, decodedRef, {
       responseType: 'text',
     });
 
     const host = publicHost(req);
-    const resolveManifestUrl = (value) => new URL(value, decodedUrl).toString();
+    // A provider playlist can contain another protected relay (for example,
+    // extract.streamindia.co.in -> proxy.streamindia.co.in -> CDN). Each hop
+    // expects the playlist that referred to it, not the page referer used for
+    // the first manifest request.
+    const childReferer = new URL(decodedUrl).origin + '/';
+    const resolveManifestUrl = (value) =>
+      unwrapStreamIndiaRelayUrl(new URL(value, decodedUrl).toString());
     const proxyManifestUrl = (value) =>
-      `${host}/api/m3u8-proxy?url=${encodeURIComponent(resolveManifestUrl(value))}&referer=${encodeURIComponent(decodedRef)}`;
+      `${host}/api/m3u8-proxy?url=${encodeURIComponent(resolveManifestUrl(value))}&referer=${encodeURIComponent(childReferer)}`;
     const proxySegmentUrl = (value) =>
-      `${host}/api/ts-proxy?url=${encodeURIComponent(resolveManifestUrl(value))}&referer=${encodeURIComponent(decodedRef)}`;
+      `${host}/api/ts-proxy?url=${encodeURIComponent(resolveManifestUrl(value))}&referer=${encodeURIComponent(childReferer)}`;
 
     let isStreamInf = false;
 
@@ -148,21 +318,16 @@ app.get('/api/ts-proxy', async (req, res) => {
     // Forward Range header — HLS.js uses byte-range requests
     // for EXT-X-BYTERANGE manifests. Without this we download
     // the full multi-hundred-MB file for every tiny segment.
-    const reqHeaders = {
-      ...AXIOS_OPTS.headers,
-      'Referer': decodedRef,
-      'Origin':  new URL(decodedRef).origin,
-    };
+    const reqHeaders = streamProxyHeaders(decodedUrl, decodedRef);
     if (req.headers['range']) {
       reqHeaders['Range'] = req.headers['range'];
     }
 
-    const upstream = await axios.get(decodedUrl, {
-      ...AXIOS_OPTS,
+    const upstream = await fetchStreamProxyTarget(decodedUrl, decodedRef, {
       headers: reqHeaders,
       responseType: 'stream',
       timeout: 30000,
-      validateStatus: s => s < 500, // allow 206 Partial Content
+      validateStatus: s => s < 400, // allow 206 Partial Content, retry protected failures
     });
 
     // Pass through all relevant headers from the CDN
@@ -208,7 +373,6 @@ const CACHE_TTL = 60 * 60 * 1000; // 1 hour
 // Stream URL cache: "slug::epN" → { streamData, timestamp }
 const streamCache = new Map();
 const STREAM_CACHE_TTL = 20 * 60 * 1000; // 20 minutes
-const hindiStreamCache = new Map();
 
 // ─────────────────────────────────────────────────────
 // Jikan episode cache: "malId:page" -> { data, timestamp }
@@ -532,377 +696,424 @@ app.get('/api/health', (req, res) => {
 // No title search = no season ambiguity.
 // GET /api/hianime/watch?anilistId=N&episode=N[&dub=eng|hindi]
 // ─────────────────────────────────────────────────────
-// Hindi Dub Anime provider (WordPress/Kiranime)
-// Uses HindiDubAnime search + episode pages and returns the embedded player iframe.
-const HINDI_ANIME_BASE = process.env.HINDI_ANIME_BASE || 'https://hindidubanime.com';
-const hindiAnimeCache = new Map();
-const HINDI_ANIME_TTL = 30 * 60 * 1000;
+// ─────────────────────────────────────────────────────
+// AnimeRulz — Hindi/Indian language anime stream provider
+// Uses AniList IDs + fallback.streamindia.co.in API + animelok for Indian dubs.
+// GET /api/animerulz/watch?anilistId=N&episode=N[&lang=hin|tam|tel|eng|jpn]
+// ─────────────────────────────────────────────────────
+const ANIMERULZ_FALLBACK = process.env.ANIMERULZ_FALLBACK || 'https://fallback.streamindia.co.in';
+const ANIMERULZ_DATA    = process.env.ANIMERULZ_DATA    || 'https://data.streamindia.co.in';
+const ANIMERULZ_ANIMELOK = process.env.ANIMERULZ_ANIMELOK || 'https://animelok.streamindia.co.in';
+const ANIMERULZ_EXTRACT = process.env.ANIMERULZ_EXTRACT || 'https://extract.streamindia.co.in';
+const ANIMERULZ_HIANIME = process.env.ANIMERULZ_HIANIME || 'https://hianime.streamindia.co.in';
+const ANIMERULZ_CACHE_TTL = 30 * 60 * 1000; // 30 min
 
-function decodeHtmlText(value = '') {
-  return cheerio.load(`<textarea>${value}</textarea>`)('textarea').text();
+// AnimeRulz APIs require a browser-like Referer/Origin or they return 403.
+const ANIMERULZ_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept': 'application/json, text/plain, */*',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Referer': 'https://animerulzapp.buzz/',
+  'Origin': 'https://animerulzapp.buzz',
+};
+
+const animerulzStreamCache = new Map();
+const animerulzDataCache    = new Map();
+
+function normalizeAnimerulzCatalog(data) {
+  const rawItems = Array.isArray(data) ? data : data?.data || data?.results || [];
+  return rawItems
+    .filter(item => item?.animerulz_id && Array.isArray(item.languages))
+    .map(item => ({
+      animerulz_id: item.animerulz_id,
+      animelok_id: item.animelok_id,
+      languages: item.languages.map(language => String(language).toLowerCase()),
+    }));
 }
 
-function normalizeProviderTitle(value = '') {
-  return decodeHtmlText(value)
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/\b(hindi\s+dubbed|hindi\s+dubed|hindi\s+dub|hindi\s+subbed|dual\s+audio)\b/gi, ' ')
-    .replace(/\b(tv|ona|ova|movie)\b/gi, ' ')
-    .replace(/[^\w\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
-}
+async function fetchAnimerulzCatalog() {
+  const cacheKey = 'catalog';
+  const cached = animerulzDataCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < ANIMERULZ_CACHE_TTL) return cached.data;
 
-function providerTitleScore(providerTitle, targetTitle, seasonNum = null) {
-  const providerClean = normalizeProviderTitle(providerTitle);
-  const targetClean = normalizeProviderTitle(targetTitle);
-  
-  // Use primary title (before colon/dash) for token matching so subtitles like "Kimetsu no Yaiba" don't lower overlap ratio
-  const primaryTarget = targetTitle.split(/[:\-–—]/)[0].trim();
-  const primaryClean = normalizeProviderTitle(primaryTarget);
-
-  const targetTokens = primaryClean.split(/\s+/).filter(token => token.length >= 2 || /\d/.test(token));
-  const providerTokens = new Set(providerClean.split(/\s+/).filter(Boolean));
-  const overlap = targetTokens.filter(token => providerTokens.has(token)).length;
-
-  if (targetTokens.length > 0 && overlap === 0) return 0;
-  if (targetTokens.length >= 2 && overlap / targetTokens.length < 0.5) return 0;
-
-  let score = titleMatchScore(providerClean, primaryClean);
-  const title = decodeHtmlText(providerTitle).toLowerCase();
-  const seasonMatch = title.match(/\bseason\s*(\d+)\b/i);
-
-  if (seasonNum && seasonNum > 1) {
-    if (seasonMatch && parseInt(seasonMatch[1], 10) === seasonNum) score += 25;
-    if (seasonMatch && parseInt(seasonMatch[1], 10) !== seasonNum) score -= 20;
-  } else if (seasonMatch && parseInt(seasonMatch[1], 10) > 1) {
-    score -= 15;
-  }
-
-  if (/\bhindi\s+dub/i.test(title)) score += 15;
-  return score;
-}
-
-async function hindiProviderJson(path, params = {}) {
-  const url = new URL(path, HINDI_ANIME_BASE);
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== '') {
-      url.searchParams.set(key, value);
-    }
-  });
-  const { data } = await axios.get(url.toString(), {
+  const { data } = await axios.get(`${ANIMERULZ_DATA}/api/dub.json`, {
     timeout: 12000,
-    headers: {
-      'User-Agent': AXIOS_OPTS.headers['User-Agent'],
-      'Accept': 'application/json, text/plain, */*',
-      'Referer': HINDI_ANIME_BASE + '/',
-    },
+    headers: ANIMERULZ_HEADERS,
   });
-  return data;
+  const catalog = normalizeAnimerulzCatalog(data);
+  animerulzDataCache.set(cacheKey, { data: catalog, ts: Date.now() });
+  return catalog;
 }
 
-async function findHindiAnime(title, seasonNum = null) {
-  const cacheKey = `${title.toLowerCase()}:s${seasonNum || 1}`;
-  const cached = hindiAnimeCache.get(cacheKey);
-  if (cached && Date.now() - cached.timestamp < HINDI_ANIME_TTL) return cached.data;
+/**
+ * Fetch anime metadata from HiAnime detail API.
+ * Returns { title, description, coverImage, bannerImage, genres, episodes, ... }
+ */
+async function fetchAnimerulzAnime(anilistId) {
+  const cacheKey = `detail:${anilistId}`;
+  const cached = animerulzDataCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < ANIMERULZ_CACHE_TTL) return cached.data;
 
-  const cleanTitle = normalizeProviderTitle(title);
-  const primaryTitle = title.split(/[:\-–—]/)[0].trim();
-  const cleanPrimary = normalizeProviderTitle(primaryTitle);
-  const words = cleanTitle.split(/\s+/).filter(Boolean);
-  const firstTwo = words.slice(0, 2).join(' ');
-
-  const queries = [
-    title,
-    cleanTitle,
-    primaryTitle,
-    cleanPrimary,
-    firstTwo
-  ].filter(q => q && q.length >= 2);
-
-  const seen = new Set();
-  const candidates = [];
-  for (const query of queries) {
-    const key = query.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    try {
-      const rows = await hindiProviderJson('/wp-json/wp/v2/anime', {
-        search: query,
-        per_page: 10,
-      });
-      if (Array.isArray(rows)) candidates.push(...rows);
-    } catch (err) {
-      console.warn(`[HINDI] Anime search failed for "${query}":`, err.message);
-    }
-  }
-
-  const scored = candidates
-    .map(item => ({
-      id: item.id,
-      slug: item.slug,
-      link: item.link,
-      title: decodeHtmlText(item.title?.rendered || ''),
-      score: providerTitleScore(item.title?.rendered || item.slug, title, seasonNum),
-    }))
-    .filter(item => item.score >= 35)
-    .sort((a, b) => b.score - a.score);
-
-  const best = scored[0] || null;
-  hindiAnimeCache.set(cacheKey, { data: best, timestamp: Date.now() });
-  return best;
-}
-
-function episodeNumberMatches(item, episodeNum) {
-  const title = decodeHtmlText(item.title?.rendered || '').toLowerCase();
-  const slug = (item.slug || '').toLowerCase();
-
-  const titleNoSeason = title.replace(/\bseason\s*\d+\b/gi, '');
-  const slugNoSeason = slug.replace(/\bseason-?\d+\b/gi, '');
-
-  return (
-    new RegExp(`\\bepisode\\s*[\\-–—:]?\\s*0*${episodeNum}\\b`, 'i').test(titleNoSeason) ||
-    new RegExp(`episode-0*${episodeNum}(?:$|-)`, 'i').test(slugNoSeason)
-  );
-}
-
-function scoreHindiEpisode(item, anime, targetTitle, episodeNum, seasonNum = null) {
-  if (!episodeNumberMatches(item, episodeNum)) return -999;
-  const episodeTitle = decodeHtmlText(item.title?.rendered || item.slug);
-  let score = providerTitleScore(episodeTitle.replace(/\bepisode\b.*$/i, ''), targetTitle, seasonNum);
-  const raw = `${episodeTitle} ${item.slug}`.toLowerCase();
-  const seasonMatch = raw.match(/\bseason[\s-]*(\d+)\b/i);
-
-  if (seasonNum && seasonNum > 1) {
-    if (seasonMatch && parseInt(seasonMatch[1], 10) === seasonNum) score += 40;
-    if (seasonMatch && parseInt(seasonMatch[1], 10) !== seasonNum) score -= 50;
-  } else if (seasonMatch && parseInt(seasonMatch[1], 10) > 1) {
-    score -= 45;
-  }
-
-  if (anime?.slug && item.slug.startsWith(anime.slug.replace(/-hindi-dubbed|-hindi-dubed|-hindi-dub$/i, ''))) {
-    score += 10;
-  }
-
-  return score;
-}
-
-async function findHindiEpisode(anime, title, episodeNum, seasonNum = null) {
-  const searchTitle = anime?.title || title;
-  const cleanTitle = normalizeProviderTitle(searchTitle);
-  const primaryTitle = searchTitle.split(/[:\-–—]/)[0].trim();
-  const cleanPrimary = normalizeProviderTitle(primaryTitle);
-  const firstTwo = cleanTitle.split(/\s+/).slice(0, 2).join(' ');
-
-  const queries = [
-    `${searchTitle} Episode ${episodeNum}`,
-    `${cleanTitle} Episode ${episodeNum}`,
-    `${primaryTitle} Episode ${episodeNum}`,
-    `${cleanPrimary} Episode ${episodeNum}`,
-    `${firstTwo} Episode ${episodeNum}`,
-    `${cleanPrimary} ${episodeNum}`,
-  ].filter(q => q && q.length >= 3);
-
-  const seen = new Set();
-  const candidates = [];
-  for (const query of queries) {
-    const key = query.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    try {
-      const rows = await hindiProviderJson('/wp-json/wp/v2/episode', {
-        search: query,
-        per_page: 50,
-      });
-      if (Array.isArray(rows)) candidates.push(...rows);
-    } catch (err) {
-      console.warn(`[HINDI] Episode search failed for "${query}":`, err.message);
-    }
-  }
-
-  return candidates
-    .map(item => ({
-      id: item.id,
-      slug: item.slug,
-      link: item.link,
-      title: decodeHtmlText(item.title?.rendered || ''),
-      score: scoreHindiEpisode(item, anime, title, episodeNum, seasonNum),
-    }))
-    .filter(item => item.score >= 20)
-    .sort((a, b) => b.score - a.score)[0] || null;
-}
-
-function extractHindiIframe(html) {
-  const $ = cheerio.load(html);
-  const scoped = $('.episode-player iframe').first().attr('src');
-  if (scoped) return new URL(scoped, HINDI_ANIME_BASE).toString();
-
-  const blocked = /adsterra|histats|google|doubleclick|environmenttalentrabble/i;
-  let found = '';
-  $('iframe').each((_, el) => {
-    if (found) return;
-    const src = $(el).attr('src') || '';
-    if (src && !blocked.test(src)) found = new URL(src, HINDI_ANIME_BASE).toString();
-  });
-  return found;
-}
-
-function getHindiPlayerId(iframeSrc) {
   try {
-    const url = new URL(iframeSrc);
-    const match = url.pathname.match(/\/video\/([^/?#]+)/i);
-    return match?.[1] || null;
-  } catch {
+    const url = `${ANIMERULZ_HIANIME}/api/v2/hianime/anilist/anime/${anilistId}`;
+    const { data } = await axios.get(url, {
+      timeout: 10000,
+      headers: ANIMERULZ_HEADERS,
+    });
+    if (data?.data) {
+      animerulzDataCache.set(cacheKey, { data: data.data, ts: Date.now() });
+      return data.data;
+    }
+  } catch (err) {
+    console.warn(`[ANIMERULZ] Detail fetch failed for ${anilistId}:`, err.message);
+  }
+  return null;
+}
+
+/**
+ * Fetch episode list from fallback API.
+ * Returns [ { number, title, description, img, hasDub, hasSub }, ... ]
+ */
+async function fetchAnimerulzEpisodes(anilistId) {
+  const cacheKey = `episodes:${anilistId}`;
+  const cached = animerulzDataCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < ANIMERULZ_CACHE_TTL) return cached.data;
+
+  try {
+    const { data } = await axios.get(`${ANIMERULZ_FALLBACK}/episodes/${anilistId}`, {
+      timeout: 10000,
+      headers: ANIMERULZ_HEADERS,
+    });
+    if (data?.data) {
+      animerulzDataCache.set(cacheKey, { data: data.data, ts: Date.now() });
+      return data.data;
+    }
+  } catch (err) {
+    console.warn(`[ANIMERULZ] Episodes fetch failed for ${anilistId}:`, err.message);
+  }
+  return [];
+}
+
+/**
+ * Check if an anime has Indian language streams available on AnimeRulz.
+ * Returns { animerulz_id, animelok_id, languages: ['hindi','tamil',...] } or null.
+ */
+async function checkAnimerulzAvailability(anilistId) {
+  const cacheKey = `avail:${anilistId}`;
+  const cached = animerulzDataCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < ANIMERULZ_CACHE_TTL) return cached.data;
+
+  // The catalogue is the authoritative source. It covers every AnimeRulz dub
+  // and avoids false negatives from the individual metadata endpoint.
+  try {
+    const catalog = await fetchAnimerulzCatalog();
+    const catalogItem = catalog.find(item => item.animerulz_id === `anime-${anilistId}`);
+    if (catalogItem) {
+      animerulzDataCache.set(cacheKey, { data: catalogItem, ts: Date.now() });
+      return catalogItem;
+    }
+  } catch (err) {
+    console.warn('[ANIMERULZ] Catalog fetch failed, trying individual lookup:', err.message);
+  }
+
+  try {
+    const { data } = await axios.get(`${ANIMERULZ_DATA}/api/animerulz-id=anime-${anilistId}`, {
+      timeout: 8000,
+      headers: ANIMERULZ_HEADERS,
+    });
+    if (data?.languages) {
+      animerulzDataCache.set(cacheKey, { data, ts: Date.now() });
+      return data;
+    }
+  } catch (err) {
+    // 404 = anime not on AnimeRulz, not an error
+  }
+  return null;
+}
+
+/**
+ * Resolve a stream for a specific episode via AnimeRulz.
+ * Strategy:
+ *  1. Check if anime has Indian languages → use animelok + extract for the requested language
+ *  2. Fallback to fallback.streamindia.co.in sources (sub/dub) via kiwi provider
+ *
+ * Returns { type, streamUrl, sources, subtitles, headers, provider, language, audioMode }
+ */
+async function resolveAnimerulzStream(anilistId, episodeNum, lang = 'hin') {
+  const cacheKey = `${anilistId}:e${episodeNum}:${lang}`;
+  const cached = animerulzStreamCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < ANIMERULZ_CACHE_TTL) return cached.data;
+
+  let result = null;
+
+  // Strategy 1: Indian language streams via animelok + extract
+  const avail = await checkAnimerulzAvailability(anilistId);
+  const languageNames = { hin: 'hindi', tam: 'tamil', tel: 'telugu', mal: 'malayalam', kan: 'kannada', ben: 'bengali' };
+  const langCode = lang.toLowerCase();
+  const requestedLanguage = languageNames[langCode];
+
+  // Never relabel a Japanese/English fallback as Hindi. If AnimeRulz does not
+  // have the requested Indian-language track, return a clear not-found result.
+  if (requestedLanguage && !avail?.languages?.includes(requestedLanguage)) {
+    console.warn(`[ANIMERULZ] ${anilistId} has no ${requestedLanguage} track in the catalogue.`);
     return null;
   }
-}
 
-async function resolveHindiDirectStream(iframeSrc, episodeUrl, req) {
-  const playerId = getHindiPlayerId(iframeSrc);
-  if (!playerId) return null;
+  if (avail?.animelok_id && avail.languages) {
 
-  const cacheKey = `${playerId}::hls`;
-  const cached = hindiStreamCache.get(cacheKey);
-  if (cached && Date.now() - cached.timestamp < STREAM_CACHE_TTL) {
-    return cached.data;
+    // Parse animelok_id: can be string ("one-piece-1x1") or array (["naruto-1x1","naruto-2x58",...])
+    // Format: "showSlug-<season>x<absoluteStartEp>" — episodes are RELATIVE per season
+    const rawIds = Array.isArray(avail.animelok_id) ? avail.animelok_id : [avail.animelok_id];
+
+    // Pick the season slug whose absolute range covers this episode.
+    // Sort by startEp descending to find the latest season that starts at or before our ep.
+    const seasons = rawIds.map(id => {
+      const raw = String(id || '').trim();
+      if (!raw) return null;
+      const m = raw.match(/^(.+)-(\d+)x(\d+)$/);
+      // Movies and specials use a plain slug without a season marker.
+      return m
+        ? { slug: m[1], season: parseInt(m[2]), startEp: parseInt(m[3]), raw }
+        : { slug: raw, season: 1, startEp: 1, raw };
+    }).filter(Boolean).sort((a, b) => b.startEp - a.startEp);
+
+    // For single-season anime (startEp=1), just use it directly
+    // For multi-season: find the season where startEp <= episodeNum
+    let targetSeason = seasons.find(s => s.startEp <= episodeNum) || seasons[seasons.length - 1];
+    let relativeEp = targetSeason ? episodeNum - targetSeason.startEp + 1 : episodeNum;
+
+    if (targetSeason && relativeEp >= 1) {
+      try {
+        // Step 1: Get multi-URL from animelok (relative episode number)
+        const alUrl = `${ANIMERULZ_ANIMELOK}/api/anime?id=${encodeURIComponent(targetSeason.raw)}&ep=${relativeEp}`;
+        const alRes = await axios.get(alUrl, {
+          timeout: 10000,
+          headers: ANIMERULZ_HEADERS,
+        });
+
+        if (alRes.data?.multi) {
+          // Step 2: Extract language tracks
+          const extUrl = `${ANIMERULZ_EXTRACT}/api?url=${encodeURIComponent(alRes.data.multi)}`;
+          const extRes = await axios.get(extUrl, {
+            timeout: 12000,
+            headers: ANIMERULZ_HEADERS,
+          });
+
+          if (extRes.data?.files?.[langCode]) {
+            const m3u8Url = extRes.data.files[langCode];
+            result = {
+              type: 'hls',
+              streamUrl: m3u8Url,
+              sources: [{
+                url: m3u8Url,
+                isM3U8: true,
+                quality: 'auto',
+                language: langCode.toUpperCase() === 'HIN' ? 'Hindi Dub'
+                       : langCode.toUpperCase() === 'TAM' ? 'Tamil Dub'
+                       : langCode.toUpperCase() === 'TEL' ? 'Telugu Dub'
+                       : langCode.toUpperCase() === 'ENG' ? 'English Dub'
+                       : langCode.toUpperCase() === 'JPN' ? 'Japanese Sub'
+                       : langCode.toUpperCase(),
+                audioMode: 'hindi',
+              }],
+              subtitles: [],
+              headers: {},
+              provider: 'animerulz',
+              language: langCode,
+              audioMode: 'hindi',
+              availableLanguages: extRes.data.available_categories || [],
+            };
+            console.log(`[ANIMERULZ] ✅ ${anilistId} E${episodeNum} ${langCode} -> ${m3u8Url.slice(0, 80)}...`);
+          }
+        }
+      } catch (err) {
+        console.warn(`[ANIMERULZ] Animelok/extract failed for ${anilistId}:`, err.message);
+      }
+    }
   }
 
+  // fallback.streamindia only offers sub/English-dub sources. It is valid for
+  // those modes, but must never be used to satisfy an Indian dub mode.
+  if (!result && !requestedLanguage) {
+    try {
+      // Get servers to get provider IDs
+      const srvRes = await axios.get(`${ANIMERULZ_FALLBACK}/servers?id=${anilistId}&ep=${episodeNum}`, {
+        timeout: 10000,
+        headers: ANIMERULZ_HEADERS,
+      });
+
+      const ids = srvRes.data?.data?.categories?.ids || {};
+      // Try providers in order of reliability
+      const providers = ['kiwi', 'bonk', 'pewe', 'vidstream'];
+      const category = (lang === 'hin' || lang === 'tam' || lang === 'tel') ? 'sub' : (lang === 'eng' ? 'dub' : 'sub');
+
+      for (const provider of providers) {
+        const pid = ids[provider];
+        if (!pid) continue;
+
+        try {
+          const srcUrl = `${ANIMERULZ_FALLBACK}/sources?anilistid=${anilistId}&providerid=${encodeURIComponent(pid)}&ep=${episodeNum}&provider=${provider}&category=${category}`;
+          const srcRes = await axios.get(srcUrl, {
+            timeout: 12000,
+            headers: ANIMERULZ_HEADERS,
+          });
+
+          const sources = srcRes.data?.data?.sources || [];
+          const headers = srcRes.data?.data?.headers || {};
+          const subs = srcRes.data?.data?.subtitles || [];
+
+          if (sources.length > 0) {
+            result = {
+              type: 'hls',
+              sources: sources.map(s => ({
+                url: s.url,
+                isM3U8: s.url?.includes('.m3u8'),
+                quality: s.quality || 'auto',
+                language: category === 'dub' ? 'English Dub' : 'Japanese Sub',
+                audioMode: 'hindi',
+              })),
+              subtitles: subs,
+              headers,
+              provider: 'animerulz',
+              language: lang,
+              audioMode: 'hindi',
+            };
+            console.log(`[ANIMERULZ] ✅ Fallback ${anilistId} E${episodeNum} ${provider}/${category} -> ${sources[0].url?.slice(0, 80)}...`);
+            break;
+          }
+        } catch (e) {
+          console.warn(`[ANIMERULZ] Source fetch failed for ${provider}:`, e.message);
+        }
+      }
+    } catch (err) {
+      console.warn(`[ANIMERULZ] Fallback servers fetch failed for ${anilistId}:`, err.message);
+    }
+  }
+
+  if (result) {
+    animerulzStreamCache.set(cacheKey, { data: result, ts: Date.now() });
+  }
+  return result;
+}
+
+// ─────────────────────────────────────────────────────
+// GET /api/animerulz/watch
+// Params: anilistId (required), episode (required), lang (hin|tam|tel|eng|jpn, default=hin)
+// Returns: { type, streamUrl, sources, subtitles, headers, provider, audioMode }
+// ─────────────────────────────────────────────────────
+app.get('/api/animerulz/watch', async (req, res) => {
+  const { anilistId, episode, lang } = req.query;
+  const ep = parseInt(episode) || 1;
+  const language = lang || 'hin';
+
+  if (!anilistId) return res.status(400).json({ error: 'Missing anilistId parameter' });
+
   try {
-    const iframeUrl = new URL(iframeSrc);
-    const playerOrigin = iframeUrl.origin;
-    const endpoint = `${playerOrigin}/player/index.php?data=${encodeURIComponent(playerId)}&do=getVideo`;
-    const referer = iframeSrc;
-    const body = new URLSearchParams({
-      hash: playerId,
-      r: episodeUrl || HINDI_ANIME_BASE + '/'
-    }).toString();
+    const result = await resolveAnimerulzStream(anilistId, ep, language);
+    if (!result) {
+      return res.status(404).json({
+        error: 'Stream not found',
+        message: `No stream found for anime ${anilistId} episode ${ep} language ${language}.`,
+        anilistId, episode: ep, language,
+      });
+    }
 
-    const { data } = await axios.post(endpoint, body, {
-      ...AXIOS_OPTS,
-      timeout: 12000,
-      headers: {
-        ...AXIOS_OPTS.headers,
-        'Accept': '*/*',
-        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-        'X-Requested-With': 'XMLHttpRequest',
-        'Origin': playerOrigin,
-        'Referer': referer,
-      },
-      responseType: 'text',
-    });
-
-    const payload = typeof data === 'string' ? JSON.parse(data) : data;
-    const rawStreamUrl = payload?.videoSource || payload?.securedLink;
-    if (!payload?.hls || !rawStreamUrl) return null;
-
-    const streamUrl = `${publicHost(req)}/api/m3u8-proxy?url=${encodeURIComponent(rawStreamUrl)}&referer=${encodeURIComponent(referer)}`;
-    const direct = {
-      type: 'hls',
-      streamUrl,
-      rawStreamUrl,
-      image: payload.videoImage || null,
-      headers: { Referer: referer },
+    // Wrap all m3u8 URLs through the m3u8-proxy so the browser can load them
+    // (extract.streamindia.co.in / fallback.streamindia.co.in have no CORS headers)
+    const host = publicHost(req);
+    const referer = result.headers?.Referer || 'https://animerulzapp.buzz/';
+    const proxyHlsUrl = (value) => {
+      const rawUrl = unwrapM3u8ProxyUrl(value);
+      if (!rawUrl || !rawUrl.includes('.m3u8')) return value;
+      return `${host}/api/m3u8-proxy?url=${encodeURIComponent(rawUrl)}&referer=${encodeURIComponent(referer)}`;
     };
-    hindiStreamCache.set(cacheKey, { data: direct, timestamp: Date.now() });
-    return direct;
+
+    // Do not mutate result: it is cached by resolveAnimerulzStream and must retain
+    // the raw provider URLs. Mutating it here caused repeat requests to nest proxy URLs.
+    res.json({
+      ...result,
+      streamUrl: proxyHlsUrl(result.streamUrl),
+      sources: (result.sources || []).map(source => ({
+        ...source,
+        url: proxyHlsUrl(source.url),
+      })),
+    });
   } catch (err) {
-    console.warn('[HINDI] Direct stream extraction failed:', err.message);
-    return null;
+    console.error('[ANIMERULZ] Watch error:', err.message);
+    res.status(502).json({ error: 'Stream resolution failed', message: err.message });
   }
-}
+});
 
-app.get('/api/hindi/watch', async (req, res) => {
-  const { title } = req.query;
-  const episodeNum = parseInt(req.query.episode, 10) || 1;
-  const seasonNum = req.query.season ? parseInt(req.query.season, 10) : null;
-
-  if (!title) return res.status(400).json({ error: 'Missing title parameter' });
+// ─────────────────────────────────────────────────────
+// GET /api/animerulz/episodes
+// Params: anilistId (required)
+// Returns: { total, episodes: [ { number, title, description, img, hasDub, hasSub }, ... ] }
+// ─────────────────────────────────────────────────────
+app.get('/api/animerulz/episodes', async (req, res) => {
+  const { anilistId } = req.query;
+  if (!anilistId) return res.status(400).json({ error: 'Missing anilistId parameter' });
 
   try {
-    console.log(`\n[HINDI] Request: "${title}" S${seasonNum || 1} E${episodeNum}`);
-    const anime = await findHindiAnime(String(title), seasonNum);
-    if (!anime) {
-      return res.status(404).json({
-        error: 'Hindi anime not found',
-        message: 'No matching Hindi Dub anime entry was found for this title.',
-      });
+    const episodes = await fetchAnimerulzEpisodes(anilistId);
+    res.json({ total: episodes.length, episodes });
+  } catch (err) {
+    console.error('[ANIMERULZ] Episodes error:', err.message);
+    res.status(502).json({ error: 'Episode fetch failed', message: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────
+// GET /api/animerulz/availability
+// Params: anilistId (required)
+// Returns: { available, languages, animerulz_id } or { available: false }
+// ─────────────────────────────────────────────────────
+app.get('/api/animerulz/availability', async (req, res) => {
+  const { anilistId } = req.query;
+  if (!anilistId) return res.status(400).json({ error: 'Missing anilistId parameter' });
+
+  try {
+    const avail = await checkAnimerulzAvailability(anilistId);
+    if (avail) {
+      res.json({ available: true, languages: avail.languages, animerulz_id: avail.animerulz_id });
+    } else {
+      res.json({ available: false });
     }
+  } catch (err) {
+    res.status(502).json({ error: 'Availability check failed', message: err.message });
+  }
+});
 
-    const episode = await findHindiEpisode(anime, String(title), episodeNum, seasonNum);
-    if (!episode?.link) {
-      return res.status(404).json({
-        error: 'Hindi episode not found',
-        message: `Hindi Dub episode ${episodeNum} was not found for ${anime.title}.`,
-        matchedTitle: anime.title,
-      });
-    }
+// GET /api/animerulz/catalog?language=hindi&page=1&limit=500
+// Returns the live AnimeRulz language catalogue. AniList IDs are encoded in
+// animerulz_id (for example, anime-2657) and can be used for exact matches.
+app.get('/api/animerulz/catalog', async (req, res) => {
+  const language = String(req.query.language || req.query.lang || 'hindi').toLowerCase();
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(500, Math.max(1, parseInt(req.query.limit, 10) || 50));
 
-    const { data: html } = await axios.get(episode.link, {
-      ...AXIOS_OPTS,
-      headers: {
-        ...AXIOS_OPTS.headers,
-        'Referer': HINDI_ANIME_BASE + '/',
-      },
-      responseType: 'text',
-    });
+  try {
+    const items = (await fetchAnimerulzCatalog())
+      .filter(item => item.languages.includes(language));
+    const total = items.length;
+    const start = (page - 1) * limit;
 
-    const iframeSrc = extractHindiIframe(html);
-    if (!iframeSrc) {
-      return res.status(404).json({
-        error: 'Hindi player not found',
-        message: 'The Hindi episode page loaded, but no playable iframe was found.',
-        matchedTitle: anime.title,
-        episodeUrl: episode.link,
-      });
-    }
-
-    const directStream = await resolveHindiDirectStream(iframeSrc, episode.link, req);
-    if (directStream?.streamUrl) {
-      console.log(`[HINDI] Ready: ${anime.title} E${episodeNum} -> direct HLS`);
-      return res.json({
-        provider: 'hindidubanime',
-        type: 'hls',
-        streamUrl: directStream.streamUrl,
-        headers: directStream.headers,
-        poster: directStream.image,
-        language: 'Hindi Dub',
-        audioMode: 'hindi',
-        matchedTitle: anime.title,
-        episodeTitle: episode.title,
-        episodeUrl: episode.link,
-        iframeSrc,
-      });
-    }
-
-    console.log(`[HINDI] Ready: ${anime.title} E${episodeNum} -> iframe fallback`);
     res.json({
-      provider: 'hindidubanime',
-      type: 'iframe',
-      iframeSrc,
-      iframeSandbox: 'allow-scripts allow-same-origin allow-forms allow-presentation',
-      language: 'Hindi Dub',
-      audioMode: 'hindi',
-      matchedTitle: anime.title,
-      episodeTitle: episode.title,
-      episodeUrl: episode.link,
+      language,
+      total,
+      page,
+      pages: Math.max(1, Math.ceil(total / limit)),
+      items: items.slice(start, start + limit),
     });
   } catch (err) {
-    console.error('[HINDI] Error:', err.message);
-    res.status(502).json({ error: 'Hindi provider failed', message: err.message });
+    console.error('[ANIMERULZ] Catalog error:', err.message);
+    res.status(502).json({ error: 'Hindi catalogue fetch failed', message: err.message });
   }
 });
 
 app.get('/api/hianime/watch', async (req, res) => {
   const { anilistId, episode, dub } = req.query;
   const episodeNum = parseInt(episode) || 1;
-  if (dub === 'hindi') {
-    return res.status(404).json({
-      error: 'Hindi dub not available',
-      message: 'HiAnime/Consumet only exposes sub and English dub streams here. Hindi requests must use a Hindi-capable provider.',
-      audioMode: 'hindi'
-    });
-  }
-  // Consumet accepts 'sub' or 'dub' — Hindi not available on HiAnime so map to sub
+  // Consumet accepts 'sub' or 'dub'
   const subOrDub = dub === 'eng' ? 'dub' : 'sub';
 
   if (!anilistId) {
@@ -1076,23 +1287,10 @@ app.get('/api/gogoanime/watch', async (req, res) => {
   const episodeNum = parseInt(episode) || 1;
   const seasonNum = season ? parseInt(season) : null;
   const host = publicHost(req);
-  // dub param: 'eng' | 'hindi' | undefined (default = sub)
   const wantDub = dub === 'eng';
-  const wantHindi = dub === 'hindi';
 
   if (!title) {
     return res.status(400).json({ error: 'Missing title parameter' });
-  }
-
-  // Hindi dub note: AnimeKai only has sub/dub/hsub (English)
-  // Hindi dubs are not available on AnimeKai — return early with a clear message
-  if (wantHindi) {
-    console.log(`[ANIMEKAI] Hindi dub requested for "${title}" — not available on this provider`);
-    return res.status(404).json({
-      error: 'Hindi dub not available',
-      message: 'Hindi dubbed streams are not available through the current provider (AnimeKai). Hindi dubs will be sourced from a dedicated Hindi anime provider in a future update.',
-      audioMode: 'hindi'
-    });
   }
 
   // Cache key always includes season (defaults to 1 if unspecified)
@@ -1982,10 +2180,15 @@ const COMICKZ_BASE = 'https://comickz.co.uk';
 // Helper: Wrap cover URLs with backend image-proxy to bypass hotlink 403
 function proxyCoverUrl(host, rawUrl) {
   if (!rawUrl) return null;
-  if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
-    return `${host}/api/manga/image-proxy?url=${encodeURIComponent(rawUrl)}`;
+  let fullUrl = String(rawUrl).trim();
+  if (!fullUrl.startsWith('http://') && !fullUrl.startsWith('https://')) {
+    if (fullUrl.startsWith('//')) {
+      fullUrl = 'https:' + fullUrl;
+    } else {
+      fullUrl = 'https://meo.comick.pictures/' + fullUrl.replace(/^\/+/, '');
+    }
   }
-  return rawUrl;
+  return `${host}/api/manga/image-proxy?url=${encodeURIComponent(fullUrl)}`;
 }
 
 const MANGA_GENRE_CACHE_TTL_MS = 15 * 60 * 1000;
@@ -1993,19 +2196,22 @@ const MANGA_GENRE_CACHE_MAX_ITEMS = 240;
 const mangaGenreCatalogCache = new Map();
 
 function mapComicKCatalogItem(host, item, countryCode, type) {
-  const rawCover = item.default_thumbnail || (item.cover ? `${item.cover}` : null);
+  const rawCover = item.default_thumbnail || (item.cover ? `${item.cover}` : (item.md_covers?.[0]?.b2key ? `https://meo.comick.pictures/${item.md_covers[0].b2key}` : null));
+  const proxiedCover = proxyCoverUrl(host, rawCover);
   return {
     id: item.slug || String(item.id),
     comickSlug: item.slug,
     hid: item.hid,
     title: item.title || 'Manga',
-    cover: proxyCoverUrl(host, rawCover),
-    banner: proxyCoverUrl(host, rawCover),
+    cover: proxiedCover,
+    banner: proxiedCover,
+    coverImage: proxiedCover,
+    bannerImage: proxiedCover,
     description: item.desc ? item.desc.replace(/<[^>]*>?/gm, '') : (item.description || ''),
     rating: item.bayesian_rating ? (parseFloat(item.bayesian_rating)).toFixed(1) : '8.7',
     country: item.country || countryCode,
     status: item.status === 2 ? 'Completed' : 'Ongoing',
-    type: type.toLowerCase()
+    type: (type || 'manhwa').toLowerCase()
   };
 }
 
@@ -2103,14 +2309,17 @@ app.get('/api/manga/home', async (req, res) => {
         });
         const rawList = r.data?.data || (Array.isArray(r.data) ? r.data : []);
         return rawList.map(item => {
-          const rawCover = item.default_thumbnail || (item.cover ? `${item.cover}` : null);
+          const rawCover = item.default_thumbnail || (item.cover ? `${item.cover}` : (item.md_covers?.[0]?.b2key ? `https://meo.comick.pictures/${item.md_covers[0].b2key}` : null));
+          const proxiedCover = proxyCoverUrl(host, rawCover);
           return {
             id: item.slug || String(item.id),
             comickSlug: item.slug,
             hid: item.hid,
             title: item.title || 'Manga',
-            cover: proxyCoverUrl(host, rawCover),
-            banner: proxyCoverUrl(host, rawCover),
+            cover: proxiedCover,
+            banner: proxiedCover,
+            coverImage: proxiedCover,
+            bannerImage: proxiedCover,
             description: item.desc ? item.desc.replace(/<[^>]*>?/gm, '') : (item.description || ''),
             rating: item.bayesian_rating ? (parseFloat(item.bayesian_rating)).toFixed(1) : '8.8',
             country: item.country || country || 'jp',
@@ -2229,6 +2438,193 @@ app.get('/api/manga/category/:type', async (req, res) => {
     console.error(`[MANGA CATEGORY] Error for ${type}:`, err.message);
     return res.status(500).json({ error: `Failed to load ${type} category`, message: err.message });
   }
+});
+
+// ─────────────────────────────────────────────────────
+// HYBRID WEBTOON MIDDLEWARE ENGINE
+// AniList Curated Metadata + ComicK Chapter Engine
+// ─────────────────────────────────────────────────────
+const comickSlugMap = new Map();
+
+async function resolveComicKSlug(title, host) {
+  if (!title) return null;
+  const cleanTitle = title.trim();
+  if (comickSlugMap.has(cleanTitle)) {
+    return comickSlugMap.get(cleanTitle);
+  }
+
+  try {
+    const url = `${COMICKZ_BASE}/api/search?q=${encodeURIComponent(cleanTitle)}&limit=5`;
+    const r = await axios.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://comickz.co.uk/'
+      },
+      timeout: 6000
+    });
+    const items = r.data?.data || (Array.isArray(r.data) ? r.data : []);
+    if (items.length > 0) {
+      const match = items[0];
+      const rawCover = match.default_thumbnail || (match.cover ? `${match.cover}` : null);
+      const resObj = {
+        id: match.slug || String(match.id),
+        slug: match.slug,
+        hid: match.hid,
+        cover: proxyCoverUrl(host, rawCover),
+        banner: proxyCoverUrl(host, rawCover)
+      };
+      comickSlugMap.set(cleanTitle, resObj);
+      return resObj;
+    }
+  } catch (e) {}
+  return null;
+}
+
+async function fetchAniListWebtoons(host) {
+  const query = `
+    query {
+      trending: Page(page: 1, perPage: 24) {
+        media(type: MANGA, countryOfOrigin: "KR", sort: TRENDING_DESC) {
+          id
+          title { english romaji userPreferred }
+          description
+          coverImage { extraLarge large medium color }
+          bannerImage
+          genres
+          averageScore
+          popularity
+          status
+        }
+      }
+      popular: Page(page: 1, perPage: 24) {
+        media(type: MANGA, countryOfOrigin: "KR", sort: POPULARITY_DESC) {
+          id
+          title { english romaji userPreferred }
+          description
+          coverImage { extraLarge large medium color }
+          bannerImage
+          genres
+          averageScore
+          popularity
+          status
+        }
+      }
+    }
+  `;
+
+  try {
+    const r = await axios.post('https://graphql.anilist.co', { query }, {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 10000
+    });
+
+    const trendingRaw = r.data?.data?.trending?.media || [];
+    const popularRaw = r.data?.data?.popular?.media || [];
+
+    const mapItem = (m) => {
+      const titleStr = m.title.english || m.title.romaji || m.title.userPreferred || 'Webtoon';
+      const coverUrl = m.coverImage?.extraLarge || m.coverImage?.large || m.bannerImage;
+      const bannerUrl = m.bannerImage || m.coverImage?.extraLarge || m.coverImage?.large;
+
+      return {
+        id: String(m.id),
+        anilistId: m.id,
+        title: titleStr,
+        description: m.description ? m.description.replace(/<[^>]*>?/gm, '') : '',
+        cover: proxyCoverUrl(host, coverUrl),
+        banner: proxyCoverUrl(host, bannerUrl),
+        coverImage: proxyCoverUrl(host, coverUrl),
+        bannerImage: proxyCoverUrl(host, bannerUrl),
+        rating: m.averageScore ? (m.averageScore / 10).toFixed(1) : '9.2',
+        popularity: m.popularity || 850000,
+        genres: m.genres || ['Fantasy', 'Action'],
+        status: m.status === 'FINISHED' ? 'Completed' : 'Ongoing',
+        country: 'kr',
+        type: 'manhwa'
+      };
+    };
+
+    const trending = trendingRaw.map(mapItem);
+    const popular = popularRaw.map(mapItem);
+
+    const days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+    const schedule = { MON: [], TUE: [], WED: [], THU: [], FRI: [], SAT: [], SUN: [], COMPLETED: [] };
+
+    const allCombined = [...trending, ...popular];
+    const seenIds = new Set();
+    const uniqueComics = [];
+
+    for (const item of allCombined) {
+      if (!seenIds.has(item.id)) {
+        seenIds.add(item.id);
+        uniqueComics.push(item);
+      }
+    }
+
+    uniqueComics.forEach((item, index) => {
+      if (item.status === 'Completed') {
+        schedule.COMPLETED.push(item);
+      } else {
+        const dayKey = days[index % days.length];
+        schedule[dayKey].push(item);
+      }
+    });
+
+    return {
+      trending,
+      popular,
+      featured: trending.slice(0, 5),
+      schedule,
+      all: uniqueComics
+    };
+  } catch (err) {
+    console.error('[HYBRID WEBTOON] AniList query failed:', err.message);
+    return null;
+  }
+}
+
+// GET /api/webtoon/home — Curated Webtoon Landing Data
+app.get('/api/webtoon/home', async (req, res) => {
+  const host = publicHost(req);
+  try {
+    const data = await fetchAniListWebtoons(host);
+    if (data) {
+      return res.json(data);
+    }
+  } catch (e) {
+    console.warn('[WEBTOON HOME] Hybrid fetch failed:', e.message);
+  }
+  return res.redirect(`${host}/api/manga/home`);
+});
+
+// GET /api/webtoon/category/:type
+app.get('/api/webtoon/category/:type', async (req, res) => {
+  const { type } = req.params;
+  const { genre } = req.query;
+  const host = publicHost(req);
+
+  try {
+    const data = await fetchAniListWebtoons(host);
+    if (data && data.all) {
+      let filtered = data.all;
+      if (genre && genre !== 'all') {
+        const gLC = genre.toLowerCase();
+        filtered = data.all.filter(item =>
+          item.genres.some(g => g.toLowerCase().includes(gLC) || gLC.includes(g.toLowerCase()))
+        );
+      }
+      return res.json({
+        type,
+        genre: genre || 'all',
+        trending: filtered.slice(0, 12),
+        popular: filtered.slice(0, 12),
+        items: filtered,
+        recent: filtered.slice(0, 12)
+      });
+    }
+  } catch (e) {}
+
+  return res.redirect(`${host}/api/manga/category/${type}?genre=${encodeURIComponent(genre || 'all')}`);
 });
 
 // GET /api/manga/search?q=<query>
@@ -2389,48 +2785,64 @@ app.get('/api/manga/read/:chapterId', async (req, res) => {
   try {
     let slug, chPath;
     if (chapterId.includes('___')) {
-      [slug, chPath] = chapterId.split('___');
+      const sepIdx = chapterId.indexOf('___');
+      slug = chapterId.substring(0, sepIdx);
+      chPath = chapterId.substring(sepIdx + 3);
     } else {
       slug = 'manga';
       chPath = chapterId;
     }
 
-    const chUrl = `${COMICKZ_BASE}/comic/${encodeURIComponent(slug)}/${encodeURIComponent(chPath)}`;
+    // ⚠️ CRITICAL: Do NOT encodeURIComponent slug/chPath — ComicKz uses plain dashes in URLs
+    const chUrl = `${COMICKZ_BASE}/comic/${slug}/${chPath}`;
     console.log(`[MANGA READ] Scraping chapter page: ${chUrl}`);
 
     const pageRes = await axios.get(chUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Referer': `${COMICKZ_BASE}/comic/${encodeURIComponent(slug)}`,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+        'Referer': `${COMICKZ_BASE}/comic/${slug}`,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Cache-Control': 'no-cache'
       },
-      timeout: 12000
+      timeout: 15000,
+      maxRedirects: 5
     });
 
     const html = pageRes.data || '';
-    const svMatch = html.match(/<script id="sv-data" type="application\/json">([\s\S]*?)<\/script>/i);
+    // Use a non-greedy but robust match for sv-data
+    const svMatch = html.match(/<script\s+id="sv-data"\s+type="application\/json">([\s\S]*?)<\/script>/i);
 
     if (svMatch) {
-      const svData = JSON.parse(svMatch[1]);
-      const rawImages = svData.chapter?.images || [];
+      let svData;
+      try {
+        svData = JSON.parse(svMatch[1].trim());
+      } catch (parseErr) {
+        console.error(`[MANGA READ] JSON parse error for sv-data:`, parseErr.message);
+      }
 
-      if (rawImages.length) {
-        // Proxy each page through our image-proxy with Referer: https://comickz.co.uk/
-        const pages = rawImages.map((imgObj, idx) => {
-          const rawUrl = imgObj.url;
-          return {
-            page: idx + 1,
-            url: `${host}/api/manga/image-proxy?url=${encodeURIComponent(rawUrl)}`,
-            rawUrl
-          };
-        });
+      if (svData) {
+        const rawImages = svData.chapter?.images || [];
 
-        console.log(`[MANGA READ] OK — ${pages.length} pages proxied for ${chapterId}`);
-        return res.json({ chapterId, pageCount: pages.length, pages });
+        if (rawImages.length) {
+          const pages = rawImages.map((imgObj, idx) => {
+            // Ensure full URL (some may be relative starting with /)
+            let rawUrl = imgObj.url || '';
+            if (rawUrl.startsWith('/')) rawUrl = 'https://cdn2.comicknew.pictures' + rawUrl;
+            return {
+              page: idx + 1,
+              url: `${host}/api/manga/image-proxy?url=${encodeURIComponent(rawUrl)}`,
+              rawUrl
+            };
+          });
+
+          console.log(`[MANGA READ] ✅ ComicKz OK — ${pages.length} pages for ${chapterId}`);
+          return res.json({ chapterId, pageCount: pages.length, pages });
+        }
       }
     }
 
-    console.error(`[MANGA READ] sv-data or images missing for ${chapterId}`);
+    console.error(`[MANGA READ] sv-data or images missing for ${chapterId} — HTML length: ${html.length}`);
     return res.json({ chapterId, pageCount: 0, pages: [] });
 
   } catch (err) {
@@ -2447,20 +2859,29 @@ app.get('/api/manga/image-proxy', async (req, res) => {
   const targetUrl = decodeURIComponent(url);
   const maxRetries = 5;
 
+  // Determine correct Referer based on CDN domain
+  const referer = targetUrl.includes('comicknew.pictures') ? 'https://comickz.co.uk/' :
+    targetUrl.includes('comick.pictures') ? 'https://comick.io/' :
+    'https://comickz.co.uk/';
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const response = await axios.get(targetUrl, {
         responseType: 'arraybuffer',
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          'Referer': 'https://comickz.co.uk/'
+          'Referer': referer,
+          'Accept': 'image/webp,image/avif,image/*,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Origin': 'https://comickz.co.uk'
         },
-        timeout: 10000
+        timeout: 12000
       });
 
       const contentType = response.headers['content-type'] || 'image/webp';
       res.setHeader('Content-Type', contentType);
       res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.setHeader('Access-Control-Allow-Origin', '*');
       return res.send(Buffer.from(response.data));
 
     } catch (err) {
