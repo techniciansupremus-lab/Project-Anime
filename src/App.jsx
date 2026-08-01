@@ -1,18 +1,23 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertCircle, Info, Play, Star, X, ArrowLeft, Flame, Trophy, Sparkles, Compass, History, Tv, Globe, ChevronLeft, ChevronRight, BookOpen } from 'lucide-react';
+import { AlertCircle, Info, Play, Star, X, ArrowLeft, Flame, Trophy, Sparkles, Compass, History, Tv, Globe, ChevronLeft, ChevronRight, BookOpen, ThumbsUp, ThumbsDown, Share2, Bookmark, MoreHorizontal, ChevronDown, PlayCircle, CheckCircle } from 'lucide-react';
 import Navbar, { MobileBottomNav } from './components/Navbar';
+import Sidebar from './components/Sidebar';
 import SectionSlider from './components/SectionSlider';
 import AnimeCard from './components/AnimeCard';
 import VideoPlayer from './components/VideoPlayer';
 import AuthModal from './components/AuthModal';
-import { api, animeCategories, recentReleases, hasHindiDubAvailable, isKnownHindiDubTitle } from './mockData';
+import { api, animeCategories, recentReleases, checkHindiDub, formatViews, formatRelativeTime, resolveEpisodeThumbnail } from './mockData';
 import { apiUrl, getBackendConfigError } from './runtimeConfig';
 import { supabase } from './supabaseClient';
-
+import { getRecommendations } from './utils/cbf';
+import WebtoonComicView from './components/WebtoonComicView';
+import WebtoonDetailView from './components/WebtoonDetailView';
 function App() {
   const [view, setRawView] = useState('home');
   // Wrapper to allow setView call compatibility
   const setView = (v) => setRawView(v);
+  // Sidebar: false = full 240px, true = mini 72px icons-only
+  const [sidebarMini, setSidebarMini] = useState(false);
 
   // activeSection tracks which major section the user is browsing
   const [activeSection, setActiveSection] = useState('anime');
@@ -39,7 +44,7 @@ function App() {
   const [hindiData, setHindiData] = useState({ featured: null, list: [] });
   const [myList, setMyList] = useState([]);
 
-  // â”€â”€ Drama state â”€â”€
+  // ─── Drama state ───
   const [dramaHomeData, setDramaHomeData] = useState(null);
   const [dramaHomeLoading, setDramaHomeLoading] = useState(false);
   const [dramaHomeError, setDramaHomeError] = useState('');
@@ -51,7 +56,7 @@ function App() {
   const [dramaSearchResults, setDramaSearchResults] = useState([]);
   const [dramaSearchLoading, setDramaSearchLoading] = useState(false);
 
-  // â”€â”€ Manhwa state â”€â”€
+  // ─── Manhwa state ───
   const [manhwaHomeData, setManhwaHomeData] = useState(null);
   const [manhwaHomeLoading, setManhwaHomeLoading] = useState(false);
   const [manhwaHomeError, setManhwaHomeError] = useState('');
@@ -64,7 +69,7 @@ function App() {
   const [manhwaSearchResults, setManhwaSearchResults] = useState([]);
   const [manhwaSearchLoading, setManhwaSearchLoading] = useState(false);
 
-  // ── Movies state ──
+  // ─── Movies state ───
   const [moviesHomeData, setMoviesHomeData] = useState(null);
   const [moviesHomeLoading, setMoviesHomeLoading] = useState(false);
   const [moviesHomeError, setMoviesHomeError] = useState('');
@@ -75,7 +80,7 @@ function App() {
   const [movieSearchLoading, setMovieSearchLoading] = useState(false);
   const [movieActiveCategory, setMovieActiveCategory] = useState('All');
 
-  // ── Manga state ──
+  // ─── Manga state ───
   const [mangaHomeData, setMangaHomeData] = useState(null);
   const [mangaHomeLoading, setMangaHomeLoading] = useState(false);
   const [mangaHomeError, setMangaHomeError] = useState('');
@@ -89,7 +94,7 @@ function App() {
   const [mangaSearchLoading, setMangaSearchLoading] = useState(false);
   const [comicCategory, setComicCategory] = useState(null);
 
-  // ── Scroll Intro Overlay state ──
+  // ─── Scroll Intro Overlay state ───
   const [showIntroOverlay, setShowIntroOverlay] = useState(() => {
     try {
       return !sessionStorage.getItem('anistream_intro_seen');
@@ -98,14 +103,14 @@ function App() {
     }
   });
 
-  // ── Auth & Sync states ──
+  // ─── Auth & Sync states ───
   const [session, setSession] = useState(null);
   const [user, setUser] = useState(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [watchHistory, setWatchHistory] = useState([]);
 
-  // ── Welcome & Toast Notification states ──
+  // ─── Welcome & Toast Notification states ───
   const [showWelcome, setShowWelcome] = useState(false);
   const [toast, setToast] = useState({ visible: false, message: '', type: 'info' });
   const toastTimeoutRef = useRef(null);
@@ -125,7 +130,6 @@ function App() {
         dramaStream: null,
         selectedManhwa: null,
         currentManhwaChapter: null,
-        manhwaChapterImages: [],
         comicCategory: null,
         activeSection: 'anime'
       }, '');
@@ -148,7 +152,7 @@ function App() {
         
         // Clear search queries when navigating back to generic pages
         setSearchQuery('');
-        setSearchResults({ anime: [], dramas: [] });
+        setSearchResults({ anime: [], dramas: [], manga: [] });
       }
     };
 
@@ -311,7 +315,7 @@ function App() {
   const searchRequestRef = useRef(0);
   const searchDebounceRef = useRef(null);
 
-  // ── Watch History & Watchlist Sync Engine ──
+  // ─── Watch History & Watchlist Sync Engine ───
 
   // Fetch watch history from DB/local on mount
   useEffect(() => {
@@ -579,7 +583,13 @@ function App() {
       if (mounted) setFeatured(items && items.length > 0 ? items : defaultFeatured);
     });
     api.getAnimeList().then((items) => {
-      if (mounted) setTrending(items);
+      if (mounted) {
+        setTrending(items);
+        // Cache for CBF recommendations engine in WatchView
+        if (items && items.length > 0) {
+          window.__eetnet_trending_pool__ = items;
+        }
+      }
     });
     api.getTop10Famous().then((items) => {
       if (mounted) setTop10Famous(items);
@@ -838,7 +848,7 @@ function App() {
     // Require login to use watchlist
     if (!user) {
       setShowAuthModal(true);
-      showToast('Sign in to save titles to your watchlist! 🎬', 'info');
+      showToast('Sign in to save titles to your watchlist!', 'info');
       return;
     }
 
@@ -1004,7 +1014,128 @@ function App() {
     window.scrollTo(0, 0);
   };
 
+  const handleAnimeClick = async (idOrTitle, fromFranchise = false) => {
+    if (!idOrTitle) return;
+    resetSearch();
+    if (!fromFranchise) {
+      detailRequestRef.current += 1;
+      watchRequestRef.current += 1;
+    }
+    const requestId = detailRequestRef.current;
+
+    setSelectedAnime(null);
+    setCurrentEpisode(null);
+    setFranchiseList([]);
+    setPageLoading(true);
+    setView('detail');
+    setActiveSection('anime');
+    window.scrollTo(0, 0);
+
+    try {
+      const details = await api.getAnimeDetails(idOrTitle);
+      if (!details || requestId !== detailRequestRef.current) return;
+      setSelectedAnime(details);
+
+      // Load franchise list in background
+      if (details.id) {
+        api.getFranchise(details.id, details.title, details.relations).then(list => {
+          if (requestId === detailRequestRef.current) setFranchiseList(list || []);
+        }).catch(() => {});
+      }
+
+      // ── Async: check AnimeRulz Hindi dub availability ──
+      if (details.id) {
+        checkHindiDub(details.id).then(langs => {
+          if (requestId === detailRequestRef.current) {
+            const hindiOk = langs.includes('hindi');
+            setSelectedAnime(prev => prev ? { ...prev, hindiAvailable: hindiOk, hindiLanguages: langs } : prev);
+          }
+        }).catch(() => {});
+      }
+    } catch (err) {
+      console.error('[handleAnimeClick] Failed to load details:', err);
+    } finally {
+      if (requestId === detailRequestRef.current) setPageLoading(false);
+    }
+  };
+
+  const startWatching = async (animeNode, epNumberOrObj = 1, keepFranchise = false, targetAudio = audioMode) => {
+    if (!animeNode) return;
+    resetSearch();
+    const requestId = watchRequestRef.current + 1;
+    watchRequestRef.current = requestId;
+
+    const epNum = typeof epNumberOrObj === 'object' ? (epNumberOrObj?.number ?? 1) : (epNumberOrObj ?? 1);
+
+    setSelectedAnime(prev => ({ ...(prev || {}), ...animeNode }));
+    setCurrentEpisode(null);
+    setLoadingSources(true);
+    setCurrentSourceIndex(0);
+    setView('watch');
+    setActiveSection('anime');
+    window.scrollTo(0, 0);
+
+    try {
+      // Need full details if we don't have episodes
+      let details = animeNode;
+      if (!details.episodes || details.episodes.length === 0) {
+        details = await api.getAnimeDetails(animeNode.id);
+        if (!details || requestId !== watchRequestRef.current) return;
+        setSelectedAnime(details);
+      }
+
+      // Load franchise in background (only if not keeping current franchise)
+      if (!keepFranchise && details.id) {
+        api.getFranchise(details.id, details.title, details.relations).then(list => {
+          if (requestId === watchRequestRef.current) setFranchiseList(list || []);
+        }).catch(() => {});
+      }
+
+      // ── Async: check AnimeRulz Hindi dub availability ──
+      if (details.id && requestId === watchRequestRef.current) {
+        checkHindiDub(details.id).then(langs => {
+          if (requestId === watchRequestRef.current) {
+            const hindiOk = langs.includes('hindi');
+            setSelectedAnime(prev => prev ? { ...prev, hindiAvailable: hindiOk, hindiLanguages: langs } : prev);
+          }
+        }).catch(() => {});
+      }
+
+      // ── FIXED: Pass ALL required params to getEpisodeSources ──
+      // Signature: (episodeId, animeTitle, japaneseTitle, episodeNumber, anilistId, seasonNum, audioMode)
+      const animeTitle = details.title || details.nativeTitle || '';
+      const japaneseTitle = details.nativeTitle || details.japaneseTitle || details.synonyms?.[0] || '';
+      const anilistId = details.id || null;
+      const seasonNum = details.seasonNum || details.season || null;
+
+      const episodeData = await api.getEpisodeSources(
+        null,           // episodeId  (not needed for AnimeKai/HiAnime path)
+        animeTitle,     // animeTitle ✅
+        japaneseTitle,  // japaneseTitle ✅
+        epNum,          // episodeNumber ✅
+        anilistId,      // anilistId ✅
+        seasonNum,      // seasonNum ✅
+        targetAudio     // audioMode ✅
+      );
+
+      if (!episodeData || requestId !== watchRequestRef.current) return;
+
+      // Attach episode number so VideoPlayer / progress tracker can use it
+      setCurrentEpisode({ ...episodeData, number: epNum });
+      setCurrentSourceIndex(0);
+
+      // Track progress
+      handleWatchProgress(details, { ...episodeData, number: epNum }, 'anime', { progressSeconds: 0, durationSeconds: 0 });
+    } catch (err) {
+      console.error('[startWatching] Failed:', err);
+      setCurrentEpisode({ number: epNum, error: 'Could not load this episode.' });
+    } finally {
+      if (requestId === watchRequestRef.current) setLoadingSources(false);
+    }
+  };
+
   const handleMangaClick = async (manga) => {
+
     resetSearch();
     setSelectedManga({ ...manga, chapters: [] });
     setView('manga-detail');
@@ -1021,14 +1152,55 @@ function App() {
   };
 
   const handleMangaRead = async (manga, chapter) => {
-    setCurrentMangaChapter(chapter);
-    setMangaPages([]);
-    setMangaPageLoading(true);
     setView('manga-reader');
+    setMangaPageLoading(true);
+    setMangaPages([]);
     window.scrollTo(0, 0);
+
+    let targetManga = manga;
+    let targetChapter = chapter;
+
     try {
-      const data = await api.getMangaChapterPages(chapter.id);
-      setMangaPages(data?.pages || []);
+      // 1. If chapter carries full chapters array from detail view, attach it
+      if (chapter.chapters && Array.isArray(chapter.chapters) && chapter.chapters.length > 0) {
+        targetManga = { ...targetManga, chapters: chapter.chapters };
+      }
+
+      // 2. If targetManga is still missing chapters array, fetch full info
+      if (!targetManga.chapters || targetManga.chapters.length === 0 || !targetChapter?.id || !targetChapter.id.includes('___')) {
+        const info = await api.getMangaInfo(targetManga.comickSlug || targetManga.anilistId || targetManga.id || targetManga.title);
+        if (info && info.chapters && info.chapters.length > 0) {
+          targetManga = { ...targetManga, ...info };
+
+          const targetNum = String(chapter.chapter || chapter.number || '1');
+          const matched = info.chapters.find(c => String(c.chapter) === targetNum || String(c.number) === targetNum);
+          if (matched && !targetChapter.id.includes('___')) {
+            targetChapter = matched;
+          }
+        }
+      }
+
+      setCurrentMangaChapter(targetChapter);
+      if (targetManga) {
+        setSelectedManga(prev => ({ ...prev, ...targetManga }));
+        setSelectedManhwa(prev => ({ ...prev, ...targetManga }));
+      }
+
+      console.log('[handleMangaRead] Fetching chapter pages for:', targetChapter.id);
+      const data = await api.getMangaChapterPages(targetChapter.id);
+      const fetchedPages = data?.pages || [];
+      setMangaPages(fetchedPages);
+
+      // Preload first 6 pages in parallel in background before showing reader
+      if (fetchedPages.length > 0) {
+        const firstBatch = fetchedPages.slice(0, 6);
+        await Promise.all(firstBatch.map(p => new Promise(resolve => {
+          const img = new Image();
+          img.onload = resolve;
+          img.onerror = resolve;
+          img.src = p.url;
+        })));
+      }
     } catch (e) {
       console.error('Manga chapter pages load failed', e);
       setMangaPages([]);
@@ -1292,7 +1464,7 @@ function App() {
     fetch(apiUrl(`/api/drama/search?q=${encodeURIComponent(q)}`))
       .then(r => r.json())
       .then(data => {
-        // KissKH returns { value: [...], Count: N } – extract the array
+        // KissKH returns { value: [...], Count: N } ───" extract the array
         const arr = Array.isArray(data) ? data : (Array.isArray(data?.value) ? data.value : []);
         setDramaSearchResults(arr);
         setDramaSearchLoading(false);
@@ -1352,7 +1524,7 @@ function App() {
       const dramaPromise = fetch(apiUrl(`/api/drama/search?q=${encodeURIComponent(query)}`))
         .then(r => r.json())
         .then(data => {
-          // KissKH returns { value: [...], Count: N } – extract the array
+          // KissKH returns { value: [...], Count: N } ───" extract the array
           return Array.isArray(data) ? data : (Array.isArray(data?.value) ? data.value : []);
         })
         .catch(() => []);
@@ -1386,187 +1558,24 @@ function App() {
     }, 400);
   };
 
-  const handleAnimeClick = (id, keepFranchise = false) => {
-    const requestId = detailRequestRef.current + 1;
-    detailRequestRef.current = requestId;
-    watchRequestRef.current += 1;
-    resetSearch();
-    setLoadingSources(false);
-    setPageLoading(true);
-
-    api.getAnimeDetails(id).then((details) => {
-      if (requestId !== detailRequestRef.current || !details) return;
-      setSelectedAnime(details);
-      setCurrentEpisode(null);
-      setView('detail');
-      window.scrollTo(0, 0);
-
-      if (!keepFranchise) {
-        setFranchiseList([]); // Reset
-        api.getFranchise(details.id, details.title, details.relations)
-          .then((list) => {
-            if (requestId === detailRequestRef.current) {
-              if (list.length === 0) {
-                setFranchiseList([{
-                  id: details.id.toString(),
-                  title: details.title,
-                  format: details.type,
-                  coverImage: details.coverImage,
-                  bannerImage: details.bannerImage,
-                  rating: details.rating
-                }]);
-              } else {
-                setFranchiseList(list);
-              }
-            }
-          });
-      }
-    }).catch((err) => {
-      console.error('Error loading anime details:', err);
-    }).finally(() => {
-      if (requestId === detailRequestRef.current) {
-        setPageLoading(false);
-      }
-    });
-  };
-
-  const startWatching = async (anime, episodeNum = 1, keepFranchise = false, targetAudioMode = audioMode) => {
-    const requestId = watchRequestRef.current + 1;
-    watchRequestRef.current = requestId;
-    detailRequestRef.current += 1;
-    resetSearch();
-    setPageLoading(false);
-
-    const episode = anime.episodes?.find((ep) => ep.number === episodeNum) || {
-      number: episodeNum,
-      title: `Episode ${episodeNum}`,
-      sources: []
-    };
-
-    setView('watch');
-    setSelectedAnime(anime);
-    setCurrentEpisode(episode);
-    setCurrentSourceIndex(0);
-    setLoadingSources(true);
-    window.scrollTo(0, 0);
-
-    if (!keepFranchise) {
-      setFranchiseList([]); // Reset
-      api.getFranchise(anime.id, anime.title, anime.relations)
-        .then((list) => {
-          if (list.length === 0) {
-            setFranchiseList([{
-              id: anime.id.toString(),
-              title: anime.title,
-              format: anime.type || anime.format,
-              coverImage: anime.coverImage,
-              bannerImage: anime.bannerImage,
-              rating: anime.rating
-            }]);
-          } else {
-            setFranchiseList(list);
-          }
-        });
-    }
-
-    try {
-      // Pass anime.id (AniList ID) directly for HiAnime primary lookup.
-      // Also compute seasonNum for AnimeKai title-search fallback.
-      const franchiseIndex = franchiseList.findIndex(item => item.id === anime.id.toString() || item.id === anime.id);
-      const seasonNum = franchiseIndex !== -1 ? (franchiseIndex + 1) : 1;
-
-      const result = await api.getEpisodeSources(
-        episode.id,
-        anime.title,
-        anime.japaneseTitle,
-        episodeNum,
-        anime.id,          // 5th arg: AniList ID for HiAnime
-        seasonNum,         // 6th arg: Season number for AnimeKai fallback
-        targetAudioMode    // 7th arg: 'sub' | 'dub' | 'hindi'
-      );
-
-      if (requestId !== watchRequestRef.current) return;
-
-      if (targetAudioMode === 'hindi' && (result.provider === 'unavailable' || (!result.sources?.length && !result.iframeSrc))) {
-        showToast(result.error || 'Hindi Dub stream is not connected yet. Staying on Japanese audio.', 'info');
-        setAudioMode('sub');
-        setCurrentEpisode({
-          ...episode,
-          sources: [],
-          subtitles: [],
-          iframeSrc: null,
-          provider: 'unavailable',
-          error: result.error || 'Hindi Dub stream is not connected yet.'
-        });
-        return;
-      }
-
-      if (targetAudioMode === 'dub' && (result.provider === 'unavailable' || (!result.sources?.length && !result.iframeSrc))) {
-        const label = 'English Dub';
-        showToast(`ℹ️ ${label} stream node is currently offline/updating. Reverting to Japanese audio.`, 'info');
-        setAudioMode('sub');
-        startWatching(anime, episodeNum, true, 'sub');
-        return;
-      }
-
-      setCurrentEpisode({
-        ...episode,
-        sources: result.sources || [],
-        subtitles: result.subtitles || [],
-        iframeSrc: result.iframeSrc || null,
-        iframeSandbox: result.iframeSandbox || null,
-        language: result.language || null,
-        audioMode: result.audioMode || targetAudioMode,
-        provider: result.provider,
-        error: result.error || null
-      });
-    } catch (err) {
-      console.error('Error fetching stream sources:', err);
-      if (requestId !== watchRequestRef.current) return;
-
-      setCurrentEpisode({
-        ...episode,
-        sources: [],
-        subtitles: [],
-        iframeSrc: null,
-        provider: 'error',
-        error: 'Could not load this episode. Please try another episode or server.'
-      });
-    } finally {
-      if (requestId === watchRequestRef.current) {
-        setLoadingSources(false);
-      }
-    }
-  };
-
   const filteredTrending = activeCategory === 'All'
     ? trending
     : activeCategory === 'Hindi'
-    ? trending.filter((anime) => anime.hasHindiDub || hasHindiDubAvailable(anime.title, anime.japaneseTitle))
+    ? trending.filter((anime) => anime.hasHindiDub || anime.hindiAvailable)
     : trending.filter((anime) => anime.genres?.includes(activeCategory));
 
   const activeFeatured = featured[carouselIndex];
   const playerSource = React.useMemo(() => {
     const selectedSource = currentEpisode?.sources?.[currentSourceIndex] || currentEpisode?.sources?.[0];
-    return selectedSource
-      ? { ...currentEpisode, ...selectedSource }
-      : currentEpisode;
+    return selectedSource ? { ...currentEpisode, ...selectedSource } : currentEpisode;
   }, [currentEpisode, currentSourceIndex]);
 
-  // Watch/read views should hide the bottom nav to avoid interference
   const isImmersiveView = ['watch', 'drama-watch', 'movie-watch', 'manhwa-read'].includes(view);
+  const mainContentClass = ['main-content', isImmersiveView ? 'immersive' : '', !isImmersiveView && sidebarMini ? 'sidebar-mini' : ''].filter(Boolean).join(' ');
 
   return (
     <div className="app-container">
-      {/* SectionSlider ONLY spawns inside Anime views (/anime, /anime/horror, /anime/action, /anime/hindi, etc) */}
-      {['anime', 'genre', 'hindi', 'new-popular'].includes(view) && (
-        <div className="desktop-only-section-slider">
-          <SectionSlider
-            activeCategory={animeCategory}
-            onCategoryChange={handleAnimeCategoryChange}
-          />
-        </div>
-      )}
+      {(pageLoading || loadingSources) && <GlobalLoader />}
       <Navbar
         onSearch={handleSearch}
         activeView={view}
@@ -1576,323 +1585,149 @@ function App() {
         user={user}
         onSignIn={() => setShowAuthModal(true)}
         onSignOut={async () => { await supabase.auth.signOut(); }}
+        onToggleSidebar={() => setSidebarMini(v => !v)}
       />
-      {/* ── Mobile Bottom Navigation ── */}
-      {!isImmersiveView && (
-        <MobileBottomNav
-          activeSection={activeSection}
-          activeView={view}
-          setView={setView}
-          setSection={handleSectionChange}
-          user={user}
-          onSignIn={() => setShowAuthModal(true)}
-        />
-      )}
-      {/* ── Global Floating Back Button (Detail Pages Only) ── */}
-      {['detail', 'drama-detail', 'movie-detail', 'manhwa-detail'].includes(view) && (
-        <button 
-          className="global-back-btn" 
-          onClick={() => window.history.back()}
-          title="Go Back"
-        >
-          <ArrowLeft size={16} />
-          <span>Back</span>
-        </button>
-      )}
 
-      {pageLoading && ['detail', 'watch', 'drama-detail', 'drama-watch', 'movie-detail', 'movie-watch', 'manhwa-detail', 'manhwa-read'].includes(view) && (
-        <GlobalLoader label="Loading details..." />
-      )}
-
-      <main className="main-content">
-        {searchQuery.trim() !== '' ? (
-          <SearchResults
-            query={searchQuery}
-            animeResults={searchResults.anime}
-            dramaResults={searchResults.dramas}
-            mangaResults={searchResults.manga}
-            loading={searchLoading}
-            onAnimeClick={handleAnimeClick}
-            onDramaClick={handleDramaClick}
-            onMangaClick={handleMangaClick}
+      <div className="yt-body">
+        {!isImmersiveView && (
+          <Sidebar
+            activeView={view}
+            setView={setView}
+            setSection={handleSectionChange}
+            user={user}
+            onSignIn={() => setShowAuthModal(true)}
+            mini={sidebarMini}
+            subscriptions={[]}
           />
-        ) : (
-          <>
-            {view === 'home' && (
-              <HomeView
-                onAnimeClick={handleAnimeClick}
-                onStartWatching={startWatching}
-                onManhwaClick={(m) => { setSelectedManhwa(m); setView('manhwa-detail'); }}
-              />
-            )}
-
-            {view === 'anime' && (
-              <AnimeView
-                activeFeatured={activeFeatured}
-                featured={featured}
-                activeCategory={activeCategory}
-                filteredTrending={filteredTrending}
-                top10Famous={top10Famous}
-                setActiveCategory={setActiveCategory}
-                onAnimeClick={handleAnimeClick}
-                onStartWatching={startWatching}
-                watchHistory={watchHistory}
-                onDramaClick={handleDramaClick}
-                onManhwaClick={(m) => { setSelectedManhwa(m); setView('manhwa-detail'); }}
-              />
-            )}
-
-            {view === 'tv-shows' && (
-              <CategoryGridView
-                title="TV Shows"
-                viewName="tv-shows"
-                featuredItem={tvShowsData.featured}
-                genresData={tvShowsData.genres}
-                onAnimeClick={handleAnimeClick}
-                onStartWatching={startWatching}
-                isLoading={pageLoading}
-              />
-            )}
-
-
-            {view === 'new-popular' && (
-              <CategoryGridView
-                title="New &amp; Popular"
-                viewName="new-popular"
-                featuredItem={newPopularData.featured}
-                genresData={newPopularData.rows}
-                onAnimeClick={handleAnimeClick}
-                onStartWatching={startWatching}
-                isLoading={pageLoading}
-              />
-            )}
-
-            {view === 'hindi' && (
-              <HindiView
-                hindiAnime={hindiData.list.length > 0 ? hindiData.list : trending.filter(a => a.hasHindiDub || hasHindiDubAvailable(a.title, a.japaneseTitle))}
-                onAnimeClick={handleAnimeClick}
-                onStartWatching={startWatching}
-                isLoading={pageLoading}
-              />
-            )}
-
-            {view === 'genre' && (
-              <GenreView
-                genreName={genreViewName}
-                items={genreAnimeList}
-                isLoading={genreLoading}
-                loadingMore={genreLoadingMore}
-                hasMore={genreHasMore}
-                onAnimeClick={handleAnimeClick}
-                onStartWatching={startWatching}
-              />
-            )}
-
-            {view === 'my-list' && (
-              <WatchlistView
-                items={myList}
-                onAnimeClick={handleAnimeClick}
-                onBackHome={goHome}
-              />
-            )}
-
-            {view === 'detail' && selectedAnime && (
-              <DetailView
-                anime={selectedAnime}
-                franchiseList={franchiseList}
-                myList={myList}
-                onToggleWatchlist={toggleWatchlist}
-                onAnimeSelect={(id) => handleAnimeClick(id, true)}
-                onBackHome={goHome}
-                onStartWatching={startWatching}
-              />
-            )}
-
-            {view === 'watch' && selectedAnime && currentEpisode && (
-              <WatchView
-                anime={selectedAnime}
-                episode={currentEpisode}
-                source={playerSource}
-                franchiseList={franchiseList}
-                currentSourceIndex={currentSourceIndex}
-                loadingSources={loadingSources}
-                setCurrentSourceIndex={setCurrentSourceIndex}
-                onStartWatching={(animeNode, epNum, keepFranchise = true, targetAudio = audioMode) => startWatching(animeNode, epNum, keepFranchise, targetAudio)}
-                onAnimeSelect={(id) => {
-                  setPageLoading(true);
-                  api.getAnimeDetails(id).then((newDetails) => {
-                    if (newDetails) {
-                      startWatching(newDetails, 1, true);
-                    }
-                  }).finally(() => setPageLoading(false));
-                }}
-                onProgress={(prog) => handleWatchProgress(selectedAnime, currentEpisode, 'anime', prog)}
-                audioMode={audioMode}
-                setAudioMode={setAudioMode}
-                showToast={showToast}
-              />
-            )}
-
-            {/* â”€â”€ Drama Views â”€â”€ */}
-            {view === 'dramas' && (
-              <DramaHomeView
-                data={dramaHomeData}
-                error={dramaHomeError}
-                isLoading={dramaHomeLoading}
-                searchQuery={dramaSearchQuery}
-                searchResults={dramaSearchResults}
-                searchLoading={dramaSearchLoading}
-                onSearch={handleDramaSearch}
-                onDramaClick={handleDramaClick}
-              />
-            )}
-
-            {view === 'drama-detail' && selectedDrama && (
-              <DramaDetailView
-                drama={selectedDrama}
-                onBack={goDramas}
-                onWatchEpisode={startWatchingDrama}
-              />
-            )}
-
-            {view === 'drama-watch' && selectedDrama && dramaEpisode && (
-              <DramaWatchView
-                drama={selectedDrama}
-                episode={dramaEpisode}
-                stream={dramaStream}
-                loading={dramaStreamLoading}
-                onBack={() => { setView('drama-detail'); window.scrollTo(0,0); }}
-                onEpisodeSelect={(ep) => startWatchingDrama(selectedDrama, ep)}
-                onProgress={(prog) => handleWatchProgress(selectedDrama, dramaEpisode, 'drama', prog)}
-              />
-            )}
-
-            {/* â”€â”€ Manhwa Views â”€â”€ */}
-            {view === 'manhwa' && (
-              <ManhwaHomeView
-                data={manhwaHomeData}
-                error={manhwaHomeError}
-                isLoading={manhwaHomeLoading}
-                searchQuery={manhwaSearchQuery}
-                searchResults={manhwaSearchResults}
-                searchLoading={manhwaSearchLoading}
-                onSearch={handleManhwaSearch}
-                onSeriesClick={handleManhwaClick}
-              />
-            )}
-
-            {view === 'manhwa-detail' && selectedManhwa && (
-              <ManhwaDetailView
-                series={selectedManhwa}
-                isLoading={manhwaDetailLoading}
-                onBack={goManhwa}
-                onReadChapter={handleManhwaRead}
-              />
-            )}
-
-            {view === 'manhwa-read' && selectedManhwa && currentManhwaChapter && (
-              <ManhwaReadView
-                series={selectedManhwa}
-                chapter={currentManhwaChapter}
-                images={manhwaChapterImages}
-                isLoading={manhwaChapterLoading}
-                onBack={() => { setView('manhwa-detail'); window.scrollTo(0, 0); }}
-                onChapterSelect={(ch) => handleManhwaRead(selectedManhwa, ch)}
-              />
-            )}
-
-            {/* ── Movie Views ── */}
-            {view === 'movies' && activeSection === 'movies' && (
-              <MovieHomeView
-                data={moviesHomeData}
-                error={moviesHomeError}
-                isLoading={moviesHomeLoading}
-                activeCategory={movieActiveCategory}
-                setActiveCategory={setMovieActiveCategory}
-                searchQuery={movieSearchQuery}
-                searchResults={movieSearchResults}
-                searchLoading={movieSearchLoading}
-                onSearch={handleMovieSearch}
-                onMovieClick={handleMovieClick}
-              />
-            )}
-
-            {view === 'movie-detail' && selectedMovie && (
-              <MovieDetailView
-                movie={selectedMovie}
-                isLoading={selectedMovieLoading}
-                onBack={goMovies}
-                onWatch={() => { setView('movie-watch'); window.scrollTo(0, 0); }}
-              />
-            )}
-
-            {view === 'movie-watch' && selectedMovie && (
-              <MovieWatchView
-                movie={selectedMovie}
-                onBack={() => { setView('movie-detail'); window.scrollTo(0, 0); }}
-                onProgress={(prog) => handleWatchProgress(selectedMovie, { id: 'full', number: 1 }, 'movie', prog)}
-              />
-            )}
-
-            {/* ── Manga Views ── */}
-            {view === 'manga' && (
-              <MangaHomeViewV2
-                data={mangaHomeData}
-                error={mangaHomeError}
-                isLoading={mangaHomeLoading}
-                searchQuery={mangaSearchQuery}
-                searchResults={mangaSearchResults}
-                searchLoading={mangaSearchLoading}
-                onSearch={handleMangaSearch}
-                onMangaClick={handleMangaClick}
-                onCategorySelect={(category) => {
-                  setComicCategory(category);
-                  setView('comic-category');
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-              />
-            )}
-
-            {view === 'comic-category' && comicCategory && (
-              <MangaCategoryHubV2
-                category={comicCategory}
-                onBack={goManga}
-                onMangaClick={handleMangaClick}
-              />
-            )}
-
-            {view === 'manga-detail' && selectedManga && (
-              <MangaDetailView
-                manga={selectedManga}
-                isLoading={mangaDetailLoading}
-                onBack={goManga}
-                onReadChapter={(ch) => handleMangaRead(selectedManga, ch)}
-              />
-            )}
-
-            {view === 'manga-reader' && selectedManga && currentMangaChapter && (
-              <MangaReaderView
-                manga={selectedManga}
-                chapter={currentMangaChapter}
-                pages={mangaPages}
-                isLoading={mangaPageLoading}
-                onBack={() => { setView('manga-detail'); window.scrollTo(0, 0); }}
-                onChapterSelect={(ch) => handleMangaRead(selectedManga, ch)}
-              />
-            )}
-          </>
         )}
-      </main>
 
-      {/* ── Auth Modal ── */}
-      {showAuthModal && (
-        <AuthModal onClose={() => setShowAuthModal(false)} />
+        <main className={mainContentClass}>
+          {['detail', 'drama-detail', 'movie-detail', 'manhwa-detail'].includes(view) && (
+            <button className="global-back-btn" onClick={() => window.history.back()} title="Go Back">
+              <ArrowLeft size={16} /><span>Back</span>
+            </button>
+          )}
+
+          {/* Page-level loading bar ─── renders at root so it appears above everything */}
+
+          {searchQuery.trim() !== '' ? (
+            <SearchResults
+              query={searchQuery}
+              animeResults={searchResults.anime}
+              dramaResults={searchResults.dramas}
+              mangaResults={searchResults.manga}
+              loading={searchLoading}
+              onAnimeClick={handleAnimeClick}
+              onDramaClick={handleDramaClick}
+              onMangaClick={handleMangaClick}
+            />
+          ) : (
+            <>
+              {view === 'home' && (
+                <HomeView
+                  onAnimeClick={handleAnimeClick}
+                  onStartWatching={startWatching}
+                  onManhwaClick={(m) => { setSelectedManhwa(m); setView('manhwa-detail'); }}
+                />
+              )}
+              {view === 'anime' && (
+                <AnimeView
+                  activeFeatured={activeFeatured}
+                  featured={featured}
+                  activeCategory={activeCategory}
+                  filteredTrending={filteredTrending}
+                  top10Famous={top10Famous}
+                  setActiveCategory={setActiveCategory}
+                  onAnimeClick={handleAnimeClick}
+                  onStartWatching={startWatching}
+                  watchHistory={watchHistory}
+                  onDramaClick={handleDramaClick}
+                  onManhwaClick={(m) => { setSelectedManhwa(m); setView('manhwa-detail'); }}
+                />
+              )}
+              {view === 'tv-shows' && (
+                <CategoryGridView title="TV Shows" viewName="tv-shows" featuredItem={tvShowsData.featured} genresData={tvShowsData.genres} onAnimeClick={handleAnimeClick} onStartWatching={startWatching} isLoading={pageLoading} />
+              )}
+              {view === 'new-popular' && (
+                <CategoryGridView title="New & Popular" viewName="new-popular" featuredItem={newPopularData.featured} genresData={newPopularData.rows} onAnimeClick={handleAnimeClick} onStartWatching={startWatching} isLoading={pageLoading} />
+              )}
+              {view === 'hindi' && (
+                <HindiView hindiAnime={hindiData.list.length > 0 ? hindiData.list : trending.filter(a => a.hasHindiDub || a.hindiAvailable)} onAnimeClick={handleAnimeClick} onStartWatching={startWatching} isLoading={pageLoading} />
+              )}
+              {view === 'genre' && (
+                <GenreView genreName={genreViewName} items={genreAnimeList} isLoading={genreLoading} loadingMore={genreLoadingMore} hasMore={genreHasMore} onAnimeClick={handleAnimeClick} onStartWatching={startWatching} />
+              )}
+              {view === 'my-list' && (
+                <WatchlistView items={myList} onAnimeClick={handleAnimeClick} onBackHome={goHome} />
+              )}
+              {view === 'detail' && selectedAnime && (
+                <DetailView anime={selectedAnime} franchiseList={franchiseList} myList={myList} onToggleWatchlist={toggleWatchlist} onAnimeSelect={(id) => handleAnimeClick(id, true)} onBackHome={goHome} onStartWatching={startWatching} />
+              )}
+              {view === 'watch' && selectedAnime && currentEpisode && (
+                <WatchView
+                  anime={selectedAnime} episode={currentEpisode} source={playerSource} franchiseList={franchiseList}
+                  currentSourceIndex={currentSourceIndex} loadingSources={loadingSources} setCurrentSourceIndex={setCurrentSourceIndex}
+                  onStartWatching={(animeNode, epNum, keepFranchise = true, targetAudio = audioMode) => startWatching(animeNode, epNum, keepFranchise, targetAudio)}
+                  onAnimeSelect={(id) => { setPageLoading(true); api.getAnimeDetails(id).then((d) => { if (d) startWatching(d, 1, true); }).finally(() => setPageLoading(false)); }}
+                  onProgress={(prog) => handleWatchProgress(selectedAnime, currentEpisode, 'anime', prog)}
+                  audioMode={audioMode} setAudioMode={setAudioMode} showToast={showToast}
+                />
+              )}
+              {view === 'dramas' && (
+                <DramaHomeView data={dramaHomeData} error={dramaHomeError} isLoading={dramaHomeLoading} searchQuery={dramaSearchQuery} searchResults={dramaSearchResults} searchLoading={dramaSearchLoading} onSearch={handleDramaSearch} onDramaClick={handleDramaClick} />
+              )}
+              {view === 'drama-detail' && selectedDrama && (
+                <DramaDetailView drama={selectedDrama} onBack={goDramas} onWatchEpisode={startWatchingDrama} />
+              )}
+              {view === 'drama-watch' && selectedDrama && dramaEpisode && (
+                <DramaWatchView drama={selectedDrama} episode={dramaEpisode} stream={dramaStream} loading={dramaStreamLoading} onBack={() => { setView('drama-detail'); window.scrollTo(0,0); }} onEpisodeSelect={(ep) => startWatchingDrama(selectedDrama, ep)} onProgress={(prog) => handleWatchProgress(selectedDrama, dramaEpisode, 'drama', prog)} />
+              )}
+              {(view === 'manhwa' || view === 'manga' || view === 'comic-category') && (
+                <WebtoonComicView
+                  onComicClick={(comic) => {
+                    setSelectedManga(comic);
+                    setSelectedManhwa(comic);
+                    setView('webtoon-detail');
+                    window.scrollTo(0, 0);
+                  }}
+                />
+              )}
+              {(view === 'webtoon-detail' || view === 'manhwa-detail' || view === 'manga-detail') && (selectedManga || selectedManhwa) && (
+                <WebtoonDetailView
+                  manga={selectedManga || selectedManhwa}
+                  onBack={() => setView('manga')}
+                  onChapterSelect={(ch) => handleMangaRead(selectedManga || selectedManhwa, ch)}
+                />
+              )}
+              {view === 'manhwa-read' && selectedManhwa && currentManhwaChapter && (
+                <ManhwaReadView series={selectedManhwa} chapter={currentManhwaChapter} images={manhwaChapterImages} isLoading={manhwaChapterLoading} onBack={() => { setView('webtoon-detail'); window.scrollTo(0, 0); }} onChapterSelect={(ch) => handleManhwaRead(selectedManhwa, ch)} />
+              )}
+              {view === 'manga-reader' && selectedManga && currentMangaChapter && (
+                <MangaReaderView manga={selectedManga} chapter={currentMangaChapter} pages={mangaPages} isLoading={mangaPageLoading} onBack={() => { setView('webtoon-detail'); window.scrollTo(0, 0); }} onChapterSelect={(ch) => handleMangaRead(selectedManga, ch)} />
+              )}
+              {view === 'movies' && activeSection === 'movies' && (
+                <MovieHomeView data={moviesHomeData} error={moviesHomeError} isLoading={moviesHomeLoading} activeCategory={movieActiveCategory} setActiveCategory={setMovieActiveCategory} searchQuery={movieSearchQuery} searchResults={movieSearchResults} searchLoading={movieSearchLoading} onSearch={handleMovieSearch} onMovieClick={handleMovieClick} />
+              )}
+              {view === 'movie-detail' && selectedMovie && (
+                <MovieDetailView movie={selectedMovie} isLoading={selectedMovieLoading} onBack={goMovies} onWatch={() => { setView('movie-watch'); window.scrollTo(0, 0); }} />
+              )}
+              {view === 'movie-watch' && selectedMovie && (
+                <MovieWatchView movie={selectedMovie} onBack={() => { setView('movie-detail'); window.scrollTo(0, 0); }} onProgress={(prog) => handleWatchProgress(selectedMovie, { id: 'full', number: 1 }, 'movie', prog)} />
+              )}
+            </>
+          )}
+        </main>
+      </div>
+
+      {!isImmersiveView && (
+        <MobileBottomNav activeView={view} setView={setView} setSection={handleSectionChange} user={user} onSignIn={() => setShowAuthModal(true)} />
       )}
 
-      {/* ── Welcome Banner ── */}
+      {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
+
       <div className={`welcome-banner ${showWelcome ? 'visible' : ''}`}>
         <div className="welcome-banner-content">
-          <span>👋 First time here? Sign in to save your watchlist and sync your watch history!</span>
+          <span>°Ãƒ...¸¢Ã¢¬¢Ã¢¬¹ First time here? Sign in to save your watchlist and sync your watch history!</span>
           <button className="welcome-banner-btn" onClick={() => { setShowWelcome(false); setShowAuthModal(true); }}>Sign In</button>
         </div>
         <button className="welcome-banner-close" onClick={() => setShowWelcome(false)} aria-label="Close welcome message">
@@ -1900,7 +1735,6 @@ function App() {
         </button>
       </div>
 
-      {/* ── Toast Notifications ── */}
       <div className={`toast-notification toast-notification--${toast.type} ${toast.visible ? 'visible' : ''}`}>
         <div className="toast-notification-content">{toast.message}</div>
       </div>
@@ -1908,66 +1742,114 @@ function App() {
   );
 }
 
-function SearchResults({ query, animeResults = [], dramaResults = [], mangaResults = [], loading, onAnimeClick, onDramaClick, onMangaClick }) {
-  const hasResults = animeResults.length > 0 || dramaResults.length > 0 || mangaResults.length > 0;
+// ─── YouTube Search Result Item Component ───
+function YTSearchResultItem({ item, type, onClick }) {
+  const thumb = item.bannerImage || item.coverImage || item.thumbnail || item.cover || '';
+  const title = item.title || 'Untitled';
+  const displayTitle = type === 'manga'
+    ? `${title} | Chapter 1`
+    : `${title} | Season 1 | Episode 1`;
+
+  const viewsText = formatViews(item.popularity || item.viewsCount || 500000);
+  const timeAgoText = formatRelativeTime(item.startDate, 1);
+  const durationText = type === 'manga' ? 'Ch. 1' : '23:45';
+  const genres = item.genres?.slice(0, 2).join(' • ') || (type === 'manga' ? 'Manga' : type === 'drama' ? 'Drama' : 'Anime');
+  const desc = item.description || 'Watch high quality episodes, detailed synopses, and recommendations on EetNet.';
+
+  const initial = title.charAt(0).toUpperCase();
+  const colorMap = { A:'#FF0000',B:'#3ea6ff',C:'#7B68EE',D:'#FF69B4',F:'#00C853',J:'#FF6D00',K:'#1DE9B6',M:'#AA00FF',N:'#FFD600',O:'#FF5252',S:'#00BCD4',T:'#8D6E63' };
+  const avatarColor = colorMap[initial] || '#606060';
 
   return (
-    <div className="container" style={{ marginTop: '2rem', paddingBottom: '4rem' }}>
-      <div className="section-header" style={{ marginBottom: '2rem' }}>
-        <h2 className="section-title">Search Results for "{query}"</h2>
+    <div className="yt-search-item" onClick={onClick} role="button" tabIndex={0} onKeyDown={e => e.key === 'Enter' && onClick()}>
+      <div className="yt-search-thumb-wrap">
+        {thumb ? (
+          <img src={thumb} alt={displayTitle} loading="lazy" onError={e => { e.target.style.display='none'; }} />
+        ) : (
+          <div style={{ width:'100%',height:'100%',background:'#272727',display:'flex',alignItems:'center',justifyContent:'center',color:'#717171',fontSize:'14px' }}>No Image</div>
+        )}
+        <span className="yt-search-duration">{durationText}</span>
+      </div>
+      <div className="yt-search-info">
+        <div className="yt-search-title">{displayTitle}</div>
+        <div className="yt-search-stats">{viewsText} · {timeAgoText}</div>
+        <div className="yt-search-channel-row">
+          <div className="yt-search-avatar" style={{ background: avatarColor }}>{initial}</div>
+          <span className="yt-search-channel-name">{genres}</span>
+        </div>
+        <div className="yt-search-desc">{desc}</div>
+        <div className="yt-search-badges">
+          <span className="yt-search-badge">4K</span>
+          <span className="yt-search-badge">SUB</span>
+          <span className="yt-search-badge">DUB</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SearchResults({ query, animeResults = [], dramaResults = [], mangaResults = [], loading, onAnimeClick, onDramaClick, onMangaClick }) {
+  const [activeChip, setActiveChip] = useState('all');
+
+  const allList = [
+    ...animeResults.map(item => ({ ...item, _searchType: 'anime' })),
+    ...dramaResults.map(item => ({ ...item, _searchType: 'drama' })),
+    ...mangaResults.map(item => ({ ...item, _searchType: 'manga' })),
+  ];
+
+  const filteredList = activeChip === 'all'
+    ? allList
+    : allList.filter(item => item._searchType === activeChip);
+
+  const hasResults = filteredList.length > 0;
+
+  return (
+    <div className="yt-search-page">
+      <div className="yt-search-header-bar">
+        <div className="yt-search-chip-group">
+          <button className={`yt-search-chip ${activeChip === 'all' ? 'active' : ''}`} onClick={() => setActiveChip('all')}>All</button>
+          {animeResults.length > 0 && <button className={`yt-search-chip ${activeChip === 'anime' ? 'active' : ''}`} onClick={() => setActiveChip('anime')}>Anime</button>}
+          {dramaResults.length > 0 && <button className={`yt-search-chip ${activeChip === 'drama' ? 'active' : ''}`} onClick={() => setActiveChip('drama')}>Dramas</button>}
+          {mangaResults.length > 0 && <button className={`yt-search-chip ${activeChip === 'manga' ? 'active' : ''}`} onClick={() => setActiveChip('manga')}>Manga</button>}
+        </div>
+        <button className="yt-search-filter-btn">
+          <Sparkles size={16} /> Filters
+        </button>
       </div>
 
       {loading ? (
-        <InlineLoader label="Searching the catalog..." />
+        <div className="yt-search-list">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="yt-search-skeleton-item">
+              <div className="yt-search-skeleton-thumb" />
+              <div className="yt-search-skeleton-info">
+                <div className="yt-skeleton-line" style={{ width: '80%', height: '20px' }} />
+                <div className="yt-skeleton-line" style={{ width: '40%', height: '14px' }} />
+                <div className="yt-skeleton-line" style={{ width: '30%', height: '14px' }} />
+                <div className="yt-skeleton-line" style={{ width: '90%', height: '14px' }} />
+              </div>
+            </div>
+          ))}
+        </div>
       ) : hasResults ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '3rem' }}>
-          {/* Anime Results */}
-          {animeResults.length > 0 && (
-            <div>
-              <h3 style={{ fontSize: '1.4rem', fontWeight: '700', marginBottom: '1.2rem', color: 'var(--text-primary)', borderLeft: '4px solid var(--accent-primary)', paddingLeft: '0.8rem' }}>Anime</h3>
-              <div className="drama-grid">
-                {animeResults.map((anime) => (
-                  <AnimeCard
-                    key={anime.id}
-                    anime={anime}
-                    onClick={() => onAnimeClick(anime.id)}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Drama Results */}
-          {dramaResults.length > 0 && (
-            <div>
-              <h3 style={{ fontSize: '1.4rem', fontWeight: '700', marginBottom: '1.2rem', color: 'var(--text-primary)', borderLeft: '4px solid var(--accent-primary)', paddingLeft: '0.8rem' }}>Dramas</h3>
-              <div className="drama-grid">
-                {dramaResults.map((drama) => (
-                  <DramaCard
-                    key={drama.id}
-                    drama={drama}
-                    onClick={() => onDramaClick(drama)}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {mangaResults.length > 0 && (
-            <div>
-              <h3 style={{ fontSize: '1.4rem', fontWeight: '700', marginBottom: '1.2rem', color: 'var(--text-primary)', borderLeft: '4px solid #f59e0b', paddingLeft: '0.8rem' }}>Manga, Manhwa &amp; Donghua</h3>
-              <div className="manga-grid">
-                {mangaResults.map((manga, index) => (
-                  <MangaCard key={manga.id || index} manga={manga} onClick={onMangaClick} />
-                ))}
-              </div>
-            </div>
-          )}
+        <div className="yt-search-list">
+          {filteredList.map((item) => (
+            <YTSearchResultItem
+              key={`${item._searchType}-${item.id}`}
+              item={item}
+              type={item._searchType}
+              onClick={() => {
+                if (item._searchType === 'anime') onAnimeClick(item.id);
+                else if (item._searchType === 'drama') onDramaClick(item);
+                else if (item._searchType === 'manga') onMangaClick(item);
+              }}
+            />
+          ))}
         </div>
       ) : (
-        <div style={{ textAlign: 'center', padding: '4rem 0', color: 'var(--text-secondary)' }}>
-          <AlertCircle size={48} style={{ marginBottom: '1rem', color: 'var(--text-muted)' }} />
-          <h3>No results found matching your query</h3>
+        <div style={{ textAlign: 'center', padding: '4rem 0', color: '#aaa' }}>
+          <AlertCircle size={48} style={{ marginBottom: '1rem', color: '#717171' }} />
+          <h3>No search results for "{query}"</h3>
           <p style={{ fontSize: '0.9rem', marginTop: '0.5rem' }}>
             Try checking your spelling or trying different keywords.
           </p>
@@ -1977,15 +1859,10 @@ function SearchResults({ query, animeResults = [], dramaResults = [], mangaResul
   );
 }
 
-function GlobalLoader({ label }) {
+function GlobalLoader() {
   return (
-    <div className="global-loader-overlay" role="status" aria-live="polite">
-      <div className="blob-loader-wrap">
-        <div className="blob-loader" />
-        <p className="blob-loader-text">
-          Loading<span className="blob-dots"><span>.</span><span>.</span><span>.</span></span>
-        </p>
-      </div>
+    <div className="yt-top-bar" role="progressbar" aria-label="Loading...">
+      <div className="yt-top-bar-fill" />
     </div>
   );
 }
@@ -2001,7 +1878,7 @@ function InlineLoader({ label }) {
   );
 }
 
-/* â”€â”€â”€ Skeleton Components â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬ Skeleton Components ───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬ */
 function SkeletonHero() {
   return (
     <div className="skeleton-hero">
@@ -2090,7 +1967,7 @@ function Top10Tile({ anime, rank, onClick }) {
           <div className="top10-card-glow" />
         </div>
         <div className="top10-card-overlay">
-          <span className="top10-card-rating">★ {anime.rating}</span>
+          <span className="top10-card-rating">⭐ {anime.rating}</span>
           <span className="top10-card-title">{anime.title}</span>
           <span className="top10-card-type">{anime.type}</span>
         </div>
@@ -2103,7 +1980,7 @@ const HOME_FEATURED_ITEMS = [
   {
     id: 154587,
     title: "Frieren: Beyond Journey's End",
-    badge: "✦ Trending Anime",
+    badge: "Trending Anime",
     description: "After the party of heroes defeated the Demon King, elf mage Frieren sets out on a journey to understand humanity.",
     bannerImage: "/home-carousel/81wyRXGKnpL.jpg",
     coverImage: "/home-carousel/81wyRXGKnpL.jpg",
@@ -2111,148 +1988,209 @@ const HOME_FEATURED_ITEMS = [
     rating: "9.3",
     hasHindiDub: true,
     actionType: "anime"
-  },
-  {
-    id: 501,
-    title: "Doraemon",
-    badge: "✦ Classic Legend",
-    description: "A robotic cat travels back in time from the 22nd century to aid a young boy named Nobita Nobi.",
-    bannerImage: "/home-carousel/Doraemonn.28_5.webp",
-    coverImage: "/home-carousel/Doraemonn.28_5.webp",
-    type: "ANIME",
-    rating: "8.7",
-    hasHindiDub: true,
-    actionType: "anime"
-  },
-  {
-    id: 199,
-    title: "Spirited Away",
-    badge: "✦ Masterpiece Movie",
-    description: "During her family's move to the suburbs, a 10-year-old girl wanders into a world ruled by gods, witches, and spirits.",
-    bannerImage: "/home-carousel/images.jpg",
-    coverImage: "/home-carousel/images.jpg",
-    type: "MOVIE",
-    rating: "8.8",
-    hasHindiDub: true,
-    actionType: "anime"
-  },
-  {
-    id: 31649,
-    title: "Liar Game",
-    badge: "✦ Psychological Thriller",
-    description: "Nao Kanzaki receives 100 million yen and an invitation to join the Liar Game Tournament—a high-stakes game of deception.",
-    bannerImage: "/home-carousel/MV5BNjcyMWRkZDUtMDgyZi00MDU4LWJjYjUtZGVjZGYyZWY2YjU2XkEyXkFqcGc@._V1_.jpg",
-    coverImage: "/home-carousel/MV5BNjcyMWRkZDUtMDgyZi00MDU4LWJjYjUtZGVjZGYyZWY2YjU2XkEyXkFqcGc@._V1_.jpg",
-    type: "MANGA",
-    rating: "8.9",
-    actionType: "manhwa",
-    slug: "liar-game"
-  },
-  {
-    id: 147149,
-    title: "Smoking Behind the Supermarket with You",
-    badge: "✦ Slice of Life",
-    description: "Overworked salaryman Sasaki finds comfort in smoking breaks behind his local supermarket with the eccentric Yamada.",
-    bannerImage: "/home-carousel/Super_no_Ura_de_Yani_Suu_Hanashi_Behind_the_Supermarket,_Smoking_With_You.png",
-    coverImage: "/home-carousel/Super_no_Ura_de_Yani_Suu_Hanashi_Behind_the_Supermarket,_Smoking_With_You.png",
-    type: "MANGA",
-    rating: "8.9",
-    actionType: "manhwa",
-    slug: "super-no-ura-de-yani-suu-futari"
   }
 ];
 
-function HomeView({
-  onAnimeClick,
-  onStartWatching,
-  onManhwaClick
-}) {
-  const [index, setIndex] = useState(0);
+// ─── YouTube Card Component ───
+function YTCard({ item, onClick, badge }) {
+  const thumb = item.episodeThumbnail || item.bannerImage || item.coverImage || item.thumbnail || item.cover || '';
+  const animeTitle = item.title || 'Untitled';
+  const seasonNum = item.season || 1;
+  const epNum = item.episode || 1;
+  const displayTitle = `${animeTitle} | Season ${seasonNum} | Episode ${epNum}`;
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setIndex((prev) => (prev + 1) % HOME_FEATURED_ITEMS.length);
-    }, 15000);
-    return () => clearInterval(timer);
-  }, []);
+  const channelText = item.genres?.slice(0, 2).join(' • ') || item.type || 'Anime';
+  const viewsText = formatViews(item.popularity || item.viewsCount);
+  const timeAgoText = formatRelativeTime(item.startDate, epNum);
+  const durationText = item.formattedDuration || (item.rawDuration ? `${item.rawDuration}:00` : (item.duration && !isNaN(parseInt(item.duration)) ? `${parseInt(item.duration)}:00` : '23:45'));
 
-  const active = HOME_FEATURED_ITEMS[index];
-
-  const handlePlayClick = () => {
-    if (active.actionType === 'manhwa' && onManhwaClick) {
-      onManhwaClick(active);
-    } else {
-      onStartWatching(active, 1);
-    }
-  };
-
-  const handleInfoClick = () => {
-    if (active.actionType === 'manhwa' && onManhwaClick) {
-      onManhwaClick(active);
-    } else {
-      onAnimeClick(active.id);
-    }
-  };
+  const initial = animeTitle.charAt(0).toUpperCase();
+  const colorMap = { A:'#FF0000',B:'#3ea6ff',C:'#7B68EE',D:'#FF69B4',F:'#00C853',J:'#FF6D00',K:'#1DE9B6',M:'#AA00FF',N:'#FFD600',O:'#FF5252',S:'#00BCD4',T:'#8D6E63' };
+  const avatarColor = colorMap[initial] || '#606060';
 
   return (
-    <div className="clean-home-landing">
-      {active && (
-        <div
-          key={active.id}
-          className="clean-home-hero"
-          style={{
-            backgroundImage: `url(${active.bannerImage})`,
-          }}
-        >
-          <div className="clean-hero-overlay" />
-
-          {/* Bottom-left title + description + buttons */}
-          <div className="clean-home-hero-content">
-            {active.badge && (
-              <div className="clean-home-hero-badge">
-                {active.badge}
-              </div>
-            )}
-            <h1 className="clean-home-hero-title">{active.title}</h1>
-            {active.description && (
-              <p className="clean-home-hero-desc">{active.description}</p>
-            )}
-
-            <div className="clean-home-hero-btns">
-              <button
-                className="clean-hero-btn-play"
-                onClick={handlePlayClick}
-              >
-                <Play size={17} fill="currentColor" style={{ marginRight: '0.55rem' }} />
-                {active.actionType === 'manhwa' ? 'Read Now' : 'Play'}
-              </button>
-              <button
-                className="clean-hero-btn-info"
-                onClick={handleInfoClick}
-              >
-                <Info size={17} style={{ marginRight: '0.55rem' }} />
-                Info
-              </button>
-            </div>
-          </div>
-
-          {/* Carousel progress dots (bottom-right) */}
-          <div className="clean-home-dots">
-            {HOME_FEATURED_ITEMS.map((item, i) => (
-              <span
-                key={item.id}
-                className={`hero-dot ${index === i ? 'active' : ''}`}
-                onClick={() => setIndex(i)}
-                title={item.title}
-              />
-            ))}
-          </div>
+    <div className="yt-card" onClick={onClick} role="button" tabIndex={0} onKeyDown={e => e.key === 'Enter' && onClick()}>
+      <div className="yt-card-thumb-wrap">
+        {thumb ? (
+          <img src={thumb} alt={displayTitle} loading="lazy" onError={e => { e.target.style.display='none'; }} />
+        ) : (
+          <div style={{ width:'100%',height:'100%',background:'#272727',display:'flex',alignItems:'center',justifyContent:'center',color:'#717171',fontSize:'14px' }}>No Image</div>
+        )}
+        {badge && <span className="yt-card-badge">{badge}</span>}
+        <span className="yt-card-duration">{durationText}</span>
+      </div>
+      <div className="yt-card-meta">
+        <div className="yt-card-avatar" style={{ background: avatarColor }}>
+          <span style={{ color:'white',fontSize:'14px',fontWeight:'700',display:'flex',alignItems:'center',justifyContent:'center',height:'100%' }}>{initial}</span>
         </div>
-      )}
+        <div className="yt-card-info">
+          <div className="yt-card-title">{displayTitle}</div>
+          <div className="yt-card-channel">{channelText}</div>
+          <div className="yt-card-stats">{viewsText} · {timeAgoText}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+// ─── Chip Bar Component ───
+function ChipBar({ chips, active, onSelect }) {
+  return (
+    <div className="yt-chip-bar">
+      {chips.map(chip => (
+        <button
+          key={chip.id}
+          className={`yt-chip ${active === chip.id ? 'active' : ''}`}
+          onClick={() => onSelect(chip.id)}
+        >
+          {chip.label}
+        </button>
+      ))}
     </div>
   );
 }
 
+// ─── HomeView (YouTube-style infinite scroll grid) ───
+function HomeView({ onAnimeClick, onStartWatching, onManhwaClick }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [chipActive, setChipActive] = useState('all');
+  const observerRef = useRef(null);
+  const sentinelRef = useRef(null);
+
+  const HOME_CHIPS = [
+    { id: 'all', label: 'All' },
+    { id: 'anime', label: 'Anime' },
+    { id: 'action', label: 'Action' },
+    { id: 'adventure', label: 'Adventure' },
+    { id: 'romance', label: 'Romance' },
+    { id: 'comedy', label: 'Comedy' },
+    { id: 'drama', label: 'Drama' },
+    { id: 'fantasy', label: 'Fantasy' },
+    { id: 'thriller', label: 'Thriller' },
+    { id: 'popular', label: 'Popular' },
+    { id: 'new', label: 'New' },
+  ];
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setItems([]);
+
+    (async () => {
+      let results;
+      try {
+        results = await Promise.allSettled([
+          api.getAnimeList(),
+          api.getTop10Famous(),
+          api.getNewAndPopular(),
+        ]);
+      } catch (e) {
+        if (!cancelled) setLoading(false);
+        return;
+      }
+      if (cancelled) return;
+
+      const allItems = [];
+      const seen = new Set();
+      results.forEach(r => {
+        if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+          r.value.forEach(item => {
+            if (item.id && !seen.has(String(item.id))) {
+              seen.add(String(item.id));
+              const epNum = Math.random() < 0.8 ? 1 : Math.floor(Math.random() * 3) + 2;
+              allItems.push({ ...item, _contentType: 'anime', season: 1, episode: epNum });
+            }
+          });
+        }
+      });
+
+      // Shuffle for variety
+      for (let i = allItems.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [allItems[i], allItems[j]] = [allItems[j], allItems[i]];
+      }
+
+      // Render immediately with fallback banners
+      if (!cancelled) {
+        setItems(allItems);
+        setLoading(false);
+      }
+
+      // Background: resolve unique per-episode thumbnails in batches
+      const BATCH_SIZE = 6;
+      for (let start = 0; start < allItems.length; start += BATCH_SIZE) {
+        if (cancelled) break;
+        const batch = allItems.slice(start, start + BATCH_SIZE);
+        const thumbResults = await Promise.allSettled(
+          batch.map(item => resolveEpisodeThumbnail(item, item.episode, item.season || 1))
+        );
+        if (cancelled) break;
+        setItems(prev => {
+          const updated = [...prev];
+          batch.forEach((item, idx) => {
+            const thumb = thumbResults[idx].status === 'fulfilled' ? thumbResults[idx].value : null;
+            const pos = updated.findIndex(u => u.id === item.id);
+            if (pos !== -1 && thumb && thumb !== updated[pos].bannerImage) {
+              updated[pos] = { ...updated[pos], episodeThumbnail: thumb };
+            }
+          });
+          return updated;
+        });
+        await new Promise(r => setTimeout(r, 300));
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [chipActive]);
+
+  const filtered = chipActive === 'all'
+    ? items
+    : items.filter(item => {
+        if (chipActive === 'popular' || chipActive === 'new') return true;
+        return item.genres?.some(g => g.toLowerCase() === chipActive.toLowerCase());
+      });
+
+  return (
+    <div className="yt-home-view">
+      <ChipBar chips={HOME_CHIPS} active={chipActive} onSelect={setChipActive} />
+
+      {loading ? (
+        <div className="yt-content-grid">
+          {Array.from({ length: 16 }).map((_, i) => (
+            <div key={i} className="yt-card-skeleton">
+              <div className="yt-skeleton-thumb" />
+              <div className="yt-card-meta" style={{ padding: '4px 0' }}>
+                <div className="yt-skeleton-avatar" />
+                <div style={{ flex: 1 }}>
+                  <div className="yt-skeleton-line" style={{ width: '90%' }} />
+                  <div className="yt-skeleton-line" style={{ width: '60%', marginTop: '6px' }} />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="yt-content-grid">
+          {filtered.map(item => (
+            <YTCard
+              key={item.id}
+              item={item}
+              onClick={() => onStartWatching(item, item.episode || 1)}
+            />
+          ))}
+          {filtered.length === 0 && (
+            <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '4rem', color: 'var(--text-secondary)' }}>
+              No content found for this filter.
+            </div>
+          )}
+        </div>
+      )}
+      <div ref={sentinelRef} style={{ height: '1px' }} />
+    </div>
+  );
+}
+
+// ─── AnimeView (YouTube-style chip + grid) ───
 function AnimeView({
   activeFeatured,
   featured = [],
@@ -2266,245 +2204,106 @@ function AnimeView({
   onDramaClick,
   onManhwaClick
 }) {
-  const continueWatching = watchHistory.slice(0, 10).map(h => ({
-    id: h.media_id || h.id,
-    title: h.title,
-    coverImage: h.cover || h.coverImage,
-    bannerImage: h.cover || h.coverImage,
-    rating: 'N/A',
-    type: h.type,
-    subtitle: h.type === 'manhwa'
-      ? `Ch. ${h.chapter_number}`
-      : `Ep. ${h.episode_number}`,
-    progressPercent: (h.duration_seconds > 0)
-      ? Math.min(100, Math.round((h.progress_seconds / h.duration_seconds) * 100))
-      : 0,
-    _historyRef: h
-  }));
+  const ANIME_CHIPS = [
+    { id: 'All', label: 'All' },
+    { id: 'Action', label: 'Action' },
+    { id: 'Adventure', label: 'Adventure' },
+    { id: 'Romance', label: 'Romance' },
+    { id: 'Comedy', label: 'Comedy' },
+    { id: 'Fantasy', label: 'Fantasy' },
+    { id: 'Thriller', label: 'Thriller' },
+    { id: 'Horror', label: 'Horror' },
+    { id: 'Sci-Fi', label: 'Sci-Fi' },
+    { id: 'Sports', label: 'Sports' },
+    { id: 'Hindi', label: 'Hindi Dub' },
+  ];
 
-  const handleContinueWatchingClick = (item) => {
-    const h = item._historyRef;
-    if (!h) return;
-    if (h.type === 'drama' && onDramaClick) {
-      onDramaClick(h.media_id || h.id);
-    } else if (h.type === 'manhwa' && onManhwaClick) {
-      onManhwaClick(h);
-    } else {
-      onAnimeClick(h.media_id || h.id);
-    }
-  };
-
-  const realAnimeFeaturedList = featured.filter(a => a.id !== 'backrooms-movie' && (a.bannerImage || a.coverImage));
-  const activeAnimeHero = realAnimeFeaturedList.find(a => a.id === activeFeatured?.id) || realAnimeFeaturedList[0] || filteredTrending[0];
-
-  const popularNow = filteredTrending.slice(0, 10);
-  const hindiAnimeRow = filteredTrending.filter(a => a.hasHindiDub || hasHindiDubAvailable(a.title, a.japaneseTitle));
-  const spotlightItem = filteredTrending.find(a => a.id !== activeAnimeHero?.id) || filteredTrending[0];
-  const bentoItems = filteredTrending.filter(a => a.id !== activeAnimeHero?.id && a.id !== spotlightItem?.id).slice(0, 4);
-  const classics = filteredTrending.filter(a => a.id !== activeAnimeHero?.id && a.id !== spotlightItem?.id && !bentoItems.some(b => b.id === a.id)).slice(0, 5);
+  const continueWatching = watchHistory.slice(0, 10).filter(h => h.type === 'anime' || !h.type);
 
   return (
-    <div className="netflix-home">
-      {/* ── Featured Anime Hero ── */}
-      {activeAnimeHero && (
-        <div
-          className="hero netflix-hero"
-          style={{
-            height: '80vh',
-            minHeight: '520px',
-            backgroundImage: `url(${activeAnimeHero.bannerImage || activeAnimeHero.coverImage})`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center'
-          }}
-        >
-          <div className="clean-hero-overlay" />
-          <div className="container hero-shell" style={{ position: 'relative', zIndex: 2, paddingBottom: '3.5rem' }}>
-            <div className="hero-content" style={{ maxWidth: '620px' }}>
-              <div className="bento-badge" style={{ marginBottom: '0.8rem', width: 'fit-content' }}>✦ Featured Anime</div>
-              <h1 className="hero-title" style={{ fontSize: '3.6rem', fontWeight: '800', letterSpacing: '-0.02em', margin: '0 0 1.25rem 0', textShadow: '0 4px 20px rgba(0,0,0,0.8)' }}>
-                {activeAnimeHero.title}
-              </h1>
+    <div className="yt-section-view">
+      {/* Chip filter bar */}
+      <ChipBar chips={ANIME_CHIPS} active={activeCategory} onSelect={setActiveCategory} />
 
-              <div className="btn-group" style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
-                <button
-                  className="clean-hero-btn-play"
-                  onClick={() => onStartWatching(activeAnimeHero, 1)}
-                  style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}
-                >
-                  <Play size={18} fill="currentColor" style={{ marginRight: '0.6rem' }} /> Watch Ep 1
-                </button>
-
-                <button
-                  className="clean-hero-btn-info"
-                  onClick={() => onAnimeClick(activeAnimeHero.id)}
-                  style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}
-                >
-                  <Info size={18} style={{ marginRight: '0.6rem' }} /> Details
-                </button>
-              </div>
-            </div>
+      {/* Continue Watching row (if exists) */}
+      {continueWatching.length > 0 && (
+        <div className="yt-section-block">
+          <div className="yt-section-header">
+            <span className="yt-section-title">Continue Watching</span>
           </div>
-
-          {realAnimeFeaturedList.length > 1 && (
-            <div className="hero-carousel-dots" style={{ position: 'absolute', bottom: '2rem', right: '3rem', zIndex: 3, display: 'flex', gap: '0.5rem' }}>
-              {realAnimeFeaturedList.slice(0, 6).map((item, i) => (
-                <span key={i} className={`hero-dot ${activeAnimeHero?.id === item.id ? 'active' : ''}`} />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Anime Rows ── */}
-      <div className="netflix-rows">
-        {/* Continue Watching */}
-        {continueWatching.length > 0 && (
-          <NetflixRow
-            title="Continue Watching"
-            icon={<History className="hv-icon" size={20} style={{ color: 'var(--accent-primary)' }} />}
-            items={continueWatching}
-            onAnimeClick={handleContinueWatchingClick}
-            progress
-          />
-        )}
-
-        {/* Hindi Dubbed Anime Row */}
-        {hindiAnimeRow.length > 0 && (
-          <NetflixRow
-            title="Hindi Dubbed Anime"
-            icon={<Globe className="hv-icon" size={20} style={{ color: '#ff4757' }} />}
-            items={hindiAnimeRow}
-            onAnimeClick={(a) => onAnimeClick(a.id ?? a)}
-          />
-        )}
-
-        {/* Popular Anime */}
-        <NetflixRow
-          title="Popular Anime on EetNet"
-          icon={<Flame className="hv-icon" size={20} style={{ color: '#f97316' }} />}
-          items={popularNow}
-          onAnimeClick={(a) => onAnimeClick(a.id ?? a)}
-        />
-
-        {/* Genre Filter Pills */}
-        <div className="category-row netflix-category-row">
-          <div className="hv-section-header">
-            <h2 className="hv-section-title">
-              <Compass className="hv-icon" size={20} style={{ color: '#a855f7' }} /> Browse Anime by Genre
-            </h2>
-            <span className="hv-section-line" />
-          </div>
-          <div className="categories-container">
-            <button
-              className={`category-pill ${activeCategory === 'All' ? 'active' : ''}`}
-              onClick={() => setActiveCategory('All')}
-            >All</button>
-            {animeCategories.map((cat) => (
-              <button
-                key={cat}
-                className={`category-pill ${activeCategory === cat ? 'active' : ''}`}
-                onClick={() => setActiveCategory(cat)}
-              >{cat}</button>
+          <div className="yt-content-grid">
+            {continueWatching.slice(0, 8).map(h => (
+              <YTCard
+                key={h.media_id || h.id}
+                item={{ id: h.media_id || h.id, title: h.title, coverImage: h.cover || h.coverImage, rating: 'N/A', genres: [] }}
+                badge={`Ep. ${h.episode_number || '?'}`}
+                onClick={() => onAnimeClick(h.media_id || h.id)}
+              />
             ))}
           </div>
         </div>
+      )}
 
-        {/* Top 10 Famous Anime */}
-        <Top10Row
-          title="Top 10 Famous Anime"
-          items={top10Famous && top10Famous.length > 0 ? top10Famous : filteredTrending}
-          onAnimeClick={onAnimeClick}
-        />
-
-        {/* Bento Grid Spotlight */}
-        {spotlightItem && (
-          <div className="bento-section">
-            <div className="hv-section-header">
-              <h2 className="hv-section-title">
-                <Sparkles className="hv-icon" size={20} style={{ color: '#eab308' }} /> Anime Spotlight &amp; Recommendations
-              </h2>
-              <span className="hv-section-line" />
-            </div>
-            <div className="bento-grid">
-              {/* Large Spotlight card */}
-              <div className="bento-card bento-card--large" onClick={() => onAnimeClick(spotlightItem.id)}>
-                <div className="bento-card__bg" style={{ backgroundImage: `url(${spotlightItem.bannerImage || spotlightItem.coverImage})` }} />
-                <div className="bento-card__overlay" />
-                {(spotlightItem.hasHindiDub || hasHindiDubAvailable(spotlightItem.title, spotlightItem.japaneseTitle)) && (
-                  <div className="bento-hindi-badge">Hindi</div>
-                )}
-                <div className="bento-card__content">
-                  <div className="bento-badge">✦ Spotlight Pick</div>
-                  <h3 className="bento-title">{spotlightItem.title}</h3>
-                  <div className="bento-meta">
-                    <span className="bento-rating">★ {spotlightItem.rating}</span>
-                    <span className="bento-type">{spotlightItem.type}</span>
-                  </div>
-                  {spotlightItem.genres && (
-                    <div className="bento-genres">
-                      {spotlightItem.genres.slice(0, 3).map(g => (
-                        <span key={g} className="bento-genre-tag">{g}</span>
-                      ))}
-                    </div>
-                  )}
-                  <button className="bento-play-btn">
-                    <Play size={14} fill="currentColor" /> Watch Now
-                  </button>
-                </div>
-              </div>
-
-              {/* Medium mosaic cards */}
-              <div className="bento-medium-wrapper">
-                {bentoItems.map((item) => {
-                  const isHindi = item.hasHindiDub || hasHindiDubAvailable(item.title, item.japaneseTitle);
-                  return (
-                    <div key={item.id} className="bento-card bento-card--medium" onClick={() => onAnimeClick(item.id)}>
-                      <img src={item.coverImage} alt={item.title} className="bento-card__img" loading="lazy" />
-                      {isHindi && <div className="bento-hindi-badge">Hindi</div>}
-                      <div className="bento-card__info">
-                        <h4 className="bento-card__title">{item.title}</h4>
-                        <div className="bento-card__meta">
-                          <span className="bento-card__rating">★ {item.rating}</span>
-                          <span className="bento-card__type">{item.type}</span>
-                        </div>
-                      </div>
-                      <div className="bento-card__hover-overlay">
-                        <Play size={28} fill="white" style={{ color: 'white' }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Sidebar list */}
-              {classics.length > 0 && (
-                <div className="bento-card bento-card--list">
-                  <h4 className="bento-list__header">
-                    <span>Top Anime For You</span>
-                    <span className="bento-list__header-line" />
-                  </h4>
-                  <div className="bento-list__items">
-                    {classics.map((item, idx) => (
-                      <div key={item.id} className="bento-list__item" onClick={() => onAnimeClick(item.id)}>
-                        <span className="bento-list__index">{idx + 1}</span>
-                        <img src={item.coverImage} alt={item.title} className="bento-list__thumb" loading="lazy" />
-                        <div className="bento-list__details">
-                          <span className="bento-list__title">{item.title}</span>
-                          <span className="bento-list__meta">★ {item.rating} · {item.type}</span>
-                        </div>
-                        <span className="bento-list__arrow">›</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+      {/* Top 10 */}
+      {top10Famous.length > 0 && (
+        <div className="yt-section-block">
+          <div className="yt-section-header">
+            <span className="yt-section-title">🔥 Top 10 This Week</span>
           </div>
-        )}
+          <div className="yt-content-grid">
+            {top10Famous.slice(0, 10).map((anime, i) => (
+              <YTCard
+                key={anime.id}
+                item={anime}
+                badge={`#${i + 1}`}
+                onClick={() => onStartWatching(anime, 1)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Main grid */}
+      <div className="yt-section-block">
+        <div className="yt-section-header">
+          <span className="yt-section-title">
+            {activeCategory === 'All' ? 'Trending Anime' : `${activeCategory} Anime`}
+          </span>
+          {featured.length > 0 && (
+            <button className="yt-section-more" onClick={() => onAnimeClick(featured[0]?.id)}>
+              View all → Ã¢â‚¬â„¢
+            </button>
+          )}
+        </div>
+        <div className="yt-content-grid">
+          {filteredTrending.length > 0 ? (
+            filteredTrending.map(anime => (
+              <YTCard
+                key={anime.id}
+                item={anime}
+                onClick={() => onStartWatching(anime, 1)}
+              />
+            ))
+          ) : (
+            Array.from({ length: 12 }).map((_, i) => (
+              <div key={i} className="yt-card-skeleton">
+                <div className="yt-skeleton-thumb" />
+                <div className="yt-card-meta" style={{ padding: '4px 0' }}>
+                  <div className="yt-skeleton-avatar" />
+                  <div style={{ flex: 1 }}>
+                    <div className="yt-skeleton-line" style={{ width: '90%' }} />
+                    <div className="yt-skeleton-line" style={{ width: '60%', marginTop: '6px' }} />
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
     </div>
   );
 }
+
 
 function NetflixRow({ title, icon, items, onAnimeClick, progress = false, ranked = false }) {
   const sliderRef = useRef(null);
@@ -2687,8 +2486,6 @@ function NetflixRow({ title, icon, items, onAnimeClick, progress = false, ranked
 }
 
 function NetflixTile({ anime, rank, progress, onClick }) {
-  const isHindi = anime.hasHindiDub || hasHindiDubAvailable(anime.title, anime.japaneseTitle);
-
   return (
     <button className={`netflix-tile ${rank ? 'ranked-tile' : ''}`} onClick={onClick}>
       {rank && <span className="tile-rank">{rank}</span>}
@@ -2704,7 +2501,7 @@ function NetflixTile({ anime, rank, progress, onClick }) {
           </span>
         )}
         {anime.rating && anime.rating !== 'N/A' && (
-          <span className="tile-rating-badge">★ {anime.rating}</span>
+          <span className="tile-rating-badge">⭐ {anime.rating}</span>
         )}
       </span>
       <span className="tile-info">
@@ -2724,7 +2521,7 @@ function GenreView({ genreName, items = [], isLoading, loadingMore = false, hasM
 
   return (
     <div className="genre-view-container" style={{ paddingTop: '5.5rem', paddingBottom: '5rem' }}>
-      {/* ── Glassmorphic Genre Hero Card ── */}
+      {/* ─ Glassmorphic Genre Hero Card ─ */}
       <div className="container">
         <div
           className="genre-hero-glass-card"
@@ -2835,7 +2632,7 @@ function GenreView({ genreName, items = [], isLoading, loadingMore = false, hasM
           </div>
         </div>
 
-        {/* ── Section Title ── */}
+        {/* ─ Section Title ─ */}
         <div className="hv-section-header" style={{ marginBottom: '1.8rem' }}>
           <h2 className="hv-section-title" style={{ fontSize: '1.4rem', fontWeight: 800, color: '#fff' }}>
             <Sparkles className="hv-icon" size={20} style={{ color: '#e50914' }} />
@@ -2844,7 +2641,7 @@ function GenreView({ genreName, items = [], isLoading, loadingMore = false, hasM
           <span className="hv-section-line" />
         </div>
 
-        {/* ── 16:9 Bento Cards Grid ── */}
+        {/* ─ 16:9 Bento Cards Grid ─ */}
         <div
           className="bento-grid"
           style={{
@@ -2863,7 +2660,7 @@ function GenreView({ genreName, items = [], isLoading, loadingMore = false, hasM
           ))}
         </div>
 
-        {/* ── Infinite Scroll Skeleton Loader ── */}
+        {/* ─ Infinite Scroll Skeleton Loader ─ */}
         {loadingMore && (
           <div
             style={{
@@ -2886,7 +2683,7 @@ function GenreView({ genreName, items = [], isLoading, loadingMore = false, hasM
         {/* 200 items limit reached notice */}
         {!hasMore && items.length >= 200 && (
           <div style={{ textAlign: 'center', padding: '3.5rem 0', color: '#6b7280', fontSize: '0.85rem' }}>
-            ✦ Showing top 200 {genreName} anime. Explore other categories from the left slider menu!
+            Showing top 200 {genreName} anime. Explore other categories from the left slider menu!
           </div>
         )}
       </div>
@@ -2991,10 +2788,10 @@ function DetailView({ anime, franchiseList = [], myList = [], onToggleWatchlist,
                 <Play size={18} fill="currentColor" /> Play Episode 1
               </button>
               <button
-                className={`btn ${myList.some(item => item.id === anime.id) ? 'btn-watchlist-active' : 'btn-secondary'}`}
+                className={`btn ${myList.some(item => item.id === anime.id) ? '✓ Saved' : '+ Save'}`}
                 onClick={() => onToggleWatchlist(anime)}
               >
-                {myList.some(item => item.id === anime.id) ? 'âœ“ In My List' : '+ My List'}
+                {myList.some(item => item.id === anime.id) ? '✓ In My List' : '+ My List'}
               </button>
               <button className="btn btn-secondary" onClick={onBackHome}>
                 Back to Home
@@ -3157,9 +2954,16 @@ function WatchView({
   const [loadingEpisodes, setLoadingEpisodes] = React.useState(false);
   const [filter, setFilter] = React.useState('all');
   const [showSeasonDropdown, setShowSeasonDropdown] = React.useState(false);
+  const [cbfPool, setCbfPool] = React.useState([]);
+  const [cbfPage, setCbfPage] = React.useState(1);
+  const [visibleCbfCount, setVisibleCbfCount] = React.useState(8);
+  const [cbfLoadingMore, setCbfLoadingMore] = React.useState(false);
+  const [liked, setLiked] = React.useState(false);
+  const [descExpanded, setDescExpanded] = React.useState(false);
 
   const dropdownRef = React.useRef(null);
   const activeEpisodeRef = React.useRef(null);
+  const secondaryColRef = React.useRef(null);
 
   // Sync part with current episode number when it changes
   React.useEffect(() => {
@@ -3293,142 +3097,214 @@ function WatchView({
     return true;
   });
 
+  // Initialize CBF Pool when selected anime changes
+  React.useEffect(() => {
+    if (!anime) return;
+    setCbfPage(1);
+    setVisibleCbfCount(8);
+    const initialPool = window.__eetnet_trending_pool__ || [];
+    if (initialPool.length > 0) {
+      setCbfPool(initialPool);
+    } else {
+      api.getAnimeList(1, 30).then(list => {
+        if (list && list.length > 0) {
+          window.__eetnet_trending_pool__ = list;
+          setCbfPool(list);
+        }
+      }).catch(() => {});
+    }
+  }, [anime?.id]);
+
+  // Compute recommendations dynamically over the entire pool
+  const cbfRecs = React.useMemo(() => {
+    if (!anime || !cbfPool || cbfPool.length === 0) return [];
+    return getRecommendations(anime, cbfPool, cbfPool.length);
+  }, [anime, cbfPool]);
+
+  const displayedCbfRecs = cbfRecs.slice(0, visibleCbfCount);
+
+  // Load more CBF recommendations
+  const loadMoreCbf = React.useCallback(async () => {
+    if (cbfLoadingMore) return;
+    if (visibleCbfCount < cbfRecs.length) {
+      setVisibleCbfCount(prev => Math.min(prev + 8, cbfRecs.length));
+      return;
+    }
+    // Fetch next page of candidates from AniList API
+    setCbfLoadingMore(true);
+    try {
+      const nextPage = cbfPage + 1;
+      const newItems = await api.getAnimeList(nextPage, 30);
+      if (newItems && newItems.length > 0) {
+        setCbfPool(prev => {
+          const existingIds = new Set(prev.map(item => String(item.id)));
+          const filteredNew = newItems.filter(item => !existingIds.has(String(item.id)));
+          return [...prev, ...filteredNew];
+        });
+        setCbfPage(nextPage);
+        setVisibleCbfCount(prev => prev + 8);
+      }
+    } catch (err) {
+      console.warn('[CBF] Failed to fetch more recommendations:', err);
+    } finally {
+      setCbfLoadingMore(false);
+    }
+  }, [cbfLoadingMore, visibleCbfCount, cbfRecs.length, cbfPage]);
+
+  // Attach infinite scroll listener on window
+  React.useEffect(() => {
+    const handleScroll = () => {
+      const scrollPos = window.innerHeight + window.scrollY;
+      const threshold = document.documentElement.scrollHeight - 450;
+      if (scrollPos >= threshold) {
+        loadMoreCbf();
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [loadMoreCbf]);
+
+  const franchiseIndex = franchiseList.findIndex(item => item.id === anime.id);
+  const seasonNum = franchiseIndex !== -1 ? franchiseIndex + 1 : 1;
+
   return (
-    <div className="watch-page-wrapper">
-      <div className="watch-container-netflix">
-        {/* Player Block */}
-        <div className="player-area-full">
-          {loadingSources ? (
-            <LoadingPlayer />
-          ) : (
-            <VideoPlayer
-              source={source}
-              poster={episode.thumbnail || anime.bannerImage}
-              subtitles={episode?.subtitles}
-              malId={anime.idMal}
-              episodeNumber={episode.number}
-            />
-          )}
+    <div className="yt-watch-page">
+      {/* ─── 2-Column Grid Layout ─── */}
+      <div className="yt-watch-layout">
 
-          {/* Warning banner */}
-          {hasProviderProblem && (
-            <ProviderWarning error={episode.error} />
-          )}
+        {/* ────── LEFT COLUMN: Primary ────── */}
+        <div className="yt-watch-primary">
 
-          {/* Watch Page Title Block */}
-          <div className="watch-action-bar" style={{ borderBottom: 'none', paddingBottom: '0.5rem' }}>
-            <div className="action-bar-left">
-              <div className="watch-ep-info">
-                Episode {episode.number}: {episode.title}
-              </div>
-              <h1 className="watch-meta-title">{anime.title}</h1>
+          {/* Video Player */}
+          <div className="yt-player-wrap">
+            {loadingSources ? (
+              <LoadingPlayer />
+            ) : (
+              <VideoPlayer
+                source={source}
+                poster={episode.thumbnail || anime.bannerImage}
+                subtitles={episode?.subtitles}
+                malId={anime.idMal}
+                episodeNumber={episode.number}
+                className="yt-player-skin"
+              />
+            )}
+            {hasProviderProblem && <ProviderWarning error={episode.error} />}
+          </div>
+
+          {/* Title block */}
+          <div className="yt-watch-title-block">
+            <h1 className="yt-watch-title">
+              {anime.title}
+            </h1>
+            <div className="yt-watch-ep-label">
+              Season {seasonNum} · Episode {episode.number}{episode.title && episode.title !== `Episode ${episode.number}` ? `  ${episode.title}` : ''}
             </div>
           </div>
 
-          {/* Description & Server Block */}
-          <div className="watch-description-block" style={{ marginTop: '0' }}>
-            {/* Audio Mode / Language Selector Bar */}
-            <div className="audio-mode-selector">
-              <span className="audio-mode-label">Audio Language:</span>
-              <div className="audio-mode-pills">
-                <button
-                  className={`audio-pill ${audioMode === 'sub' ? 'active' : ''}`}
-                  onClick={() => {
-                    if (setAudioMode) setAudioMode('sub');
-                    if (showToast) showToast('🇯🇵 Switched to Japanese (Subbed) Audio', 'info');
-                    if (onStartWatching) onStartWatching(anime, episode.number, true, 'sub');
-                  }}
-                >
-                  SUB (JPN)
-                </button>
-                <button
-                  className={`audio-pill ${audioMode === 'dub' ? 'active' : ''}`}
-                  onClick={() => {
-                    if (setAudioMode) setAudioMode('dub');
-                    if (showToast) showToast('🎙️ Switched to English Dubbed Audio', 'info');
-                    if (onStartWatching) onStartWatching(anime, episode.number, true, 'dub');
-                  }}
-                >
-                  DUB (ENG)
-                </button>
-                <button
-                  className={`audio-pill audio-pill--hindi ${audioMode === 'hindi' ? 'active' : ''}`}
-                  onClick={() => {
-                    const isKnownHindiDub = isKnownHindiDubTitle(anime.title, anime.japaneseTitle);
-                    if (setAudioMode) setAudioMode('hindi');
-                    if (showToast) showToast(isKnownHindiDub ? 'Switching to Hindi Dub audio...' : 'Checking Hindi Dub source...', 'info');
-                    if (onStartWatching) onStartWatching(anime, episode.number, true, 'hindi');
-                  }}
-                >
-                  🇮🇳 HINDI DUB
-                  {hasHindiDubAvailable(anime.title, anime.japaneseTitle) ? (
-                    <span className="hindi-badge">Available</span>
-                  ) : isKnownHindiDubTitle(anime.title, anime.japaneseTitle) ? (
-                    <span className="hindi-badge" style={{ background: '#8a6d1d', color: '#ffe8a3' }}>Check</span>
-                  ) : (
-                    <span className="hindi-badge" style={{ background: '#555', color: '#ccc' }}>Try</span>
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {episode.sources && episode.sources.length > 1 && (
-              <div className="server-selector" style={{ marginBottom: '1.25rem' }}>
-                <span style={{ fontSize: '0.85rem', fontWeight: '600', color: 'var(--text-secondary)' }}>
-                  Choose Server / Quality:
-                </span>
-                {episode.sources.map((src, idx) => (
+          {/* Action bar */}
+          <div className="yt-watch-action-bar">
+            <div className="yt-watch-action-left">
+              {/* Audio mode */}
+              <div className="yt-audio-pills">
+                {['sub','dub','hindi'].map(mode => (
                   <button
-                    key={`${src.url}-${idx}`}
-                    className={`server-btn ${currentSourceIndex === idx ? 'active' : ''}`}
-                    onClick={() => setCurrentSourceIndex(idx)}
+                    key={mode}
+                    className={`yt-audio-pill ${audioMode === mode ? 'active' : ''}`}
+                    onClick={() => {
+                      if (setAudioMode) setAudioMode(mode);
+                      if (onStartWatching) onStartWatching(anime, episode.number, true, mode);
+                    }}
                   >
-                    Server {idx + 1} ({src.quality || 'auto'})
+                    {mode === 'sub' ? '🇯🇵 SUB' : mode === 'dub' ? '🇺🇸 DUB' : '🇮🇳 HIN'}
+                    {mode === 'hindi' && anime.hindiAvailable && (
+                      <span className="yt-hindi-badge">✓</span>
+                    )}
                   </button>
                 ))}
               </div>
-            )}
+            </div>
 
-            <p className="watch-meta-desc">{anime.description}</p>
+            <div className="yt-watch-action-right">
+              <button className={`yt-action-btn ${liked ? 'active' : ''}`} onClick={() => setLiked(v => !v)}>
+                <ThumbsUp size={18} />
+                <span>{liked ? 'Liked' : 'Like'}</span>
+              </button>
+              <button className="yt-action-btn">
+                <Share2 size={18} />
+                <span>Share</span>
+              </button>
+              <button className="yt-action-btn">
+                <Bookmark size={18} />
+                <span>Save</span>
+              </button>
+              <button className="yt-action-btn">
+                <MoreHorizontal size={18} />
+              </button>
+            </div>
           </div>
 
-          {/* Netflix-Style Bento Episodes Section */}
-          <div className="watch-episodes-slider-section" style={{ borderTop: 'none', paddingTop: '1rem' }}>
-            {/* Header: Title on Left, Season dropdown button on Right */}
-            <div className="slider-header" style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '1rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-                <h3 className="slider-title" style={{ margin: '0', fontSize: '1.5rem' }}>Episodes</h3>
-                <div className="episode-filter-bar" style={{ marginTop: '0' }}>
-                  {['all', 'canon', 'filler', 'recap'].map(f => (
-                    <button
-                      key={f}
-                      className={`ep-filter-btn${filter === f ? ' active' : ''}`}
-                      onClick={() => setFilter(f)}
-                    >
-                      {f.charAt(0).toUpperCase() + f.slice(1)}
-                    </button>
-                  ))}
+          {/* Server selector */}
+          {episode.sources && episode.sources.length > 1 && (
+            <div className="yt-server-selector">
+              <span className="yt-server-label">Server / Quality:</span>
+              {episode.sources.map((src, idx) => (
+                <button
+                  key={`${src.url}-${idx}`}
+                  className={`yt-server-btn ${currentSourceIndex === idx ? 'active' : ''}`}
+                  onClick={() => setCurrentSourceIndex(idx)}
+                >
+                  {src.quality || `Server ${idx + 1}`}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Description */}
+          {anime.description && (
+            <div className="yt-watch-desc-block">
+              <p
+                className={`yt-watch-desc ${descExpanded ? 'expanded' : ''}`}
+                onClick={() => setDescExpanded(v => !v)}
+              >
+                {anime.description}
+              </p>
+              <button className="yt-desc-toggle" onClick={() => setDescExpanded(v => !v)}>
+                {descExpanded ? 'Show less' : 'more'}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* ────── RIGHT COLUMN: Secondary ────── */}
+        <div className="yt-watch-secondary" ref={secondaryColRef}>
+
+          {/* ─── Season Panel (YouTube playlist bento) ─── */}
+          <div className="yt-season-panel">
+            {/* Panel header */}
+            <div className="yt-season-panel-header">
+              <div className="yt-season-panel-header-left">
+                <div className="yt-season-panel-title">Episodes</div>
+                <div className="yt-season-panel-subtitle">
+                  {filteredEpisodes.length} episodes
                 </div>
               </div>
-
-              {/* Season Selector Button on the far right */}
-              <div className="season-dropdown-wrapper" ref={dropdownRef}>
+              {/* Clickable Season Selector */}
+              <div className="yt-season-selector" ref={dropdownRef}>
                 <button
-                  className="watch-action-btn season-btn"
-                  onClick={() => setShowSeasonDropdown(!showSeasonDropdown)}
-                  aria-expanded={showSeasonDropdown}
-                  style={{ minWidth: '180px' }}
+                  className="yt-season-selector-btn"
+                  onClick={() => setShowSeasonDropdown(v => !v)}
                 >
-                  <span>{activeLabel}</span>
-                  <span className="btn-arrow">â–¼</span>
+                  <span className="yt-season-selector-label">{activeLabel}</span>
+                  <ChevronDown size={14} className={showSeasonDropdown ? 'rotated' : ''} />
                 </button>
-
                 {showSeasonDropdown && (
-                  <div className="season-dropdown-menu">
+                  <div className="yt-season-dropdown">
                     {seasonOptions.map((opt, idx) => (
                       <button
                         key={idx}
-                        className={`season-dropdown-item${opt.isActive ? ' active' : ''}`}
+                        className={`yt-season-dropdown-item ${opt.isActive ? 'active' : ''}`}
                         onClick={() => {
                           setShowSeasonDropdown(false);
                           if (opt.id !== anime.id) {
@@ -3438,7 +3314,8 @@ function WatchView({
                           }
                         }}
                       >
-                        {opt.title}
+                        {opt.isActive && <CheckCircle size={14} style={{ flexShrink: 0, color: 'var(--accent-primary)' }} />}
+                        <span>{opt.title}</span>
                       </button>
                     ))}
                   </div>
@@ -3446,82 +3323,124 @@ function WatchView({
               </div>
             </div>
 
-            {/* Episode List or Bento Skeletons */}
-            {loadingEpisodes ? (
-              <div className="ep-bento-list">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <BentoEpisodeSkeleton key={i} />
-                ))}
-              </div>
-            ) : filteredEpisodes.length === 0 ? (
-              <div className="slider-empty">
-                <p>No {filter !== 'all' ? filter : ''} episodes found.</p>
-              </div>
-            ) : (
-              <div className="ep-bento-list">
-                {filteredEpisodes.map(ep => {
+            {/* Filter chips */}
+            <div className="yt-season-filter-bar">
+              {['all', 'canon', 'filler', 'recap'].map(f => (
+                <button
+                  key={f}
+                  className={`yt-season-chip ${filter === f ? 'active' : ''}`}
+                  onClick={() => setFilter(f)}
+                >
+                  {f.charAt(0).toUpperCase() + f.slice(1)}
+                </button>
+              ))}
+            </div>
+
+            {/* Episode rows */}
+            <div className="yt-ep-list">
+              {loadingEpisodes ? (
+                Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} className="yt-ep-row skeleton">
+                    <div className="yt-ep-row-num yt-skeleton-box" style={{ width: 20, height: 16 }} />
+                    <div className="yt-ep-row-thumb yt-skeleton-box" />
+                    <div style={{ flex: 1 }}>
+                      <div className="yt-skeleton-line" style={{ width: '80%', marginBottom: 6 }} />
+                      <div className="yt-skeleton-line" style={{ width: '50%' }} />
+                    </div>
+                  </div>
+                ))
+              ) : filteredEpisodes.length === 0 ? (
+                <div className="yt-ep-list-empty">No episodes found.</div>
+              ) : (
+                filteredEpisodes.map(ep => {
                   const isActive = ep.number === episode.number;
-                  // Dynamic placeholder synopsis text for Netflix look
-                  const dynamicDesc = `In Episode ${ep.number} of ${anime.title}, the journey intensifies. Watch as the characters face new challenges, make key decisions, and shape their destiny. Stream in Full HD quality now.`;
-                  
-                  // Calculate active season number from franchise list
-                  const franchiseIndex = franchiseList.findIndex(item => item.id === anime.id);
-                  const seasonNum = franchiseIndex !== -1 ? (franchiseIndex + 1) : 1;
-
-                  // Avoid redundant "Episode X - Episode X" title labels
                   const rawTitle = ep.title || '';
-                  const isRedundantTitle = rawTitle.trim().toLowerCase() === `episode ${ep.number}` || 
-                                           rawTitle.trim().toLowerCase() === `episode 0${ep.number}`;
-                  const cleanTitle = ep.title && !isRedundantTitle ? ep.title.trim() : '';
-
+                  const isRedundant = rawTitle.toLowerCase().trim() === `episode ${ep.number}` || rawTitle.toLowerCase().trim() === `ep ${ep.number}`;
+                  const cleanTitle = ep.title && !isRedundant ? ep.title.trim() : '';
                   return (
                     <div
                       key={ep.number}
                       ref={isActive ? activeEpisodeRef : null}
-                      className={`ep-bento-card${isActive ? ' active' : ''}${ep.filler ? ' filler' : ''}${ep.recap ? ' recap' : ''}`}
+                      className={`yt-ep-row ${isActive ? 'active' : ''} ${ep.filler ? 'filler' : ''} ${ep.recap ? 'recap' : ''}`}
                       onClick={() => onStartWatching(anime, ep.number)}
+                      role="button"
+                      tabIndex={0}
                     >
-                      {/* Left: Index Number */}
-                      <div className="ep-bento-number">{ep.number}</div>
-
-                      {/* Center: Image Thumbnail */}
-                      <div className="ep-bento-thumb">
-                        <img src={ep.thumbnail || anime.coverImage} alt={ep.title} loading="lazy" />
-                        <div className="ep-bento-play-overlay">
-                          <Play size={24} fill="currentColor" />
-                        </div>
-                        {ep.filler && <span className="ep-badge ep-badge-filler">FILLER</span>}
-                        {ep.recap && <span className="ep-badge ep-badge-recap">RECAP</span>}
+                      <div className="yt-ep-row-num">
+                        {isActive ? <Play size={12} fill="currentColor" style={{ color: '#fff' }} /> : ep.number}
                       </div>
-
-                      {/* Right: Content details */}
-                      <div className="ep-bento-info">
-                        <div className="ep-bento-header">
-                          <h4 className="ep-bento-title">
-                            Season {seasonNum} &middot; Episode {ep.number}{cleanTitle ? ` - ${cleanTitle}` : ''}
-                          </h4>
-                          <span className="ep-bento-duration">
-                            {anime.duration || '24m'}
-                          </span>
+                      <div className="yt-ep-row-thumb">
+                        <img src={ep.thumbnail || anime.coverImage} alt={`Ep ${ep.number}`} loading="lazy" />
+                        {ep.filler && <span className="yt-ep-badge filler">F</span>}
+                        {ep.recap && <span className="yt-ep-badge recap">R</span>}
+                      </div>
+                      <div className="yt-ep-row-info">
+                        <div className="yt-ep-row-title">
+                          {cleanTitle || `Episode ${ep.number}`}
                         </div>
-                        <p className="ep-bento-desc">{dynamicDesc}</p>
-                        <div className="ep-bento-meta">
-                          {ep.aired && <span>Aired: {ep.aired}</span>}
-                          {ep.score && <span style={{ color: 'var(--accent-primary)' }}>â˜… {ep.score}/5</span>}
+                        <div className="yt-ep-row-meta">
+                          {anime.duration || '~24m'}
                         </div>
                       </div>
                     </div>
                   );
-                })}
-              </div>
-            )}
+                })
+              )}
+            </div>
           </div>
+
+          {/* ─── CBF Suggestions ─── */}
+          {cbfRecs.length > 0 && (
+            <div className="yt-cbf-panel">
+              <div className="yt-cbf-panel-title">Up Next →</div>
+              <div className="yt-cbf-list">
+                {displayedCbfRecs.map(rec => (
+                  <div
+                    key={rec.id}
+                    className="yt-cbf-card"
+                    onClick={() => onStartWatching(rec, 1)}
+                    role="button"
+                    tabIndex={0}
+                  >
+                    <div className="yt-cbf-thumb">
+                      <img
+                        src={rec.bannerImage || rec.coverImage || rec.thumbnail || ''}
+                        alt={rec.title}
+                        loading="lazy"
+                        onError={e => { e.target.style.display = 'none'; }}
+                      />
+                    </div>
+                    <div className="yt-cbf-info">
+                      <div className="yt-cbf-title">{rec.title}</div>
+                      <div className="yt-cbf-meta">
+                        {rec.genres?.slice(0, 2).join(' · ')}
+                      </div>
+                      {rec._matchedTags && rec._matchedTags.length > 0 && (
+                        <div className="yt-cbf-match">
+                          {rec._matchedTags.slice(0, 2).join(', ')}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+                {cbfLoadingMore && Array.from({ length: 4 }).map((_, i) => (
+                  <div key={`cbf-skel-${i}`} className="yt-cbf-card skeleton" style={{ opacity: 0.7 }}>
+                    <div className="yt-cbf-thumb yt-skeleton-box" style={{ width: 168, height: 94 }} />
+                    <div className="yt-cbf-info" style={{ gap: 8, flex: 1 }}>
+                      <div className="yt-skeleton-line" style={{ width: '85%', height: 14 }} />
+                      <div className="yt-skeleton-line" style={{ width: '50%', height: 12 }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
-
 function BentoEpisodeSkeleton() {
   return (
     <div className="ep-bento-card skeleton-bento">
@@ -3753,9 +3672,9 @@ function WatchlistView({ items, onAnimeClick, onBackHome }) {
 
 export default App;
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───
 // MANHWA COMPONENTS (Hivetoons)
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───
 
 function ManhwaCard({ series, onClick }) {
   const [imgErr, setImgErr] = React.useState(false);
@@ -3871,7 +3790,7 @@ function ManhwaDetailView({ series, isLoading, onBack, onReadChapter }) {
       >
         <div className="manhwa-hero-overlay" />
         <div className="manhwa-detail-hero-content">
-          <button className="manhwa-back-btn" onClick={onBack}>â† Back</button>
+          <button className="manhwa-back-btn" onClick={onBack}>← </button>
           <div className="manhwa-detail-meta-row">
             <img src={series.cover} alt={series.title} className="manhwa-detail-cover" />
             <div className="manhwa-detail-info">
@@ -3973,12 +3892,12 @@ function ManhwaReadView({ series, chapter, images, isLoading, onBack, onChapterS
     <div className="manhwa-reader">
       {/* Top navigation bar */}
       <div className="manhwa-reader-header">
-        <button className="manhwa-back-btn" onClick={onBack}>â† {series.title}</button>
+        <button className="manhwa-back-btn" onClick={onBack}>← Back</button>
         <span className="manhwa-reader-chapter-label">Chapter {chapter.number}</span>
         <div className="manhwa-reader-nav">
           {prevChapter && (
             <button className="manhwa-nav-btn" onClick={() => onChapterSelect(prevChapter)}>
-              â† Prev
+              ← Prev
             </button>
           )}
           {nextChapter && (
@@ -4017,7 +3936,7 @@ function ManhwaReadView({ series, chapter, images, isLoading, onBack, onChapterS
         <div className="manhwa-reader-footer">
           {prevChapter && (
             <button className="manhwa-nav-btn" onClick={() => { onChapterSelect(prevChapter); window.scrollTo(0,0); }}>
-              â† Previous Chapter
+              ← Previous Chapter
             </button>
           )}
           <button className="manhwa-back-btn-plain" onClick={() => { onBack(); }}>
@@ -4052,9 +3971,9 @@ function ManhwaReadView({ series, chapter, images, isLoading, onBack, onChapterS
   );
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───
 // DRAMA COMPONENTS
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───
 
 function DramaCard({ drama, onClick }) {
   const [imgErr, setImgErr] = React.useState(false);
@@ -4236,7 +4155,7 @@ function DramaDetailView({ drama, onBack, onWatchEpisode }) {
       <div className="drama-detail-hero" style={{ backgroundImage: `url(${drama.thumbnail})` }}>
         <div className="drama-hero-overlay" />
         <div className="drama-detail-hero-content">
-          <button className="drama-back-btn" onClick={onBack}>â† Back</button>
+          <button className="drama-back-btn" onClick={onBack}>← Back</button>
           <h1 className="drama-detail-title">{drama.title}</h1>
           {drama.releaseDate && (
             <span className="drama-detail-meta">
@@ -4322,7 +4241,7 @@ function DramaWatchView({ drama, episode, stream, loading, onBack, onEpisodeSele
   return (
     <div className="drama-watch">
       <div className="drama-watch-header">
-        <button className="drama-back-btn" onClick={onBack}>â† {drama.title}</button>
+        <button className="drama-back-btn" onClick={onBack}>← {drama.title}</button>
         <span className="drama-watch-ep-label">Episode {episode.number}</span>
       </div>
 
@@ -4394,9 +4313,9 @@ function DramaWatchView({ drama, episode, stream, loading, onBack, onEpisodeSele
   );
 }
 
-// ─────────────────────────────────────────────────────
+// ───
 // MOVIE COMPONENTS
-// ─────────────────────────────────────────────────────
+// ───
 
 function MovieCard({ movie, onClick }) {
   const [imgErr, setImgErr] = React.useState(false);
@@ -4420,7 +4339,7 @@ function MovieCard({ movie, onClick }) {
           <span className="tile-hover-play"><Play size={20} fill="white" style={{ color: 'white' }} /></span>
         </span>
         {movie.rating && (
-          <span className="tile-rating-badge" style={{ color: '#fff' }}>★ {movie.rating}</span>
+          <span className="tile-rating-badge" style={{ color: '#fff' }}>⭐ {movie.rating}</span>
         )}
       </span>
       <span className="tile-info">
@@ -4619,7 +4538,7 @@ function MovieDetailView({ movie, isLoading, onBack, onWatch }) {
           <button className="drama-back-btn" onClick={onBack}>← Back</button>
           <h1 className="drama-detail-title">{movie.title}</h1>
           <span className="drama-detail-meta">
-            {movie.releaseDate ? movie.releaseDate.split('-')[0] : 'Movie'} · ★ {movie.rating || 'N/A'} {movie.runtime ? `· ${movie.runtime} mins` : ''}
+            {movie.releaseDate ? movie.releaseDate.split('-')[0] : 'Movie'} · ¢¹Ã…"¢Ã¢¬¦ {movie.rating || 'N/A'} {movie.runtime ? `· ${movie.runtime} mins` : ''}
           </span>
           <button className="btn btn-primary" onClick={onWatch}>
             <Play size={20} fill="currentColor" /> Play Movie
@@ -4750,9 +4669,9 @@ function MovieWatchView({ movie, onBack, onProgress }) {
   );
 }
 
-// ─────────────────────────────────────────────────────
+// ───
 // MANGA COMPONENTS
-// ─────────────────────────────────────────────────────
+// ───
 
 function MangaCard({ manga, onClick, index = 0 }) {
   const [imgError, setImgError] = React.useState(false);
@@ -4780,7 +4699,7 @@ function MangaCard({ manga, onClick, index = 0 }) {
       </div>
       <div className="manga-card-info">
         <p className="manga-card-title">{manga.title}</p>
-        {manga.rating && <span className="manga-card-rating">★ {manga.rating}</span>}
+        {manga.rating && <span style={{ color: '#f59e0b', fontWeight: 600 }}>⭐ {manga.rating}</span>}
       </div>
     </button>
   );
@@ -4828,8 +4747,7 @@ function MangaBentoGrid({ items, onMangaClick }) {
               <Trophy size={14} /> #1 TOP COMIC
             </div>
             <div className="bento-hero-content">
-              <span style={{ color: '#f59e0b', fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                ★ {heroItem.rating || '9.0'} • SPOTLIGHT
+              <span className="manga-hero-rating">⭐ {heroItem.rating || '9.0'} • SPOTLIGHT
               </span>
               <h3 style={{ color: '#ffffff', fontSize: '1.6rem', fontWeight: 800, margin: '0.2rem 0' }}>
                 {heroItem.title}
@@ -4860,9 +4778,8 @@ function MangaBentoGrid({ items, onMangaClick }) {
                 #{rank}
               </div>
               <div className="bento-card-info">
-                <div style={{ color: '#f59e0b', fontSize: '0.72rem', fontWeight: 700 }}>
-                  ★ {item.rating || '8.5'}
-                </div>
+                <span className="manga-badge">⭐ {item.rating || '8.5'}</span>
+
                 <div className="bento-card-title">{item.title}</div>
               </div>
             </div>
@@ -4925,21 +4842,21 @@ function MangaCategoryHub({ category, onBack, onMangaClick }) {
   const [isLoading, setIsLoading] = React.useState(true);
 
   const categoryMeta = {
-    manga: { title: 'Manga Hub', flag: '🇯🇵', subtitle: 'Explore Japanese Manga Comics' },
-    manhwa: { title: 'Manhwa Hub', flag: '🇰🇷', subtitle: 'Explore Korean Webtoons & Manhwa' },
-    manhua: { title: 'Manhua Hub', flag: '🇨🇳', subtitle: 'Explore Chinese Manhua & Cultivation Comics' }
-  }[category] || { title: 'Manga Hub', flag: '📖', subtitle: 'Browse Catalog' };
+    manga: { title: 'Manga Hub', subtitle: 'Explore Japanese Manga Comics' },
+    manhwa: { title: 'Manhwa Hub', subtitle: 'Explore Korean Webtoons & Manhwa' },
+    manhua: { title: 'Manhua Hub', subtitle: 'Explore Chinese Manhua & Cultivation Comics' }
+  }[category] || { title: 'Manga Hub', subtitle: 'Browse Catalog' };
 
   const genres = [
     { id: 'all', label: 'All Genres' },
-    { id: 'action', label: '⚔️ Action' },
-    { id: 'fantasy', label: '🔮 Fantasy' },
-    { id: 'romance', label: '💖 Romance' },
-    { id: 'system', label: '🎮 System' },
-    { id: 'isekai', label: '🌌 Isekai' },
-    { id: 'adventure', label: '🗺️ Adventure' },
-    { id: 'drama', label: '🎭 Drama' },
-    { id: 'sci-fi', label: '🤖 Sci-Fi' }
+    { id: 'action', label: 'Action' },
+    { id: 'fantasy', label: 'Fantasy' },
+    { id: 'romance', label: 'Romance' },
+    { id: 'system', label: 'System' },
+    { id: 'isekai', label: 'Isekai' },
+    { id: 'adventure', label: 'Adventure' },
+    { id: 'drama', label: 'Drama' },
+    { id: 'sci-fi', label: 'Sci-Fi' }
   ];
 
   React.useEffect(() => {
@@ -4997,7 +4914,7 @@ function MangaCategoryHub({ category, onBack, onMangaClick }) {
         <div className="manga-rows-container">
           {catData.trending?.length > 0 && (
             <MangaRow
-              title="🔥 Trending Now"
+              title="Trending Now"
               icon={<Flame size={18} style={{ color: '#f97316' }} />}
               mangas={catData.trending}
               onMangaClick={onMangaClick}
@@ -5005,7 +4922,7 @@ function MangaCategoryHub({ category, onBack, onMangaClick }) {
           )}
           {catData.popular?.length > 0 && (
             <MangaRow
-              title="📈 Most Popular"
+              title="Most Popular"
               icon={<Trophy size={18} style={{ color: '#eab308' }} />}
               mangas={catData.popular}
               onMangaClick={onMangaClick}
@@ -5013,7 +4930,7 @@ function MangaCategoryHub({ category, onBack, onMangaClick }) {
           )}
           {catData.topPick?.length > 0 && (
             <MangaRow
-              title="🌟 Fan's Top Pick"
+              title="Fan's Top Pick"
               icon={<Star size={18} fill="#a855f7" style={{ color: '#a855f7' }} />}
               mangas={catData.topPick}
               onMangaClick={onMangaClick}
@@ -5021,7 +4938,7 @@ function MangaCategoryHub({ category, onBack, onMangaClick }) {
           )}
           {catData.recent?.length > 0 && (
             <MangaRow
-              title="🆕 Recently Updated"
+              title="Recently Updated"
               icon={<Sparkles size={18} style={{ color: '#3b82f6' }} />}
               mangas={catData.recent}
               onMangaClick={onMangaClick}
@@ -5086,7 +5003,7 @@ function MangaHomeView({ data, error, isLoading, searchQuery, searchResults, sea
           {/* Previews */}
           {data.manhwaPreview?.length > 0 && (
             <MangaRow
-              title="🇰🇷 Trending Manhwa Webtoons"
+              title="Trending Manhwa Webtoons"
               icon={<Flame size={18} style={{ color: '#3b82f6' }} />}
               mangas={data.manhwaPreview}
               onMangaClick={onMangaClick}
@@ -5095,7 +5012,7 @@ function MangaHomeView({ data, error, isLoading, searchQuery, searchResults, sea
 
           {data.mangaPreview?.length > 0 && (
             <MangaRow
-              title="🇯🇵 Popular Japanese Manga"
+              title="Popular Japanese Manga"
               icon={<Trophy size={18} style={{ color: '#ef4444' }} />}
               mangas={data.mangaPreview}
               onMangaClick={onMangaClick}
@@ -5505,7 +5422,7 @@ function MangaDetailView({ manga, isLoading, onBack, onReadChapter }) {
             {manga.status && (
               <span className={`manga-status-badge inline ${manga.status === 'ongoing' ? 'ongoing' : 'completed'}`}>{manga.status}</span>
             )}
-            {manga.rating && <span style={{ color: '#f59e0b', fontWeight: 600 }}>★ {manga.rating}</span>}
+            {manga.rating && <span style={{ color: '#f59e0b', fontWeight: 600 }}>⭐ {manga.rating}</span>}
             {manga.chapters?.length > 0 && <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{manga.chapters.length} chapters</span>}
           </div>
           {manga.genres?.length > 0 && (
@@ -5563,7 +5480,7 @@ function MangaDetailView({ manga, isLoading, onBack, onReadChapter }) {
               <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem 0' }}>
                 {chapterSearch
                   ? 'No chapters match your search.'
-                  : 'No readable chapters available. This manga may be licensed exclusively on Manga Plus or Bilibili — chapters are hosted externally and cannot be read here.'
+                  : 'No readable chapters available. This manga may be licensed exclusively on Manga Plus or Bilibili - chapters are hosted externally and cannot be read here.'
                 }
               </p>
             )}
@@ -5574,11 +5491,91 @@ function MangaDetailView({ manga, isLoading, onBack, onReadChapter }) {
   );
 }
 
+// ─── Lazy-loading manga page wrapper using IntersectionObserver ─────────────
+// Prevents Chrome's 6-connection limit from aborting off-screen images.
+// Only starts loading when the image enters the viewport (+ 800px margin).
+function MangaPage({ page, pageIdx }) {
+  const [status, setStatus] = React.useState('idle'); // 'idle' | 'loading' | 'ok'
+  const [retryCount, setRetryCount] = React.useState(0);
+  const containerRef = React.useRef(null);
+  const imgRef = React.useRef(null);
+
+  React.useEffect(() => {
+    setStatus('idle');
+    setRetryCount(0);
+  }, [page.url]);
+
+  React.useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting && status === 'idle') {
+            setStatus('loading');
+            observer.disconnect();
+          }
+        });
+      },
+      { rootMargin: '800px 0px' }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [status, page.url]);
+
+  const handleLoad = () => setStatus('ok');
+
+  const handleError = () => {
+    // Silently auto-retry up to 6 times in background with backoff
+    if (retryCount < 6) {
+      const nextRetry = retryCount + 1;
+      setRetryCount(nextRetry);
+      setTimeout(() => {
+        if (imgRef.current) {
+          const sep = page.url.includes('?') ? '&' : '?';
+          imgRef.current.src = `${page.url}${sep}retry=${nextRetry}_${Date.now()}`;
+        }
+      }, 1000 * Math.min(nextRetry, 4));
+    }
+  };
+
+  return (
+    <div
+      ref={containerRef}
+      className="manga-page-wrap"
+      style={{
+        minHeight: status === 'ok' ? 'auto' : '500px',
+        display: 'flex',
+        justify: 'center',
+        alignItems: 'center',
+        background: status === 'ok' ? 'transparent' : 'rgba(255, 255, 255, 0.02)'
+      }}
+    >
+      {status !== 'idle' && (
+        <img
+          ref={imgRef}
+          src={page.url}
+          alt={`Page ${page.page}`}
+          className="manga-page-img"
+          onLoad={handleLoad}
+          onError={handleError}
+          style={{ opacity: status === 'ok' ? 1 : 0.0, transition: 'opacity 0.2s' }}
+        />
+      )}
+    </div>
+  );
+}
+
 function MangaReaderView({ manga, chapter, pages, isLoading, onBack, onChapterSelect }) {
   const [readMode, setReadMode] = React.useState('scroll'); // 'scroll' | 'page'
   const [currentPage, setCurrentPage] = React.useState(0);
   const [showControls, setShowControls] = React.useState(true);
-  const [failedImages, setFailedImages] = React.useState(new Set());
+
+  // ── Reset everything when chapter changes ──────────────────────────────
+  React.useEffect(() => {
+    setCurrentPage(0);
+  }, [chapter?.id]);
 
   const allChapters = manga.chapters || [];
   const currentChIdx = allChapters.findIndex(c => c.id === chapter.id);
@@ -5596,18 +5593,21 @@ function MangaReaderView({ manga, chapter, pages, isLoading, onBack, onChapterSe
     }
   };
 
-  // Track which images have tried their fallback URL already
-  const [triedFallback, setTriedFallback] = React.useState(new Set());
+  // Page-mode single-image retry state
+  const [pageImgKey, setPageImgKey] = React.useState(0);
+  const [pageImgError, setPageImgError] = React.useState(false);
 
-  const handleImgError = (pageIdx, e, page) => {
-    // If there's a fallbackUrl and we haven't tried it yet, switch to it
-    if (page?.fallbackUrl && !triedFallback.has(pageIdx)) {
-      setTriedFallback(prev => new Set([...prev, pageIdx]));
-      e.target.src = page.fallbackUrl;
-      return;
+  React.useEffect(() => {
+    setPageImgKey(0);
+    setPageImgError(false);
+  }, [chapter?.id, currentPage]);
+
+  const handlePageImgError = () => {
+    if (pageImgKey < 3) {
+      setTimeout(() => setPageImgKey(k => k + 1), 1500);
+    } else {
+      setPageImgError(true);
     }
-    // Both URLs failed — mark page as unavailable
-    setFailedImages(prev => new Set([...prev, pageIdx]));
   };
 
   return (
@@ -5643,9 +5643,7 @@ function MangaReaderView({ manga, chapter, pages, isLoading, onBack, onChapterSe
             ))}
           </select>
         )}
-        <button className="manga-chapter-nav-btn" disabled={currentChIdx >= allChapters.length - 1} onClick={goNextChapter}>
-          Next Ch <ChevronRight size={18} />
-        </button>
+        <button className="manga-chapter-nav-btn" disabled={currentChIdx >= allChapters.length - 1} onClick={goNextChapter}>Next Ch <ChevronRight size={18} /></button>
       </div>
 
       {/* Pages */}
@@ -5660,31 +5658,26 @@ function MangaReaderView({ manga, chapter, pages, isLoading, onBack, onChapterSe
         ) : readMode === 'scroll' ? (
           <div className="manga-reader-scroll">
             {pages.map((p, idx) => (
-              <div key={idx} className="manga-page-wrap">
-                {failedImages.has(idx) ? (
-                  <div className="manga-page-error">Page {p.page} unavailable</div>
-                ) : (
-                  <img
-                    src={p.url}
-                    alt={`Page ${p.page}`}
-                    className="manga-page-img"
-                    onError={(e) => handleImgError(idx, e, p)}
-                    loading="lazy"
-                  />
-                )}
-              </div>
+              <MangaPage key={`${chapter.id}-${idx}`} page={p} pageIdx={idx} />
             ))}
           </div>
         ) : (
           <div className="manga-reader-page-mode">
-            {failedImages.has(currentPage) ? (
-              <div className="manga-page-error">Page unavailable</div>
+            {pageImgError ? (
+              <div className="manga-page-error" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '40px', color: '#999' }}>
+                <span>⚠ Page {currentPage + 1} failed to load</span>
+                <button onClick={e => { e.stopPropagation(); setPageImgKey(0); setPageImgError(false); }}
+                  style={{ background: '#00e561', color: '#000', border: 'none', borderRadius: '4px', padding: '6px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+                  ↺ Retry
+                </button>
+              </div>
             ) : (
               <img
+                key={`${chapter.id}-pg-${currentPage}-${pageImgKey}`}
                 src={pages[currentPage]?.url}
                 alt={`Page ${currentPage + 1}`}
                 className="manga-page-img-single"
-                onError={(e) => handleImgError(currentPage, e, pages[currentPage])}
+                onError={handlePageImgError}
               />
             )}
             <div className="manga-page-nav">
@@ -5710,3 +5703,4 @@ function MangaReaderView({ manga, chapter, pages, isLoading, onBack, onChapterSe
     </div>
   );
 }
+
