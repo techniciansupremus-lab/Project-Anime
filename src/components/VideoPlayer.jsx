@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Hls from 'hls.js';
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Tv, Globe, Subtitles, Settings, RotateCcw, RotateCw } from 'lucide-react';
 
-export default function VideoPlayer({ source, poster, subtitles, malId, episodeNumber, title, type, onProgress }) {
+export default function VideoPlayer({ source, poster, subtitles, malId, episodeNumber, title, type, onProgress, className = '' }) {
   const containerRef = useRef(null);
   const videoRef = useRef(null);
   const hlsRef = useRef(null);
@@ -356,18 +356,44 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
   const toggleFullscreen = () => {
     const container = containerRef.current;
     if (!container) return;
-    if (!document.fullscreenElement) {
-      container.requestFullscreen().then(() => setIsFullscreen(true)).catch(console.error);
-    } else {
-      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(console.error);
+
+    // Standard + WebKit (iOS Safari) fullscreen entry/exit with prefixed fallbacks.
+    const isCurrentlyFs = document.fullscreenElement || document.webkitFullscreenElement;
+    try {
+      if (!isCurrentlyFs) {
+        const req = container.requestFullscreen?.() ?? container.webkitRequestFullscreen?.();
+        Promise.resolve(req)?.catch?.(console.error);
+      } else {
+        const exit = document.exitFullscreen?.() ?? document.webkitExitFullscreen?.();
+        Promise.resolve(exit)?.catch?.(console.error);
+      }
+    } catch (err) {
+      console.error('Fullscreen toggle failed:', err);
     }
+    // State + orientation lock are handled in the fullscreenchange listener below.
     resetControlsTimeout();
   };
 
   useEffect(() => {
-    const handleFsChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    const handleFsChange = () => {
+      const isFs = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+      setIsFullscreen(isFs);
+
+      // Auto-rotate to landscape on enter — the same Screen Orientation API that
+      // YouTube / MX Player use on Android Chrome. Once the device is in landscape,
+      // a 16:9 video fills the screen with no black bars and no cropping.
+      // Silently no-op on iOS Safari (lock() unsupported there) and on desktop
+      // (already landscape). Browser releases the lock automatically on exit.
+      if (isFs && screen.orientation?.type?.startsWith?.('portrait')) {
+        screen.orientation.lock?.('landscape')?.catch?.(() => {});
+      }
+    };
     document.addEventListener('fullscreenchange', handleFsChange);
-    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+    document.addEventListener('webkitfullscreenchange', handleFsChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFsChange);
+      document.removeEventListener('webkitfullscreenchange', handleFsChange);
+    };
   }, []);
 
   const togglePiP = () => {
@@ -624,7 +650,7 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
   return (
     <div
       ref={containerRef}
-      className={`player-wrapper custom-yt-player yt-player-skin ${showControls ? 'show-controls' : 'hide-controls'}`}
+      className={`player-wrapper custom-yt-player yt-player-skin ${className} ${isFullscreen ? 'is-fullscreen' : ''} ${showControls ? 'show-controls' : 'hide-controls'}`}
       onMouseMove={() => { if (showControls) resetControlsTimeout(); }}
       onMouseLeave={() => isPlaying && setShowControls(false)}
     >
