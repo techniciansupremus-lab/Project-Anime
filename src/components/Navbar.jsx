@@ -1,83 +1,62 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Bell, ChevronDown, Search, LogOut, User, Bookmark, History, X, Home, Tv, Clapperboard, Film } from 'lucide-react';
+﻿import React, { useState, useEffect, useRef } from 'react';
+import { Search, Mic, Bell, LogOut, User, Bookmark, History, Menu } from 'lucide-react';
 
-export function MobileBottomNav({ activeSection, activeView, setView, setSection, user, onSignIn }) {
+export function MobileBottomNav({ activeView, setView, setSection, user, onSignIn }) {
   return (
-    <nav className="mobile-bottom-nav">
+    <nav className="yt-mobile-bottom-nav">
       <button
-        className={`mobile-nav-item ${activeSection === 'anime' && (activeView === 'anime' || activeView === 'home') ? 'active' : ''}`}
-        onClick={() => { setSection('anime'); setView('anime'); window.scrollTo(0,0); }}
+        className={`yt-mobile-nav-item ${activeView === 'home' ? 'active' : ''}`}
+        onClick={() => { setSection('anime'); setView('home'); window.scrollTo(0, 0); }}
       >
-        <Home size={20} />
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+        <span>Home</span>
+      </button>
+      <button
+        className={`yt-mobile-nav-item ${activeView === 'anime' ? 'active' : ''}`}
+        onClick={() => { setSection('anime'); setView('anime'); window.scrollTo(0, 0); }}
+      >
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z"/></svg>
         <span>Anime</span>
       </button>
-
       <button
-        className={`mobile-nav-item ${activeSection === 'drama' ? 'active' : ''}`}
-        onClick={() => { setSection('drama'); setView('dramas'); window.scrollTo(0,0); }}
+        className={`yt-mobile-nav-item ${activeView === 'manga' || activeView === 'comic-category' ? 'active' : ''}`}
+        onClick={() => { setSection('manga'); setView('manga'); window.scrollTo(0, 0); }}
       >
-        <Clapperboard size={20} />
-        <span>Drama</span>
-      </button>
-
-      <button
-        className={`mobile-nav-item ${activeSection === 'movies' ? 'active' : ''}`}
-        onClick={() => { setSection('movies'); setView('movies'); window.scrollTo(0,0); }}
-      >
-        <Film size={20} />
-        <span>Movies</span>
-      </button>
-
-      <button
-        className={`mobile-nav-item ${activeSection === 'manga' || activeView === 'manga' || activeView === 'comic-category' ? 'active' : ''}`}
-        onClick={() => { setSection('manga'); setView('manga'); window.scrollTo(0,0); }}
-      >
-        <Tv size={20} />
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M18 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 4h5v8l-2.5-1.5L6 12V4z"/></svg>
         <span>Comics</span>
       </button>
-
       <button
-        className={`mobile-nav-item ${activeView === 'my-list' ? 'active' : ''}`}
-        onClick={() => {
-          if (!user) { if (onSignIn) onSignIn(); return; }
-          setView('my-list'); window.scrollTo(0,0);
-        }}
+        className={`yt-mobile-nav-item ${activeView === 'dramas' ? 'active' : ''}`}
+        onClick={() => { setSection('drama'); setView('dramas'); window.scrollTo(0, 0); }}
       >
-        <Bookmark size={20} />
-        <span>My List</span>
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M18 3v2h-2V3H8v2H6V3H4v18h2v-2h2v2h8v-2h2v2h2V3h-2zM8 17H6v-2h2v2zm0-4H6v-2h2v2zm0-4H6V7h2v2zm10 8h-2v-2h2v2zm0-4h-2v-2h2v2zm0-4h-2V7h2v2z"/></svg>
+        <span>Drama</span>
+      </button>
+      <button
+        className={`yt-mobile-nav-item ${['my-list','watch-history','watch-later','liked'].includes(activeView) ? 'active' : ''}`}
+        onClick={() => { if (!user) { if (onSignIn) onSignIn(); return; } setView('my-list'); window.scrollTo(0, 0); }}
+      >
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/></svg>
+        <span>You</span>
       </button>
     </nav>
   );
 }
 
-export default function Navbar({ onSearch, activeView, setView, onHome, activeSection = 'anime', user, onSignIn, onSignOut }) {
+export default function Navbar({ onSearch, activeView, setView, onHome, activeSection = 'anime', user, onSignIn, onSignOut, onToggleSidebar }) {
   const [searchVal, setSearchVal] = useState('');
-  const [showSearchInput, setShowSearchInput] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef(null);
-  const searchInputRef = useRef(null);
 
-  // Sync searchVal state when section changes or search is cleared externally
-  useEffect(() => {
-    setSearchVal('');
-  }, [activeSection]);
+  useEffect(() => { setSearchVal(''); }, [activeSection]);
 
-  // Close profile dropdown & search on outside click
   useEffect(() => {
     const handleClick = (e) => {
-      if (profileRef.current && !profileRef.current.contains(e.target)) {
-        setProfileOpen(false);
-      }
+      if (profileRef.current && !profileRef.current.contains(e.target)) setProfileOpen(false);
     };
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
-
-  useEffect(() => {
-    if (showSearchInput && searchInputRef.current) {
-      searchInputRef.current.focus();
-    }
-  }, [showSearchInput]);
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
@@ -90,179 +69,94 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
     if (onSearch) onSearch(val);
   };
 
-  const handleNavClick = (viewName, sectionName = 'anime') => {
-    setSearchVal('');
-    if (onSearch) onSearch('');
-    if (sectionName === 'anime') {
-      if (viewName === 'home' && onHome) onHome();
-      else setView(viewName);
-    } else if (sectionName === 'drama') {
-      setView('dramas');
-    } else if (sectionName === 'movies') {
-      setView('movies');
-    } else if (sectionName === 'comic') {
-      setView('manhwa');
-    } else if (sectionName === 'manga') {
-      setView('manga');
-    }
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  // Derive user display name / avatar letter
   const displayName = user?.user_metadata?.username || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User';
   const avatarLetter = displayName.charAt(0).toUpperCase();
   const avatarUrl = user?.user_metadata?.avatar_url || null;
 
   return (
-    <header className="floating-navbar-wrapper">
-      <nav className="floating-glass-nav">
-        {/* Brand Logo */}
-        <div
-          className="nav-brand-logo"
-          onClick={() => handleNavClick('home', 'anime')}
-          style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', marginRight: '0.85rem' }}
-        >
-          <img
-            src="/logo.png"
-            alt="Website Logo"
-            style={{ height: '36px', width: 'auto', objectFit: 'contain', filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.5))' }}
-          />
+    <header className="yt-header">
+      <div className="yt-header-left">
+        <button className="yt-icon-btn" onClick={onToggleSidebar} aria-label="Toggle menu" title="Menu">
+          <Menu size={22} />
+        </button>
+        <div className="yt-logo" onClick={onHome} title="EetNet Home">
+          <svg viewBox="0 0 26 18" width="26" height="18" aria-hidden="true">
+            <rect width="26" height="18" rx="4" fill="#FF0000"/>
+            <polygon points="11,4.5 11,13.5 19,9" fill="white"/>
+          </svg>
+          <span className="yt-logo-text">EetNet</span>
         </div>
+      </div>
 
-        {/* Navigation Links Pill Group */}
-        <div className="nav-pill-links">
-          <button
-            className={`nav-pill-btn ${activeView === 'home' ? 'active' : ''}`}
-            onClick={() => handleNavClick('home', 'anime')}
-          >
-            Home
+      <div className="yt-header-center">
+        <form className="yt-search-form" onSubmit={handleSearchSubmit}>
+          <div className="yt-search-input-wrap">
+            <input
+              type="text"
+              className="yt-search-input"
+              placeholder="Search anime, drama, movies, manga..."
+              value={searchVal}
+              onChange={handleInputChange}
+            />
+          </div>
+          <button type="submit" className="yt-search-btn" aria-label="Search">
+            <Search size={18} />
           </button>
-          <button
-            className={`nav-pill-btn ${activeView === 'anime' ? 'active' : ''}`}
-            onClick={() => handleNavClick('anime', 'anime')}
-          >
-            Anime
-          </button>
-          <button
-            className={`nav-pill-btn ${activeView === 'dramas' ? 'active' : ''}`}
-            onClick={() => handleNavClick('dramas', 'drama')}
-          >
-            Drama
-          </button>
-          <button
-            className={`nav-pill-btn ${activeView === 'movies' ? 'active' : ''}`}
-            onClick={() => handleNavClick('movies', 'movies')}
-          >
-            Movies
-          </button>
-          <button
-            className={`nav-pill-btn ${activeView === 'manga' || activeView === 'comic-category' ? 'active' : ''}`}
-            onClick={() => handleNavClick('manga', 'manga')}
-          >
-            Comics
-          </button>
-        </div>
+        </form>
+        <button className="yt-mic-btn" title="Voice search" aria-label="Voice search">
+          <Mic size={18} />
+        </button>
+      </div>
 
-        {/* Action Icons Group */}
-        <div className="nav-pill-actions">
-          {/* Search Toggle / Input */}
-          <div className={`nav-search-wrapper ${showSearchInput ? 'expanded' : ''}`}>
-            {showSearchInput ? (
-              <form onSubmit={handleSearchSubmit} className="nav-search-form">
-                <Search size={15} className="nav-search-icon" />
-                <input
-                  ref={searchInputRef}
-                  type="text"
-                  placeholder="Search..."
-                  value={searchVal}
-                  onChange={handleInputChange}
-                  onBlur={() => { if (!searchVal) setShowSearchInput(false); }}
-                />
-                <button type="button" className="nav-search-close" onClick={() => setShowSearchInput(false)}>
-                  <X size={14} />
+      <div className="yt-header-right">
+        {user && (
+          <button className="yt-icon-btn" title="Notifications" aria-label="Notifications">
+            <Bell size={20} />
+          </button>
+        )}
+        {user ? (
+          <div className="yt-profile-wrap" ref={profileRef}>
+            <button className="yt-avatar-btn" onClick={() => setProfileOpen(v => !v)} aria-label="Account">
+              {avatarUrl
+                ? <img src={avatarUrl} alt={displayName} className="yt-avatar-img" />
+                : <span className="yt-avatar-letter">{avatarLetter}</span>
+              }
+            </button>
+            {profileOpen && (
+              <div className="yt-profile-dropdown" role="menu">
+                <div className="yt-profile-dropdown-header">
+                  <div className="yt-profile-dropdown-avatar">
+                    {avatarUrl ? <img src={avatarUrl} alt={displayName} /> : <span>{avatarLetter}</span>}
+                  </div>
+                  <div className="yt-profile-dropdown-info">
+                    <strong>{displayName}</strong>
+                    <small>{user.email}</small>
+                  </div>
+                </div>
+                <div className="yt-dropdown-divider" />
+                <button className="yt-dropdown-item" onClick={() => { setProfileOpen(false); setView('my-list'); }}>
+                  <Bookmark size={16} /> My Watchlist
                 </button>
-              </form>
-            ) : (
-              <button
-                className="nav-icon-btn"
-                onClick={() => setShowSearchInput(true)}
-                title="Search"
-                aria-label="Search"
-              >
-                <Search size={16} />
-              </button>
+                <button className="yt-dropdown-item" onClick={() => setProfileOpen(false)}>
+                  <History size={16} /> Watch History
+                </button>
+                <button className="yt-dropdown-item" onClick={() => setProfileOpen(false)}>
+                  <User size={16} /> Account Settings
+                </button>
+                <div className="yt-dropdown-divider" />
+                <button className="yt-dropdown-item yt-dropdown-signout" onClick={() => { setProfileOpen(false); if (onSignOut) onSignOut(); }}>
+                  <LogOut size={16} /> Sign out
+                </button>
+              </div>
             )}
           </div>
-
-          {/* Watchlist Icon */}
-          <button
-            className={`nav-icon-btn ${activeView === 'my-list' ? 'active' : ''}`}
-            onClick={() => {
-              if (!user) { if (onSignIn) onSignIn(); return; }
-              setView('my-list');
-            }}
-            title="My List"
-            aria-label="My List"
-          >
-            <Bookmark size={16} />
+        ) : (
+          <button className="yt-signin-btn" onClick={onSignIn}>
+            <User size={16} />
+            <span>Sign in</span>
           </button>
-
-          {/* Auth Button or Profile Menu */}
-          {user ? (
-            <div className="profile-chip-wrapper" ref={profileRef}>
-              <button
-                className="profile-chip-btn"
-                onClick={() => setProfileOpen(v => !v)}
-                aria-label="Profile"
-              >
-                {avatarUrl ? (
-                  <img src={avatarUrl} alt={displayName} className="avatar-img" />
-                ) : (
-                  <span className="avatar-letter">{avatarLetter}</span>
-                )}
-                <ChevronDown size={13} className={`chevron ${profileOpen ? 'open' : ''}`} />
-              </button>
-
-              {profileOpen && (
-                <div className="profile-dropdown" role="menu">
-                  <div className="profile-dropdown-header">
-                    <div className="profile-dropdown-avatar">
-                      {avatarUrl ? (
-                        <img src={avatarUrl} alt={displayName} />
-                      ) : (
-                        <span>{avatarLetter}</span>
-                      )}
-                    </div>
-                    <div className="profile-dropdown-info">
-                      <strong>{displayName}</strong>
-                      <small>{user.email}</small>
-                    </div>
-                  </div>
-                  <div className="profile-dropdown-divider" />
-                  <button className="profile-dropdown-item" onClick={() => { setProfileOpen(false); setView('my-list'); }}>
-                    <Bookmark size={15} /> My Watchlist
-                  </button>
-                  <button className="profile-dropdown-item" onClick={() => { setProfileOpen(false); }}>
-                    <History size={15} /> Watch History
-                  </button>
-                  <button className="profile-dropdown-item" onClick={() => { setProfileOpen(false); }}>
-                    <User size={15} /> Account Settings
-                  </button>
-                  <div className="profile-dropdown-divider" />
-                  <button className="profile-dropdown-item profile-dropdown-signout" onClick={() => { setProfileOpen(false); if (onSignOut) onSignOut(); }}>
-                    <LogOut size={15} /> Sign Out
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <button className="nav-signin-pill-btn" onClick={onSignIn}>
-              <LogOut size={14} style={{ transform: 'rotate(180deg)' }} />
-              <span>Sign in</span>
-            </button>
-          )}
-        </div>
-      </nav>
+        )}
+      </div>
     </header>
   );
 }

@@ -86,10 +86,17 @@ export async function loadRuntimeConfig() {
     if (isLocalhostUrl(envBase)) envBase = '';
   }
 
-  const configBase =
+  let configBase =
     pickApiBase(staticConfig) ||
     pickApiBase(runtimeEndpoint) ||
     envBase;
+
+  // On localhost dev, ignore stale trycloudflare URLs from config files
+  if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+    if (configBase.includes('trycloudflare.com')) {
+      configBase = '';
+    }
+  }
 
   const apiBase =
     queryOverride ||

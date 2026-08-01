@@ -9,6 +9,15 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
   const controlsTimeoutRef = useRef(null);
   const isDraggingRef = useRef(false);
 
+  // ── Hover Preview Thumbnail Scrubbing refs & states ──
+  const previewVideoRef = useRef(null);
+  const previewCanvasRef = useRef(null);
+  const previewHlsRef = useRef(null);
+
+  const [showPreviewTooltip, setShowPreviewTooltip] = useState(false);
+  const [hoverTime, setHoverTime] = useState(0);
+  const [hoverPos, setHoverPos] = useState(0);
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -194,18 +203,31 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
         }
       });
 
-      hls.loadSource(streamUrl);
-      hls.attachMedia(video);
+      let networkRecoveryAttempts = 0;
+      let mediaRecoveryAttempts = 0;
+      const maxNetworkRecoveryAttempts = 2;
+      const maxMediaRecoveryAttempts = 2;
 
       hls.on(Hls.Events.ERROR, (event, data) => {
         if (!data.fatal) return;
         console.error('[HLS] Fatal error:', data.type, data.details);
-        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) { hls.startLoad(); return; }
-        if (data.type === Hls.ErrorTypes.MEDIA_ERROR) { hls.recoverMediaError(); return; }
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && networkRecoveryAttempts < maxNetworkRecoveryAttempts) {
+          networkRecoveryAttempts += 1;
+          hls.startLoad();
+          return;
+        }
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRecoveryAttempts < maxMediaRecoveryAttempts) {
+          mediaRecoveryAttempts += 1;
+          hls.recoverMediaError();
+          return;
+        }
         setError('Stream failed to load. The episode may be unavailable.');
         setIsBuffering(false);
         hls.destroy();
       });
+
+      hls.loadSource(streamUrl);
+      hls.attachMedia(video);
     } else if (source?.isM3U8 && nativeHLSSupport) {
       // ── Native HLS path (iOS Safari) ──
       // iOS Safari parses m3u8 natively — pass our proxy URL directly
@@ -520,6 +542,44 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
     document.addEventListener('mouseup', handleMouseUp);
   };
 
+  // ── Frame drawing handler for Scrubbing Preview Tooltip ──
+  const updatePreviewCanvas = useCallback(() => {
+    const video = previewVideoRef.current || videoRef.current;
+    const canvas = previewCanvasRef.current;
+    if (!video || !canvas) return;
+    try {
+      const ctx = canvas.getContext('2d');
+      if (ctx && video.readyState >= 2) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      }
+    } catch (e) {
+      // Cross-origin canvas protection fallback silently handled
+    }
+  }, []);
+
+  const handleTimelineMouseMove = (e) => {
+    const timeline = e.currentTarget;
+    if (!timeline || !duration) return;
+    const rect = timeline.getBoundingClientRect();
+    const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const targetTime = pos * duration;
+
+    setHoverPos(pos);
+    setHoverTime(targetTime);
+    setShowPreviewTooltip(true);
+
+    if (previewVideoRef.current) {
+      if (Math.abs(previewVideoRef.current.currentTime - targetTime) > 0.3) {
+        previewVideoRef.current.currentTime = targetTime;
+      }
+    }
+    updatePreviewCanvas();
+  };
+
+  const handleTimelineMouseLeave = () => {
+    setShowPreviewTooltip(false);
+  };
+
   useEffect(() => {
     resetControlsTimeout();
     return () => { if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current); };
@@ -564,7 +624,7 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
   return (
     <div
       ref={containerRef}
-      className={`player-wrapper custom-yt-player ${showControls ? 'show-controls' : 'hide-controls'}`}
+      className={`player-wrapper custom-yt-player yt-player-skin ${showControls ? 'show-controls' : 'hide-controls'}`}
       onMouseMove={() => { if (showControls) resetControlsTimeout(); }}
       onMouseLeave={() => isPlaying && setShowControls(false)}
     >
@@ -589,7 +649,6 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
             className="player-video"
             poster={poster}
             playsInline
-            crossOrigin="anonymous"
             onPlay={onPlay}
             onPause={onPause}
             onWaiting={onWaiting}
@@ -701,7 +760,47 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
           {/* Custom YouTube Controls Overlay */}
           <div className="custom-yt-controls">
             {/* Timeline Progress Bar */}
-            <div className="yt-timeline-container" onMouseDown={handleTimelineMouseDown}>
+            <div
+              className="yt-timeline-container"
+              onMouseDown={handleTimelineMouseDown}
+              onMouseMove={handleTimelineMouseMove}
+              onMouseLeave={handleTimelineMouseLeave}
+            >
+              {/* Video Seek Hover Thumbnail Preview Tooltip */}
+              {showPreviewTooltip && duration > 0 && (
+                <div
+                  className="yt-scrub-tooltip"
+                  style={{
+                    left: `clamp(85px, ${hoverPos * 100}%, calc(100% - 85px))`
+                  }}
+                >
+                  <div className="yt-scrub-preview-box">
+                    {(poster || source?.bannerImage || source?.coverImage || source?.thumbnail) && (
+                      <img
+                        src={poster || source?.bannerImage || source?.coverImage || source?.thumbnail}
+                        alt="Preview"
+                        className="yt-scrub-img-fallback"
+                      />
+                    )}
+                    <canvas ref={previewCanvasRef} width={160} height={90} className="yt-scrub-canvas" />
+                  </div>
+                  <div className="yt-scrub-time-label">
+                    {formatTime(hoverTime)}
+                  </div>
+                </div>
+              )}
+
+              {/* Hidden Video element for frame extraction */}
+              <video
+                ref={previewVideoRef}
+                style={{ display: 'none' }}
+                muted
+                playsInline
+                preload="auto"
+                onSeeked={updatePreviewCanvas}
+                onCanPlay={updatePreviewCanvas}
+              />
+
               <div className="yt-timeline">
                 <div className="yt-buffer-bar" style={{ width: `${bufferPercent}%` }}></div>
                 {/* AniSkip intro highlight markers */}
