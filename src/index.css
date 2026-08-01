@@ -11080,19 +11080,95 @@ body {
   left: 0;
   right: 0;
   height: 56px;
-  background: var(--bg-primary);
-  border-top: 1px solid rgba(255,255,255,0.1);
-  z-index: 999;
+  background: rgba(15, 15, 15, 0.96);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid rgba(255,255,255,0.08);
+  z-index: 10000;
   justify-content: space-around;
   align-items: center;
   padding: 0 4px;
 }
+
+.yt-mobile-search-trigger { display: none; }
+
 @media (max-width: 768px) {
   .yt-mobile-bottom-nav { display: flex; }
-  .yt-sidebar { display: none; }
-  .yt-header-center { max-width: none; }
+  .yt-sidebar { display: none !important; }
+  .yt-header-center { display: none !important; }
   .yt-header-left { min-width: auto; }
-  .yt-header-right { min-width: auto; }
+  .yt-header-right { min-width: auto; gap: 4px; }
+  .yt-mobile-search-trigger { display: flex; }
+  
+  .app-content-body, .wt-container, .yt-main-layout {
+    padding-bottom: 74px !important;
+  }
+}
+
+/* YouTube Mobile Expandable Search Bar */
+.yt-mobile-search-bar {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  gap: 8px;
+  background: #0f0f0f;
+  z-index: 1001;
+}
+
+.yt-mobile-search-form {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  background: #222222;
+  border-radius: 40px;
+  padding: 0 12px;
+  height: 40px;
+  border: 1px solid rgba(255,255,255,0.15);
+}
+
+.yt-mobile-search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #ffffff;
+  font-size: 15px;
+  outline: none;
+}
+
+.yt-search-clear-btn {
+  background: transparent;
+  border: none;
+  color: #aaa;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  padding: 4px;
+}
+
+/* Mobile Responsive Grid Cards */
+@media (max-width: 600px) {
+  .anime-bento-grid, .bento-grid, .drama-grid {
+    grid-template-columns: repeat(1, 1fr) !important;
+    gap: 16px !important;
+  }
+  
+  .yt-rank-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 12px !important;
+  }
+
+  .wt-schedule-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 12px !important;
+  }
+
+  .yt-signin-text {
+    display: none;
+  }
+  .yt-signin-btn {
+    padding: 6px 8px;
+    border-radius: 50%;
+  }
 }
 
 .yt-mobile-nav-item {

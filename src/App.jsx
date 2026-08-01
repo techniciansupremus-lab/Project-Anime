@@ -10,9 +10,11 @@ import { api, animeCategories, recentReleases, checkHindiDub, formatViews, forma
 import { apiUrl, getBackendConfigError } from './runtimeConfig';
 import { supabase } from './supabaseClient';
 import { getRecommendations } from './utils/cbf';
+import { useDeviceType } from './utils/useDeviceType';
 import WebtoonComicView from './components/WebtoonComicView';
 import WebtoonDetailView from './components/WebtoonDetailView';
 function App() {
+  const { isMobile, isTablet } = useDeviceType();
   const [view, setRawView] = useState('home');
   // Wrapper to allow setView call compatibility
   const setView = (v) => setRawView(v);

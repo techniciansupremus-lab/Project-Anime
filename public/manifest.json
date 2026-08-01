@@ -1,0 +1,25 @@
+{
+  "name": "EetNet Anime, Drama & Webtoons",
+  "short_name": "EetNet",
+  "description": "Stream Anime, Asian Dramas, Movies, and read Webtoons in high quality.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f0f0f",
+  "theme_color": "#0f0f0f",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["entertainment", "multimedia"]
+}

@@ -1,5 +1,5 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
-import { Search, Mic, Bell, LogOut, User, Bookmark, History, Menu } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Search, Mic, Bell, LogOut, User, Bookmark, History, Menu, ArrowLeft, X } from 'lucide-react';
 
 export function MobileBottomNav({ activeView, setView, setSection, user, onSignIn }) {
   return (
@@ -46,7 +46,9 @@ export function MobileBottomNav({ activeView, setView, setSection, user, onSignI
 export default function Navbar({ onSearch, activeView, setView, onHome, activeSection = 'anime', user, onSignIn, onSignOut, onToggleSidebar }) {
   const [searchVal, setSearchVal] = useState('');
   const [profileOpen, setProfileOpen] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const profileRef = useRef(null);
+  const mobileInputRef = useRef(null);
 
   useEffect(() => { setSearchVal(''); }, [activeSection]);
 
@@ -57,6 +59,12 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
+
+  useEffect(() => {
+    if (mobileSearchOpen && mobileInputRef.current) {
+      mobileInputRef.current.focus();
+    }
+  }, [mobileSearchOpen]);
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
@@ -75,88 +83,122 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
 
   return (
     <header className="yt-header">
-      <div className="yt-header-left">
-        <button className="yt-icon-btn" onClick={onToggleSidebar} aria-label="Toggle menu" title="Menu">
-          <Menu size={22} />
-        </button>
-        <div className="yt-logo" onClick={onHome} title="EetNet Home">
-          <svg viewBox="0 0 26 18" width="26" height="18" aria-hidden="true">
-            <rect width="26" height="18" rx="4" fill="#FF0000"/>
-            <polygon points="11,4.5 11,13.5 19,9" fill="white"/>
-          </svg>
-          <span className="yt-logo-text">EetNet</span>
-        </div>
-      </div>
-
-      <div className="yt-header-center">
-        <form className="yt-search-form" onSubmit={handleSearchSubmit}>
-          <div className="yt-search-input-wrap">
+      {/* Mobile Expandable Search Bar Overlay */}
+      {mobileSearchOpen ? (
+        <div className="yt-mobile-search-bar">
+          <button className="yt-icon-btn" onClick={() => setMobileSearchOpen(false)} aria-label="Close search">
+            <ArrowLeft size={20} />
+          </button>
+          <form className="yt-mobile-search-form" onSubmit={handleSearchSubmit}>
             <input
+              ref={mobileInputRef}
               type="text"
-              className="yt-search-input"
+              className="yt-mobile-search-input"
               placeholder="Search anime, drama, movies, manga..."
               value={searchVal}
               onChange={handleInputChange}
             />
-          </div>
-          <button type="submit" className="yt-search-btn" aria-label="Search">
-            <Search size={18} />
+            {searchVal && (
+              <button type="button" className="yt-search-clear-btn" onClick={() => { setSearchVal(''); if (onSearch) onSearch(''); }}>
+                <X size={16} />
+              </button>
+            )}
+          </form>
+          <button className="yt-mic-btn" title="Voice search" aria-label="Voice search">
+            <Mic size={18} />
           </button>
-        </form>
-        <button className="yt-mic-btn" title="Voice search" aria-label="Voice search">
-          <Mic size={18} />
-        </button>
-      </div>
-
-      <div className="yt-header-right">
-        {user && (
-          <button className="yt-icon-btn" title="Notifications" aria-label="Notifications">
-            <Bell size={20} />
-          </button>
-        )}
-        {user ? (
-          <div className="yt-profile-wrap" ref={profileRef}>
-            <button className="yt-avatar-btn" onClick={() => setProfileOpen(v => !v)} aria-label="Account">
-              {avatarUrl
-                ? <img src={avatarUrl} alt={displayName} className="yt-avatar-img" />
-                : <span className="yt-avatar-letter">{avatarLetter}</span>
-              }
+        </div>
+      ) : (
+        <>
+          <div className="yt-header-left">
+            <button className="yt-icon-btn" onClick={onToggleSidebar} aria-label="Toggle menu" title="Menu">
+              <Menu size={22} />
             </button>
-            {profileOpen && (
-              <div className="yt-profile-dropdown" role="menu">
-                <div className="yt-profile-dropdown-header">
-                  <div className="yt-profile-dropdown-avatar">
-                    {avatarUrl ? <img src={avatarUrl} alt={displayName} /> : <span>{avatarLetter}</span>}
-                  </div>
-                  <div className="yt-profile-dropdown-info">
-                    <strong>{displayName}</strong>
-                    <small>{user.email}</small>
-                  </div>
-                </div>
-                <div className="yt-dropdown-divider" />
-                <button className="yt-dropdown-item" onClick={() => { setProfileOpen(false); setView('my-list'); }}>
-                  <Bookmark size={16} /> My Watchlist
-                </button>
-                <button className="yt-dropdown-item" onClick={() => setProfileOpen(false)}>
-                  <History size={16} /> Watch History
-                </button>
-                <button className="yt-dropdown-item" onClick={() => setProfileOpen(false)}>
-                  <User size={16} /> Account Settings
-                </button>
-                <div className="yt-dropdown-divider" />
-                <button className="yt-dropdown-item yt-dropdown-signout" onClick={() => { setProfileOpen(false); if (onSignOut) onSignOut(); }}>
-                  <LogOut size={16} /> Sign out
-                </button>
+            <div className="yt-logo" onClick={onHome} title="EetNet Home">
+              <svg viewBox="0 0 26 18" width="26" height="18" aria-hidden="true">
+                <rect width="26" height="18" rx="4" fill="#FF0000"/>
+                <polygon points="11,4.5 11,13.5 19,9" fill="white"/>
+              </svg>
+              <span className="yt-logo-text">EetNet</span>
+            </div>
+          </div>
+
+          <div className="yt-header-center">
+            <form className="yt-search-form" onSubmit={handleSearchSubmit}>
+              <div className="yt-search-input-wrap">
+                <input
+                  type="text"
+                  className="yt-search-input"
+                  placeholder="Search anime, drama, movies, manga..."
+                  value={searchVal}
+                  onChange={handleInputChange}
+                />
               </div>
+              <button type="submit" className="yt-search-btn" aria-label="Search">
+                <Search size={18} />
+              </button>
+            </form>
+            <button className="yt-mic-btn" title="Voice search" aria-label="Voice search">
+              <Mic size={18} />
+            </button>
+          </div>
+
+          <div className="yt-header-right">
+            {/* Mobile search trigger icon */}
+            <button className="yt-icon-btn yt-mobile-search-trigger" onClick={() => setMobileSearchOpen(true)} aria-label="Search">
+              <Search size={20} />
+            </button>
+
+            {user && (
+              <button className="yt-icon-btn yt-notif-btn" title="Notifications" aria-label="Notifications">
+                <Bell size={20} />
+              </button>
+            )}
+            {user ? (
+              <div className="yt-profile-wrap" ref={profileRef}>
+                <button className="yt-avatar-btn" onClick={() => setProfileOpen(v => !v)} aria-label="Account">
+                  {avatarUrl
+                    ? <img src={avatarUrl} alt={displayName} className="yt-avatar-img" />
+                    : <span className="yt-avatar-letter">{avatarLetter}</span>
+                  }
+                </button>
+                {profileOpen && (
+                  <div className="yt-profile-dropdown" role="menu">
+                    <div className="yt-profile-dropdown-header">
+                      <div className="yt-profile-dropdown-avatar">
+                        {avatarUrl ? <img src={avatarUrl} alt={displayName} /> : <span>{avatarLetter}</span>}
+                      </div>
+                      <div className="yt-profile-dropdown-info">
+                        <strong>{displayName}</strong>
+                        <small>{user.email}</small>
+                      </div>
+                    </div>
+                    <div className="yt-dropdown-divider" />
+                    <button className="yt-dropdown-item" onClick={() => { setProfileOpen(false); setView('my-list'); }}>
+                      <Bookmark size={16} /> My Watchlist
+                    </button>
+                    <button className="yt-dropdown-item" onClick={() => setProfileOpen(false)}>
+                      <History size={16} /> Watch History
+                    </button>
+                    <button className="yt-dropdown-item" onClick={() => setProfileOpen(false)}>
+                      <User size={16} /> Account Settings
+                    </button>
+                    <div className="yt-dropdown-divider" />
+                    <button className="yt-dropdown-item yt-dropdown-signout" onClick={() => { setProfileOpen(false); if (onSignOut) onSignOut(); }}>
+                      <LogOut size={16} /> Sign out
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <button className="yt-signin-btn" onClick={onSignIn}>
+                <User size={16} />
+                <span className="yt-signin-text">Sign in</span>
+              </button>
             )}
           </div>
-        ) : (
-          <button className="yt-signin-btn" onClick={onSignIn}>
-            <User size={16} />
-            <span>Sign in</span>
-          </button>
-        )}
-      </div>
+        </>
+      )}
     </header>
   );
 }
