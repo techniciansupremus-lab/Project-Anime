@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 
 // ── YouTube-style SVG Icons ──────────────────────────
 const HomeIcon = () => <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>;
@@ -12,20 +12,45 @@ const PlaylistIcon = () => <svg viewBox="0 0 24 24" width="22" height="22" fill=
 const ClockIcon = () => <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>;
 const ThumbUpIcon = () => <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>;
 const DownloadIcon = () => <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zm-8 2V5h2v6h1.17L12 13.17 9.83 11H11zm-6 7h14v2H5z"/></svg>;
-const ChevronRightIcon = () => <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>;
+const ChevronRightIcon = ({ rotated = false }) => (
+  <svg
+    viewBox="0 0 24 24"
+    width="18"
+    height="18"
+    fill="currentColor"
+    style={{
+      transform: rotated ? 'rotate(90deg)' : 'rotate(0deg)',
+      transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
+    }}
+  >
+    <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
+  </svg>
+);
 const ChevronDownIcon = () => <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z"/></svg>;
 const ChevronUpIcon = () => <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 8l-6 6 1.41 1.41L12 10.83l4.59 4.58L18 14z"/></svg>;
+const SparkleIcon = () => <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 2L9.19 8.63 2 12l7.19 3.37L12 22l2.81-6.63L22 12l-7.19-3.37L12 2z"/></svg>;
 
-function SidebarItem({ icon, label, active, onClick, mini }) {
+function SidebarItem({ icon, label, active, onClick, mini, extraAction, isExpandable, isExpanded }) {
   return (
-    <button
-      className={`yt-sidebar-item ${active ? 'active' : ''} ${mini ? 'mini' : ''}`}
-      onClick={onClick}
-      title={mini ? label : undefined}
-    >
-      <span className="yt-sidebar-item-icon">{icon}</span>
-      {!mini && <span className="yt-sidebar-item-label">{label}</span>}
-    </button>
+    <div className={`yt-sidebar-item-row ${active ? 'active' : ''} ${mini ? 'mini' : ''}`}>
+      <button
+        className={`yt-sidebar-item ${active ? 'active' : ''} ${mini ? 'mini' : ''}`}
+        onClick={onClick}
+        title={mini ? label : undefined}
+      >
+        <span className="yt-sidebar-item-icon">{icon}</span>
+        {!mini && <span className="yt-sidebar-item-label">{label}</span>}
+      </button>
+      {!mini && isExpandable && (
+        <button
+          className="yt-sidebar-expand-arrow"
+          onClick={extraAction}
+          title={isExpanded ? "Collapse genres" : "Expand genres"}
+        >
+          <ChevronRightIcon rotated={isExpanded} />
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -47,9 +72,21 @@ function SidebarSectionLabel({ label, onArrowClick, mini }) {
   );
 }
 
-export default function Sidebar({ activeView, setView, setSection, user, onSignIn, mini = false, subscriptions = [] }) {
+export default function Sidebar({
+  activeView,
+  setView,
+  setSection,
+  user,
+  onSignIn,
+  mini = false,
+  subscriptions = [],
+  activeCategory = 'All',
+  onSelectCategory
+}) {
   const [showMoreSubs, setShowMoreSubs] = useState(false);
   const [showMoreExplore, setShowMoreExplore] = useState(false);
+  const [animeExpanded, setAnimeExpanded] = useState(true);
+  const [showAllGenres, setShowAllGenres] = useState(false);
 
   const nav = (view, section = 'anime') => {
     setSection(section);
@@ -57,8 +94,25 @@ export default function Sidebar({ activeView, setView, setSection, user, onSignI
     window.scrollTo(0, 0);
   };
 
+  const handleGenreSelect = (category) => {
+    if (typeof onSelectCategory === 'function') {
+      onSelectCategory(category);
+    } else {
+      if (category === 'Hindi') {
+        nav('hindi');
+      } else {
+        nav('anime');
+      }
+    }
+  };
+
   // Show max 7 subscriptions by default
   const displayedSubs = showMoreSubs ? subscriptions : subscriptions.slice(0, 7);
+
+  // Top genres for quick sub-menu
+  const mainGenres = ['Action', 'Adventure', 'Thriller'];
+  const extraGenres = ['Romance', 'Comedy', 'Fantasy', 'Horror', 'Sci-Fi', 'Sports', 'Drama', 'Slice of Life', 'Mystery'];
+  const displayedGenres = showAllGenres ? [...mainGenres, ...extraGenres] : mainGenres;
 
   return (
     <aside className={`yt-sidebar ${mini ? 'mini' : ''}`}>
@@ -102,7 +156,7 @@ export default function Sidebar({ activeView, setView, setSection, user, onSignI
               <button
                 key={sub.id}
                 className={`yt-sidebar-sub-item ${mini ? 'mini' : ''}`}
-                onClick={() => { setView('detail'); /* navigate to anime detail */ }}
+                onClick={() => { setView('detail'); }}
                 title={mini ? sub.title : undefined}
               >
                 <div className={`yt-sidebar-sub-avatar ${sub.hasNew ? 'has-new' : ''}`}>
@@ -158,7 +212,56 @@ export default function Sidebar({ activeView, setView, setSection, user, onSignI
         {/* ── SECTION 4: Explore ── */}
         {!mini && <SidebarSectionLabel label="Explore" mini={mini} />}
 
-        <SidebarItem icon={<AnimeIcon />} label="Anime" active={['anime','detail','watch','genre','hindi','new-popular','tv-shows'].includes(activeView)} onClick={() => { setSection('anime'); setView('anime'); window.scrollTo(0,0); }} mini={mini} />
+        {/* Anime item with expandable slider chevron > */}
+        <SidebarItem
+          icon={<AnimeIcon />}
+          label="Anime"
+          active={['anime','detail','watch','genre','hindi','new-popular','tv-shows'].includes(activeView)}
+          onClick={() => { setSection('anime'); setView('anime'); window.scrollTo(0,0); }}
+          mini={mini}
+          isExpandable={true}
+          isExpanded={animeExpanded}
+          extraAction={(e) => {
+            e.stopPropagation();
+            setAnimeExpanded(v => !v);
+          }}
+        />
+
+        {/* Sub-menu under Anime */}
+        {!mini && animeExpanded && (
+          <div className="yt-sidebar-submenu">
+            {/* Hindi Dubs page button */}
+            <button
+              className={`yt-sidebar-sub-link ${activeView === 'hindi' || activeCategory === 'Hindi' ? 'active' : ''}`}
+              onClick={() => { nav('hindi'); if (typeof onSelectCategory === 'function') onSelectCategory('Hindi'); }}
+            >
+              <span className="yt-sidebar-hindi-dot">🎙️</span>
+              <span className="yt-sidebar-sub-text">Hindi Dubs</span>
+              <span className="yt-sidebar-live-tag">LIVE</span>
+            </button>
+
+            {/* Quick genres */}
+            {displayedGenres.map((g) => (
+              <button
+                key={g}
+                className={`yt-sidebar-sub-link ${activeView === 'anime' && activeCategory === g ? 'active' : ''}`}
+                onClick={() => handleGenreSelect(g)}
+              >
+                <span className="yt-sidebar-sub-bullet">•</span>
+                <span className="yt-sidebar-sub-text">{g}</span>
+              </button>
+            ))}
+
+            {/* Show more > toggle */}
+            <button
+              className="yt-sidebar-sub-link yt-sidebar-more-link"
+              onClick={() => setShowAllGenres(v => !v)}
+            >
+              <span className="yt-sidebar-sub-text">{showAllGenres ? 'Show less' : 'Show more >'}</span>
+            </button>
+          </div>
+        )}
+
         <SidebarItem icon={<ComicsIcon />} label="Comics" active={['manga','comic-category','manga-detail','manga-reader','manhwa','manhwa-detail','manhwa-read'].includes(activeView)} onClick={() => { setSection('manga'); setView('manga'); window.scrollTo(0,0); }} mini={mini} />
         <SidebarItem icon={<DramaIcon />} label="Drama" active={['dramas','drama-detail','drama-watch'].includes(activeView)} onClick={() => { setSection('drama'); setView('dramas'); window.scrollTo(0,0); }} mini={mini} />
 

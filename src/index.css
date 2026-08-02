@@ -11198,6 +11198,129 @@ body {
   }
 }
 
+/* ─── Sidebar Expandable Submenu & Animations ───── */
+.yt-sidebar-item-row {
+  display: flex;
+  align-items: center;
+  position: relative;
+  width: 100%;
+  border-radius: 10px;
+  transition: background-color 0.2s ease;
+}
+
+.yt-sidebar-item-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.yt-sidebar-item-row.active {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.yt-sidebar-item-row .yt-sidebar-item {
+  flex: 1;
+  background: transparent !important;
+}
+
+.yt-sidebar-expand-arrow {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary, #aaa);
+  padding: 8px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+
+.yt-sidebar-expand-arrow:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.yt-sidebar-submenu {
+  display: flex;
+  flex-direction: column;
+  padding-left: 36px;
+  margin-top: 2px;
+  margin-bottom: 6px;
+  gap: 2px;
+  animation: ytSubmenuSlideDown 0.25s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes ytSubmenuSlideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.yt-sidebar-sub-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary, #aaaaaa);
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s ease;
+}
+
+.yt-sidebar-sub-link:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  padding-left: 16px;
+}
+
+.yt-sidebar-sub-link.active {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.yt-sidebar-hindi-dot {
+  font-size: 14px;
+}
+
+.yt-sidebar-sub-bullet {
+  font-size: 10px;
+  color: #666;
+}
+
+.yt-sidebar-sub-text {
+  flex: 1;
+}
+
+.yt-sidebar-live-tag {
+  font-size: 9px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: linear-gradient(135deg, #ff4757, #ff6b81);
+  color: #ffffff;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.yt-sidebar-more-link {
+  color: #3ea6ff;
+  font-weight: 600;
+}
+.yt-sidebar-more-link:hover {
+  color: #65b8ff;
+}
+
+
 .yt-mobile-nav-item {
   display: flex;
   flex-direction: column;

@@ -1611,11 +1611,23 @@ function App() {
           <Sidebar
             activeView={view}
             setView={setView}
-            setSection={handleSectionChange}
+            setSection={(s) => setActiveSection(s)}
             user={user}
             onSignIn={() => setShowAuthModal(true)}
             mini={sidebarMini}
             subscriptions={[]}
+            activeCategory={activeCategory}
+            onSelectCategory={(cat) => {
+              if (cat === 'Hindi') {
+                setActiveSection('anime');
+                setView('hindi');
+              } else {
+                setActiveCategory(cat);
+                setActiveSection('anime');
+                setView('anime');
+              }
+              window.scrollTo(0, 0);
+            }}
           />
         )}
 
