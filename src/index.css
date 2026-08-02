@@ -13159,3 +13159,509 @@ body {
   color: #555;
   font-size: 12px;
 }
+
+/* ════════════════════════════════════════════════════
+   HINDI DUB — YouTube-Style Category Page
+   ════════════════════════════════════════════════════ */
+
+.hindi-yt-page {
+  min-height: 100vh;
+  background: var(--bg-primary, #0f0f0f);
+  padding-bottom: 60px;
+}
+
+/* ── Banner ── */
+.hindi-yt-banner {
+  position: relative;
+  width: 100%;
+  height: 200px;
+  background-size: cover;
+  background-position: center top;
+  overflow: hidden;
+}
+
+.hindi-yt-banner-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(0,0,0,0.15) 0%,
+    rgba(0,0,0,0.65) 60%,
+    rgba(15,15,15,1) 100%
+  );
+}
+
+.hindi-yt-banner-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  height: 100%;
+  padding: 0 24px 20px;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.hindi-yt-channel-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.hindi-yt-channel-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ff4757, #c0392b);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  box-shadow: 0 0 20px rgba(255, 71, 87, 0.4);
+  border: 3px solid rgba(255,255,255,0.15);
+  flex-shrink: 0;
+}
+
+.hindi-yt-channel-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hindi-yt-channel-name {
+  font-size: 22px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: -0.3px;
+}
+
+.hindi-yt-channel-sub {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: rgba(255,255,255,0.75);
+}
+
+.hindi-yt-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 6px #22c55e;
+  animation: pulse 2s infinite;
+}
+
+.hindi-yt-badge {
+  background: rgba(255, 71, 87, 0.25);
+  border: 1px solid rgba(255, 71, 87, 0.4);
+  color: #ff6b81;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.hindi-yt-play-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255,255,255,0.15);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.25);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 20px;
+  border-radius: 24px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.hindi-yt-play-btn:hover {
+  background: rgba(255, 71, 87, 0.8);
+  border-color: transparent;
+  transform: scale(1.03);
+}
+
+/* ── Controls Row ── */
+.hindi-yt-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 24px;
+  max-width: 1280px;
+  margin: 0 auto;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.hindi-yt-controls::-webkit-scrollbar { display: none; }
+
+.hindi-yt-chips-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.hindi-yt-chips-row::-webkit-scrollbar { display: none; }
+
+.hindi-yt-chip {
+  white-space: nowrap;
+  padding: 7px 14px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.1);
+  border: none;
+  color: var(--text-primary, #e8e8e8);
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease, transform 0.15s ease;
+}
+
+.hindi-yt-chip:hover {
+  background: rgba(255,255,255,0.18);
+  transform: translateY(-1px);
+}
+
+.hindi-yt-chip.active {
+  background: #ffffff;
+  color: #0f0f0f;
+  font-weight: 700;
+}
+
+.hindi-yt-sort {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: var(--text-primary, #e8e8e8);
+  font-size: 13px;
+  padding: 7px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  outline: none;
+}
+
+.hindi-yt-sort option {
+  background: #222;
+  color: #fff;
+}
+
+/* ── Count Row ── */
+.hindi-yt-count {
+  padding: 4px 24px 12px;
+  max-width: 1280px;
+  margin: 0 auto;
+  font-size: 13px;
+  color: var(--text-secondary, #aaa);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hindi-yt-loading-badge {
+  color: #22c55e;
+  font-size: 12px;
+  font-weight: 600;
+  animation: pulse 1.5s infinite;
+}
+
+/* ── Video Grid ── */
+.hindi-yt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 24px 16px;
+  padding: 8px 24px 32px;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+/* ── Video Card ── */
+.hindi-yt-card {
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.hindi-yt-card:hover {
+  transform: translateY(-2px);
+}
+
+.hindi-yt-card-thumb {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16/9;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #1a1a1a;
+  cursor: pointer;
+}
+
+.hindi-yt-card-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s ease;
+}
+
+.hindi-yt-card:hover .hindi-yt-card-thumb img {
+  transform: scale(1.04);
+}
+
+.hindi-yt-card-thumb-fallback {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #1e1e2e, #2d1b3d);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.3);
+}
+
+.hindi-yt-card-ep-badge {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(0,0,0,0.85);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.3px;
+}
+
+.hindi-yt-card-audio-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: linear-gradient(135deg, #ff4757, #c0392b);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  letter-spacing: 0.2px;
+}
+
+.hindi-yt-card-hover-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  border-radius: 10px;
+}
+
+.hindi-yt-card:hover .hindi-yt-card-hover-overlay {
+  opacity: 1;
+}
+
+.hindi-yt-card-play-circle {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.95);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.2s ease;
+  color: #0f0f0f;
+}
+
+.hindi-yt-card-play-circle:hover {
+  transform: scale(1.1);
+  background: #ff4757;
+  color: white;
+}
+
+/* ── Card Meta (YouTube style) ── */
+.hindi-yt-card-meta {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 4px 4px;
+}
+
+.hindi-yt-card-avatar-dot {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ff4757, #c0392b);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.hindi-yt-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.hindi-yt-card-title {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text-primary, #e8e8e8);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-bottom: 3px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.hindi-yt-card-title:hover {
+  color: #ffffff;
+}
+
+.hindi-yt-card-channel {
+  font-size: 12.5px;
+  color: var(--text-secondary, #aaa);
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hindi-yt-card-stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary, #aaa);
+}
+
+.hindi-yt-card-rating {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: #fbbf24;
+  font-weight: 600;
+}
+
+.hindi-yt-card-more {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary, #aaa);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 50%;
+  line-height: 1;
+  transition: background 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.hindi-yt-card-more:hover {
+  background: rgba(255,255,255,0.1);
+  color: #ffffff;
+}
+
+/* ── Empty State ── */
+.hindi-yt-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 80px 24px;
+  color: var(--text-secondary, #aaa);
+  font-size: 15px;
+  text-align: center;
+}
+
+.hindi-yt-empty span {
+  font-size: 48px;
+}
+
+/* ── Skeleton States ── */
+.hindi-yt-banner-skeleton {
+  width: 100%;
+  height: 200px;
+  background: linear-gradient(90deg, #1a1a1a 25%, #252525 50%, #1a1a1a 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+.hindi-chip-skeleton {
+  width: 70px;
+  height: 34px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #1a1a1a 25%, #252525 50%, #1a1a1a 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  flex-shrink: 0;
+}
+
+.hindi-yt-card-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hindi-yt-card-thumb-skeleton {
+  width: 100%;
+  aspect-ratio: 16/9;
+  border-radius: 10px;
+  background: linear-gradient(90deg, #1a1a1a 25%, #252525 50%, #1a1a1a 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+.hindi-yt-card-meta-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 4px;
+}
+
+.hindi-yt-line-skeleton {
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #1a1a1a 25%, #252525 50%, #1a1a1a 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+.hindi-yt-line-skeleton.w70 { width: 70%; }
+.hindi-yt-line-skeleton.w50 { width: 50%; }
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .hindi-yt-banner { height: 150px; }
+  .hindi-yt-channel-name { font-size: 17px; }
+  .hindi-yt-channel-avatar { width: 48px; height: 48px; font-size: 22px; }
+  .hindi-yt-grid {
+    grid-template-columns: repeat(2, 1fr);
+    padding: 8px 16px 32px;
+    gap: 16px 10px;
+  }
+  .hindi-yt-controls { padding: 10px 16px; }
+  .hindi-yt-count { padding: 4px 16px 10px; }
+  .hindi-yt-play-btn { display: none; }
+}
+
+@media (max-width: 480px) {
+  .hindi-yt-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}
+

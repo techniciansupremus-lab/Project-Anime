@@ -3592,96 +3592,210 @@ function CategoryGridView({
 }
 
 function HindiView({ hindiAnime = [], onAnimeClick, onStartWatching, isLoading = false }) {
-  // Show skeleton only while no data at all. Once first batch arrives, render
-  // progressively — cards stream in as onBatch fires, so the user sees content
-  // within ~1s instead of a blank screen for ~7s.
+  const [activeFilter, setActiveFilter] = React.useState('All');
+  const [sortBy, setSortBy] = React.useState('popularity');
+
   if (isLoading && hindiAnime.length === 0) {
-    return <CategorySkeleton />;
-  }
-
-  const featuredItem = hindiAnime[0];
-  const actionHindi = hindiAnime.filter(a => a.genres?.includes('Action') || a.genres?.includes('Adventure'));
-  const fantasyHindi = hindiAnime.filter(a => a.genres?.includes('Fantasy') || a.genres?.includes('Supernatural'));
-  const stillLoading = isLoading && hindiAnime.length > 0;
-
-  return (
-    <div className="netflix-home">
-      {featuredItem && (
-        <div
-          className="hero netflix-hero"
-          style={{ backgroundImage: `url(${featuredItem.bannerImage || featuredItem.coverImage})` }}
-        >
-          <div className="hero-overlay"></div>
-          <div className="hero-scanline"></div>
-          <div className="container hero-shell">
-            <div className="hero-content">
-              <div className="hero-eyebrow">
-                <span className="hero-eyebrow-badge" style={{ background: '#ff4757' }}>N</span>
-                <span className="hero-eyebrow-text">Hindi Audio Series</span>
-                <span className="hero-eyebrow-dot">•</span>
-                <span className="hero-live-tag" style={{ background: 'rgba(255,71,87,0.2)', color: '#ff4757', borderColor: 'rgba(255,71,87,0.4)' }}>Hindi Dub</span>
-              </div>
-
-              <h1 className="hero-title">{featuredItem.title}</h1>
-
-              <div className="hero-meta">
-                <span className="top-ten-badge" style={{ background: 'linear-gradient(135deg, #ff4757, #ff6b81)' }}>Hindi Dubbed</span>
-                <span>
-                  <Star size={14} fill="var(--accent-primary)" style={{ color: 'var(--accent-primary)' }} />
-                  {featuredItem.rating}
-                </span>
-                <span className="hero-meta-tag">{featuredItem.type}</span>
-                <span className="hero-meta-tag">{featuredItem.status}</span>
-              </div>
-
-              <p className="hero-desc">{featuredItem.description}</p>
-
-              <div className="btn-group">
-                <button className="btn btn-primary hero-btn-play" onClick={() => onStartWatching(featuredItem, 1)}>
-                  <Play size={20} fill="currentColor" /> Play in Hindi
-                </button>
-                <button className="btn btn-secondary hero-btn-info" onClick={() => onAnimeClick(featuredItem.id)}>
-                  <Info size={20} /> More Info
-                </button>
+    return (
+      <div className="hindi-yt-page">
+        <div className="hindi-yt-banner-skeleton" />
+        <div className="hindi-yt-chips-row">
+          {['All','Action','Adventure','Fantasy','Romance','Thriller'].map(c => (
+            <div key={c} className="hindi-chip-skeleton" />
+          ))}
+        </div>
+        <div className="hindi-yt-grid">
+          {Array.from({ length: 12 }).map((_, i) => (
+            <div key={i} className="hindi-yt-card-skeleton">
+              <div className="hindi-yt-card-thumb-skeleton" />
+              <div className="hindi-yt-card-meta-skeleton">
+                <div className="hindi-yt-line-skeleton w70" />
+                <div className="hindi-yt-line-skeleton w50" />
               </div>
             </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const FILTERS = ['All', 'Action', 'Adventure', 'Fantasy', 'Romance', 'Thriller', 'Supernatural', 'Comedy', 'Sci-Fi'];
+
+  const filtered = activeFilter === 'All'
+    ? hindiAnime
+    : hindiAnime.filter(a => a.genres?.some(g => g.toLowerCase() === activeFilter.toLowerCase()));
+
+  const sorted = [...filtered].sort((a, b) => {
+    if (sortBy === 'popularity') return (b.popularity || 0) - (a.popularity || 0);
+    if (sortBy === 'rating') return parseFloat(b.rating || 0) - parseFloat(a.rating || 0);
+    if (sortBy === 'az') return (a.title || '').localeCompare(b.title || '');
+    return 0;
+  });
+
+  const topPick = hindiAnime[0];
+
+  return (
+    <div className="hindi-yt-page">
+
+      {/* ── Channel Header Banner ── */}
+      {topPick && (
+        <div
+          className="hindi-yt-banner"
+          style={{ backgroundImage: `url(${topPick.bannerImage || topPick.coverImage})` }}
+        >
+          <div className="hindi-yt-banner-overlay" />
+          <div className="hindi-yt-banner-content">
+            <div className="hindi-yt-channel-info">
+              <div className="hindi-yt-channel-avatar">
+                🎙️
+              </div>
+              <div className="hindi-yt-channel-text">
+                <div className="hindi-yt-channel-name">Hindi Dubbed Anime</div>
+                <div className="hindi-yt-channel-sub">
+                  <span className="hindi-yt-live-dot" />
+                  <span>{hindiAnime.length} series available</span>
+                  <span className="hindi-yt-badge">Hindi Audio</span>
+                </div>
+              </div>
+            </div>
+            {topPick && (
+              <button
+                className="hindi-yt-play-btn"
+                onClick={() => onStartWatching(topPick, 1)}
+              >
+                <Play size={16} fill="currentColor" />
+                <span>Play Featured</span>
+              </button>
+            )}
           </div>
         </div>
       )}
 
-      <div className="netflix-rows">
-        <NetflixRow
-          title="All Hindi Dubbed Anime"
-          icon={<Globe className="hv-icon" size={20} style={{ color: '#ff4757' }} />}
-          items={hindiAnime}
-          onAnimeClick={(a) => onAnimeClick(a.id ?? a)}
-        />
-        {actionHindi.length > 0 && (
-          <NetflixRow
-            title="Action &amp; Adventure (Hindi Dubbed)"
-            icon={<Flame className="hv-icon" size={20} style={{ color: '#f97316' }} />}
-            items={actionHindi}
-            onAnimeClick={(a) => onAnimeClick(a.id ?? a)}
+      {/* ── Filter Chips Row ── */}
+      <div className="hindi-yt-controls">
+        <div className="hindi-yt-chips-row">
+          {FILTERS.map(f => (
+            <button
+              key={f}
+              className={`hindi-yt-chip ${activeFilter === f ? 'active' : ''}`}
+              onClick={() => setActiveFilter(f)}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
+        <select
+          className="hindi-yt-sort"
+          value={sortBy}
+          onChange={e => setSortBy(e.target.value)}
+        >
+          <option value="popularity">Most Popular</option>
+          <option value="rating">Highest Rated</option>
+          <option value="az">A – Z</option>
+        </select>
+      </div>
+
+      {/* ── Results count ── */}
+      <div className="hindi-yt-count">
+        {filtered.length} Hindi dubbed {activeFilter !== 'All' ? activeFilter : ''} series
+        {isLoading && <span className="hindi-yt-loading-badge">● Loading more…</span>}
+      </div>
+
+      {/* ── Video Grid ── */}
+      {sorted.length === 0 ? (
+        <div className="hindi-yt-empty">
+          <span>🎌</span>
+          <p>No Hindi dubbed anime found for <strong>{activeFilter}</strong></p>
+          <button className="hindi-yt-chip active" onClick={() => setActiveFilter('All')}>Show All</button>
+        </div>
+      ) : (
+        <div className="hindi-yt-grid">
+          {sorted.map((anime) => (
+            <HindiYTCard
+              key={anime.id}
+              anime={anime}
+              onPlay={() => onStartWatching(anime, 1)}
+              onInfo={() => onAnimeClick(anime.id)}
+            />
+          ))}
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+function HindiYTCard({ anime, onPlay, onInfo }) {
+  const [imgErr, setImgErr] = React.useState(false);
+  const [hovered, setHovered] = React.useState(false);
+
+  const episodeCount = anime.totalEpisodes || anime.episodes?.length || '?';
+  const rating = parseFloat(anime.rating) || 0;
+  const genre = anime.genres?.[0] || 'Anime';
+
+  return (
+    <div
+      className={`hindi-yt-card ${hovered ? 'hovered' : ''}`}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {/* Thumbnail */}
+      <div className="hindi-yt-card-thumb" onClick={onInfo}>
+        {!imgErr ? (
+          <img
+            src={anime.coverImage || anime.bannerImage}
+            alt={anime.title}
+            loading="lazy"
+            onError={() => setImgErr(true)}
           />
-        )}
-        {fantasyHindi.length > 0 && (
-          <NetflixRow
-            title="Fantasy &amp; Supernatural (Hindi Dubbed)"
-            icon={<Sparkles className="hv-icon" size={20} style={{ color: '#a855f7' }} />}
-            items={fantasyHindi}
-            onAnimeClick={(a) => onAnimeClick(a.id ?? a)}
-          />
-        )}
-        {stillLoading && (
-          <div style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--text-secondary)' }}>
-            <div className="loading-spinner" style={{ margin: '0 auto 0.5rem', width: 28, height: 28, borderWidth: 3 }}></div>
-            <span style={{ fontSize: '0.85rem' }}>Loading more Hindi titles…</span>
+        ) : (
+          <div className="hindi-yt-card-thumb-fallback">
+            <span>{anime.title?.charAt(0) || '?'}</span>
           </div>
         )}
+
+        {/* Duration/Episodes badge */}
+        <div className="hindi-yt-card-ep-badge">
+          {episodeCount} EP
+        </div>
+
+        {/* Hindi audio badge */}
+        <div className="hindi-yt-card-audio-badge">🎙️ हिन्दी</div>
+
+        {/* Hover overlay */}
+        <div className="hindi-yt-card-hover-overlay">
+          <button className="hindi-yt-card-play-circle" onClick={(e) => { e.stopPropagation(); onPlay(); }}>
+            <Play size={22} fill="white" />
+          </button>
+        </div>
+      </div>
+
+      {/* Meta info — YouTube style */}
+      <div className="hindi-yt-card-meta">
+        <div className="hindi-yt-card-avatar-dot">
+          <span>🎌</span>
+        </div>
+        <div className="hindi-yt-card-info">
+          <div className="hindi-yt-card-title" title={anime.title} onClick={onInfo}>
+            {anime.title}
+          </div>
+          <div className="hindi-yt-card-channel">{genre} • {anime.type || 'TV'}</div>
+          <div className="hindi-yt-card-stats">
+            {rating > 0 && (
+              <span className="hindi-yt-card-rating">
+                <Star size={11} fill="#fbbf24" style={{ color: '#fbbf24' }} />
+                {rating.toFixed(1)}
+              </span>
+            )}
+            <span>{anime.status || 'Finished'}</span>
+          </div>
+        </div>
+        <button className="hindi-yt-card-more" title="More options">⋮</button>
       </div>
     </div>
   );
 }
+
 
 function WatchlistView({ items, onAnimeClick, onBackHome }) {
   return (
