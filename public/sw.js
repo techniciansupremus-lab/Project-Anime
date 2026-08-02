@@ -1,4 +1,4 @@
-const CACHE_NAME = 'eetnet-pwa-v1';
+const CACHE_NAME = 'eetnet-pwa-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -30,8 +30,10 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
 
-  // Bypass service worker for API endpoints, proxies, and external data
+  // Always bypass Service Worker for JS/CSS assets, API routes, and proxies
+  // so new production builds on Vercel load fresh JS bundles without MIME errors
   if (
+    url.pathname.startsWith('/assets/') ||
     url.pathname.startsWith('/api/') ||
     url.pathname.startsWith('/anilist-proxy') ||
     url.hostname.includes('anilist.co') ||
@@ -42,9 +44,15 @@ self.addEventListener('fetch', (event) => {
   }
 
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) return cachedResponse;
-      return fetch(event.request).catch(() => {
+    fetch(event.request).then((networkResponse) => {
+      if (networkResponse && networkResponse.status === 200 && url.origin === location.origin) {
+        const copy = networkResponse.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+      }
+      return networkResponse;
+    }).catch(() => {
+      return caches.match(event.request).then((cachedResponse) => {
+        if (cachedResponse) return cachedResponse;
         if (event.request.mode === 'navigate') {
           return caches.match('/index.html');
         }
