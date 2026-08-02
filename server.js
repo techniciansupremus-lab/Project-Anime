@@ -1110,6 +1110,59 @@ app.get('/api/animerulz/catalog', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────
+// POST /api/anilist
+// Server-side cached & rate-limit-aware proxy for AniList GraphQL
+// ─────────────────────────────────────────────────────
+const aniListServerCache = new Map();
+const ANILIST_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+app.post('/api/anilist', async (req, res) => {
+  try {
+    const payload = JSON.stringify(req.body);
+    const cached = aniListServerCache.get(payload);
+    if (cached && Date.now() - cached.ts < ANILIST_CACHE_TTL) {
+      return res.json({ data: cached.data });
+    }
+
+    let attempts = 0;
+    let response = null;
+
+    while (attempts < 3) {
+      attempts++;
+      try {
+        response = await axios.post('https://graphql.anilist.co', req.body, {
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) EetNet/1.0'
+          },
+          timeout: 12000
+        });
+        if (response.status === 200 && response.data?.data) {
+          aniListServerCache.set(payload, { data: response.data.data, ts: Date.now() });
+          return res.json({ data: response.data.data });
+        }
+      } catch (e) {
+        const status = e.response?.status;
+        if (status === 429 && attempts < 3) {
+          console.warn(`[ANILIST PROXY] Rate limited (429), retrying in ${attempts * 500}ms...`);
+          await new Promise(r => setTimeout(r, attempts * 500));
+        } else {
+          if (cached) return res.json({ data: cached.data });
+          throw e;
+        }
+      }
+    }
+
+    if (cached) return res.json({ data: cached.data });
+    res.status(502).json({ error: 'AniList GraphQL proxy failed' });
+  } catch (err) {
+    console.error('[ANILIST PROXY] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/hianime/watch', async (req, res) => {
   const { anilistId, episode, dub } = req.query;
   const episodeNum = parseInt(episode) || 1;

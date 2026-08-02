@@ -44,6 +44,7 @@ function App() {
   const [moviesData, setMoviesData] = useState({ featured: null, genres: {} });
   const [newPopularData, setNewPopularData] = useState({ featured: null, rows: {} });
   const [hindiData, setHindiData] = useState({ featured: null, list: [] });
+  const [hindiLoading, setHindiLoading] = useState(false);
   const [myList, setMyList] = useState([]);
 
   // ─── Drama state ───
@@ -316,6 +317,7 @@ function App() {
   const watchRequestRef = useRef(0);
   const searchRequestRef = useRef(0);
   const searchDebounceRef = useRef(null);
+  const hindiFetchInitiatedRef = useRef(false);
 
   // ─── Watch History & Watchlist Sync Engine ───
 
@@ -700,25 +702,39 @@ function App() {
       }).catch(() => {
         if (mounted) setPageLoading(false);
       });
-    } else if (view === 'hindi' && (!hindiData.list || hindiData.list.length === 0)) {
-      setPageLoading(true);
-      api.getHindiAnimeList().then((list) => {
-        if (mounted) {
-          setHindiData({
-            featured: list[0] || null,
-            list
-          });
-          setPageLoading(false);
-        }
-      }).catch((err) => {
-        console.warn('Failed to load Hindi anime catalog:', err);
-        if (mounted) setPageLoading(false);
-      });
     }
     return () => {
       mounted = false;
     };
-  }, [view, tvShowsData.featured, moviesData.featured, newPopularData.featured, hindiData.list]);
+  }, [view, tvShowsData.featured, moviesData.featured, newPopularData.featured]);
+
+  // ── Hindi Dub catalog: isolated effect so its own mounted/loading never
+  //    collides with the shared pageLoading used by other sections.
+  useEffect(() => {
+    if (view !== 'hindi' && activeCategory !== 'Hindi') return;
+    if (hindiFetchInitiatedRef.current) return; // already fetching or done
+    hindiFetchInitiatedRef.current = true;
+    let alive = true;
+    setHindiLoading(true);
+    const accumulated = [];
+    api.getHindiAnimeList((batch) => {
+      if (!alive) return;
+      accumulated.push(...batch);
+      const sorted = [...accumulated].sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+      setHindiData({ featured: sorted[0] || null, list: sorted });
+      setHindiLoading(false); // first batch → stop spinner immediately
+    }).then((list) => {
+      if (!alive) return;
+      const sorted = [...list].sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+      setHindiData({ featured: sorted[0] || null, list: sorted });
+      setHindiLoading(false);
+    }).catch((err) => {
+      console.warn('[Hindi] Catalog fetch failed:', err);
+      if (alive) setHindiLoading(false);
+    });
+    return () => { alive = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, activeCategory]);
 
   // Load drama home when switching to dramas view
   useEffect(() => {
@@ -1563,7 +1579,7 @@ function App() {
   const filteredTrending = activeCategory === 'All'
     ? trending
     : activeCategory === 'Hindi'
-    ? trending.filter((anime) => anime.hasHindiDub || anime.hindiAvailable)
+    ? (hindiData.list.length > 0 ? hindiData.list : trending.filter((anime) => anime.hasHindiDub || anime.hindiAvailable))
     : trending.filter((anime) => anime.genres?.includes(activeCategory));
 
   const activeFeatured = featured[carouselIndex];
@@ -1645,6 +1661,7 @@ function App() {
                   watchHistory={watchHistory}
                   onDramaClick={handleDramaClick}
                   onManhwaClick={(m) => { setSelectedManhwa(m); setView('manhwa-detail'); }}
+                  hindiLoading={hindiLoading}
                 />
               )}
               {view === 'tv-shows' && (
@@ -1654,7 +1671,7 @@ function App() {
                 <CategoryGridView title="New & Popular" viewName="new-popular" featuredItem={newPopularData.featured} genresData={newPopularData.rows} onAnimeClick={handleAnimeClick} onStartWatching={startWatching} isLoading={pageLoading} />
               )}
               {view === 'hindi' && (
-                <HindiView hindiAnime={hindiData.list.length > 0 ? hindiData.list : trending.filter(a => a.hasHindiDub || a.hindiAvailable)} onAnimeClick={handleAnimeClick} onStartWatching={startWatching} isLoading={pageLoading} />
+                <HindiView hindiAnime={hindiData.list} onAnimeClick={handleAnimeClick} onStartWatching={startWatching} isLoading={hindiLoading} />
               )}
               {view === 'genre' && (
                 <GenreView genreName={genreViewName} items={genreAnimeList} isLoading={genreLoading} loadingMore={genreLoadingMore} hasMore={genreHasMore} onAnimeClick={handleAnimeClick} onStartWatching={startWatching} />
@@ -2204,7 +2221,8 @@ function AnimeView({
   onStartWatching,
   watchHistory = [],
   onDramaClick,
-  onManhwaClick
+  onManhwaClick,
+  hindiLoading = false
 }) {
   const ANIME_CHIPS = [
     { id: 'All', label: 'All' },
@@ -2269,11 +2287,11 @@ function AnimeView({
       <div className="yt-section-block">
         <div className="yt-section-header">
           <span className="yt-section-title">
-            {activeCategory === 'All' ? 'Trending Anime' : `${activeCategory} Anime`}
+            {activeCategory === 'All' ? 'Trending Anime' : activeCategory === 'Hindi' ? 'Hindi Dubbed Anime' : `${activeCategory} Anime`}
           </span>
           {featured.length > 0 && (
             <button className="yt-section-more" onClick={() => onAnimeClick(featured[0]?.id)}>
-              View all → Ã¢â‚¬â„¢
+              View all →
             </button>
           )}
         </div>
@@ -2286,7 +2304,7 @@ function AnimeView({
                 onClick={() => onStartWatching(anime, 1)}
               />
             ))
-          ) : (
+          ) : (activeCategory === 'Hindi' && hindiLoading) || (activeCategory === 'All' && featured.length === 0) ? (
             Array.from({ length: 12 }).map((_, i) => (
               <div key={i} className="yt-card-skeleton">
                 <div className="yt-skeleton-thumb" />
@@ -2299,6 +2317,10 @@ function AnimeView({
                 </div>
               </div>
             ))
+          ) : (
+            <div style={{ gridColumn: '1 / -1', padding: '3rem 1rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+              No {activeCategory} anime found at the moment.
+            </div>
           )}
         </div>
       </div>
@@ -3558,13 +3580,17 @@ function CategoryGridView({
 }
 
 function HindiView({ hindiAnime = [], onAnimeClick, onStartWatching, isLoading = false }) {
-  if (isLoading || !hindiAnime || hindiAnime.length === 0) {
+  // Show skeleton only while no data at all. Once first batch arrives, render
+  // progressively — cards stream in as onBatch fires, so the user sees content
+  // within ~1s instead of a blank screen for ~7s.
+  if (isLoading && hindiAnime.length === 0) {
     return <CategorySkeleton />;
   }
 
   const featuredItem = hindiAnime[0];
   const actionHindi = hindiAnime.filter(a => a.genres?.includes('Action') || a.genres?.includes('Adventure'));
   const fantasyHindi = hindiAnime.filter(a => a.genres?.includes('Fantasy') || a.genres?.includes('Supernatural'));
+  const stillLoading = isLoading && hindiAnime.length > 0;
 
   return (
     <div className="netflix-home">
@@ -3633,6 +3659,12 @@ function HindiView({ hindiAnime = [], onAnimeClick, onStartWatching, isLoading =
             items={fantasyHindi}
             onAnimeClick={(a) => onAnimeClick(a.id ?? a)}
           />
+        )}
+        {stillLoading && (
+          <div style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--text-secondary)' }}>
+            <div className="loading-spinner" style={{ margin: '0 auto 0.5rem', width: 28, height: 28, borderWidth: 3 }}></div>
+            <span style={{ fontSize: '0.85rem' }}>Loading more Hindi titles…</span>
+          </div>
         )}
       </div>
     </div>

@@ -164,11 +164,15 @@ export default function AuthModal({ onClose }) {
     }
   };
 
+  const getRedirectUrl = () => {
+    return `${window.location.protocol}//${window.location.host}/`;
+  };
+
   const handleGoogleAuth = async () => {
     setLoading(true);
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin }
+      options: { redirectTo: getRedirectUrl() }
     });
     if (error) { setMessage({ type: 'error', text: getErrorMessage(error) }); setLoading(false); }
   };
@@ -177,7 +181,7 @@ export default function AuthModal({ onClose }) {
     setLoading(true);
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'discord',
-      options: { redirectTo: window.location.origin }
+      options: { redirectTo: getRedirectUrl() }
     });
     if (error) { setMessage({ type: 'error', text: getErrorMessage(error) }); setLoading(false); }
   };
