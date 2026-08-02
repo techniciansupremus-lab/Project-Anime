@@ -96,7 +96,7 @@ async function fetchAniList(query, variables = {}) {
     return data;
   };
 
-  // 1. Try Express backend proxy first (server-side 1h memory cache & 429 auto-retry)
+  // 1. Try Express backend proxy first (has server-side cache & auto-retry)
   try {
     const res = await fetch(backendApi('/anilist'), {
       method: 'POST',
@@ -108,25 +108,10 @@ async function fetchAniList(query, variables = {}) {
       if (json?.data) return saveCache(json.data);
     }
   } catch (e) {
-    // Fallthrough to next proxy
+    // Backend proxy down/expired -> fallthrough to direct AniList
   }
 
-  // 2. Try local same-origin Vite proxy
-  try {
-    const res = await fetch('/anilist-proxy', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: payload
-    });
-    if (res.ok) {
-      const json = await res.json();
-      if (json?.data) return saveCache(json.data);
-    }
-  } catch (e) {
-    // Fallthrough to direct fetch
-  }
-
-  // 3. Fallback direct request to AniList
+  // 2. Direct request to AniList GraphQL (works 100% everywhere)
   try {
     const response = await fetch(ANILIST_API, {
       method: 'POST',
@@ -143,6 +128,22 @@ async function fetchAniList(query, variables = {}) {
     const result = await response.json();
     return saveCache(result.data);
   } catch (error) {
+    // 3. Last resort: local Vite dev proxy if running on localhost
+    if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+      try {
+        const devRes = await fetch('/anilist-proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: payload
+        });
+        if (devRes.ok) {
+          const devJson = await devRes.json();
+          if (devJson?.data) return saveCache(devJson.data);
+        }
+      } catch (e) {
+        // Fallthrough
+      }
+    }
     console.error('AniList API error:', error);
     return _aniListCache.get(payload) || null;
   }
