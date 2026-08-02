@@ -13,6 +13,14 @@ import { getRecommendations } from './utils/cbf';
 import { useDeviceType } from './utils/useDeviceType';
 import WebtoonComicView from './components/WebtoonComicView';
 import WebtoonDetailView from './components/WebtoonDetailView';
+import {
+  SaveToPlaylistModal,
+  CreatePlaylistModal,
+  YTHistoryView,
+  YTPlaylistsView,
+  YTPlaylistDetailView
+} from './components/YTPlaylistsComponents';
+
 function App() {
   const { isMobile, isTablet } = useDeviceType();
   const [view, setRawView] = useState('home');
@@ -46,6 +54,24 @@ function App() {
   const [hindiData, setHindiData] = useState({ featured: null, list: [] });
   const [hindiLoading, setHindiLoading] = useState(false);
   const [myList, setMyList] = useState([]);
+
+  // ─── Playlists & History states ───
+  const [likedVideos, setLikedVideos] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('anistream_liked_videos')) || []; } catch (e) { return []; }
+  });
+  const [watchLater, setWatchLater] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('anistream_watch_later')) || []; } catch (e) { return []; }
+  });
+  const [customPlaylists, setCustomPlaylists] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('anistream_playlists')) || []; } catch (e) { return []; }
+  });
+  const [selectedPlaylist, setSelectedPlaylist] = useState(null);
+
+  // Modal states for Save & Create Playlist
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [showCreatePlaylistModal, setShowCreatePlaylistModal] = useState(false);
+  const [saveTargetItem, setSaveTargetItem] = useState(null);
+
 
   // ─── Drama state ───
   const [dramaHomeData, setDramaHomeData] = useState(null);
@@ -565,6 +591,151 @@ function App() {
       localStorage.setItem('anistream_watch_history', JSON.stringify(formattedHistory));
     }
   };
+
+  // ─── Playlists & Save Handlers ───
+  const handleToggleLiked = (item) => {
+    if (!item) return;
+    const idStr = String(item.id || item.media_id);
+    setLikedVideos(prev => {
+      const exists = prev.some(i => String(i.id || i.media_id) === idStr);
+      let updated;
+      if (exists) {
+        updated = prev.filter(i => String(i.id || i.media_id) !== idStr);
+        showToast('Removed from Liked videos');
+      } else {
+        const newItem = {
+          id: idStr,
+          media_id: idStr,
+          title: item.title,
+          cover: item.cover || item.coverImage || item.bannerImage,
+          type: item.type || 'Anime',
+          episode_number: item.episode_number || item.episode?.number || 1,
+          added_at: new Date().toISOString()
+        };
+        updated = [newItem, ...prev];
+        showToast('Added to Liked videos');
+      }
+      localStorage.setItem('anistream_liked_videos', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleToggleWatchLater = (item) => {
+    if (!item) return;
+    const idStr = String(item.id || item.media_id);
+    setWatchLater(prev => {
+      const exists = prev.some(i => String(i.id || i.media_id) === idStr);
+      let updated;
+      if (exists) {
+        updated = prev.filter(i => String(i.id || i.media_id) !== idStr);
+        showToast('Removed from Watch later');
+      } else {
+        const newItem = {
+          id: idStr,
+          media_id: idStr,
+          title: item.title,
+          cover: item.cover || item.coverImage || item.bannerImage,
+          type: item.type || 'Anime',
+          episode_number: item.episode_number || item.episode?.number || 1,
+          added_at: new Date().toISOString()
+        };
+        updated = [newItem, ...prev];
+        showToast('Added to Watch later');
+      }
+      localStorage.setItem('anistream_watch_later', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleToggleCustomPlaylist = (playlistId, item) => {
+    if (!item) return;
+    const idStr = String(item.id || item.media_id);
+    setCustomPlaylists(prev => {
+      const updated = prev.map(pl => {
+        if (pl.id === playlistId) {
+          const exists = pl.items?.some(i => String(i.id || i.media_id) === idStr);
+          const newItems = exists
+            ? pl.items.filter(i => String(i.id || i.media_id) !== idStr)
+            : [{
+                id: idStr,
+                media_id: idStr,
+                title: item.title,
+                cover: item.cover || item.coverImage || item.bannerImage,
+                type: item.type || 'Anime',
+                episode_number: item.episode_number || item.episode?.number || 1
+              }, ...(pl.items || [])];
+          showToast(exists ? `Removed from ${pl.title}` : `Saved to ${pl.title}`);
+          return { ...pl, items: newItems };
+        }
+        return pl;
+      });
+      localStorage.setItem('anistream_playlists', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleCreateNewPlaylist = (title) => {
+    const formattedTarget = saveTargetItem ? {
+      id: String(saveTargetItem.id || saveTargetItem.media_id),
+      media_id: String(saveTargetItem.id || saveTargetItem.media_id),
+      title: saveTargetItem.title,
+      cover: saveTargetItem.cover || saveTargetItem.coverImage || saveTargetItem.bannerImage,
+      type: saveTargetItem.type || 'Anime',
+      episode_number: saveTargetItem.episode_number || saveTargetItem.episode?.number || 1
+    } : null;
+
+    const newPl = {
+      id: 'pl-' + Date.now(),
+      title,
+      created_at: new Date().toISOString(),
+      items: formattedTarget ? [formattedTarget] : []
+    };
+
+    setCustomPlaylists(prev => {
+      const updated = [newPl, ...prev];
+      localStorage.setItem('anistream_playlists', JSON.stringify(updated));
+      return updated;
+    });
+    showToast(`Playlist "${title}" created`);
+    setShowCreatePlaylistModal(false);
+    setShowSaveModal(false);
+  };
+
+  const handleDeletePlaylist = (playlistId) => {
+    setCustomPlaylists(prev => {
+      const updated = prev.filter(pl => pl.id !== playlistId);
+      localStorage.setItem('anistream_playlists', JSON.stringify(updated));
+      return updated;
+    });
+    showToast('Playlist deleted');
+  };
+
+  const handleRemoveFromHistory = (item) => {
+    const idStr = String(item.id || item.media_id);
+    setWatchHistory(prev => {
+      const updated = prev.filter(i => String(i.id || i.media_id) !== idStr);
+      localStorage.setItem('anistream_watch_history', JSON.stringify(updated));
+      return updated;
+    });
+    showToast('Removed from watch history');
+  };
+
+  const handleClearHistory = () => {
+    setWatchHistory([]);
+    localStorage.removeItem('anistream_watch_history');
+    showToast('Watch history cleared');
+  };
+
+  const handleRemoveFromPlaylist = (playlistObj, item) => {
+    if (playlistObj.type === 'liked') {
+      handleToggleLiked(item);
+    } else if (playlistObj.type === 'watch-later') {
+      handleToggleWatchLater(item);
+    } else if (playlistObj.id) {
+      handleToggleCustomPlaylist(playlistObj.id, item);
+    }
+  };
+
 
   useEffect(() => {
     let mounted = true;
@@ -1702,6 +1873,55 @@ function App() {
                   onAnimeSelect={(id) => { setPageLoading(true); api.getAnimeDetails(id).then((d) => { if (d) startWatching(d, 1, true); }).finally(() => setPageLoading(false)); }}
                   onProgress={(prog) => handleWatchProgress(selectedAnime, currentEpisode, 'anime', prog)}
                   audioMode={audioMode} setAudioMode={setAudioMode} showToast={showToast}
+                  onOpenSaveModal={(media) => { setSaveTargetItem(media); setShowSaveModal(true); }}
+                  onToggleLike={handleToggleLiked}
+                  isLiked={likedVideos.some(i => String(i.id || i.media_id) === String(selectedAnime.id))}
+                />
+              )}
+              {view === 'watch-history' && (
+                <YTHistoryView
+                  history={watchHistory}
+                  onAnimeClick={handleAnimeClick}
+                  onStartWatching={startWatching}
+                  onRemoveItem={handleRemoveFromHistory}
+                  onClearHistory={handleClearHistory}
+                />
+              )}
+              {view === 'playlists' && (
+                <YTPlaylistsView
+                  watchLater={watchLater}
+                  likedVideos={likedVideos}
+                  customPlaylists={customPlaylists}
+                  onSelectPlaylist={(pl) => { setSelectedPlaylist(pl); setView('playlist-detail'); window.scrollTo(0, 0); }}
+                  onCreatePlaylistClick={() => setShowCreatePlaylistModal(true)}
+                  onDeletePlaylist={handleDeletePlaylist}
+                />
+              )}
+              {view === 'liked' && (
+                <YTPlaylistDetailView
+                  playlist={{ type: 'liked', title: 'Liked videos', items: likedVideos }}
+                  onBack={() => setView('playlists')}
+                  onStartWatching={startWatching}
+                  onAnimeClick={handleAnimeClick}
+                  onRemoveItemFromPlaylist={handleRemoveFromPlaylist}
+                />
+              )}
+              {view === 'watch-later' && (
+                <YTPlaylistDetailView
+                  playlist={{ type: 'watch-later', title: 'Watch Later', items: watchLater }}
+                  onBack={() => setView('playlists')}
+                  onStartWatching={startWatching}
+                  onAnimeClick={handleAnimeClick}
+                  onRemoveItemFromPlaylist={handleRemoveFromPlaylist}
+                />
+              )}
+              {view === 'playlist-detail' && selectedPlaylist && (
+                <YTPlaylistDetailView
+                  playlist={selectedPlaylist}
+                  onBack={() => setView('playlists')}
+                  onStartWatching={startWatching}
+                  onAnimeClick={handleAnimeClick}
+                  onRemoveItemFromPlaylist={handleRemoveFromPlaylist}
                 />
               )}
               {view === 'dramas' && (
@@ -1755,6 +1975,26 @@ function App() {
       )}
 
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
+
+      <SaveToPlaylistModal
+        isOpen={showSaveModal}
+        onClose={() => setShowSaveModal(false)}
+        targetMedia={saveTargetItem}
+        customPlaylists={customPlaylists}
+        watchLater={watchLater}
+        likedVideos={likedVideos}
+        onToggleWatchLater={handleToggleWatchLater}
+        onToggleLiked={handleToggleLiked}
+        onToggleCustomPlaylist={handleToggleCustomPlaylist}
+        onCreateNewPlaylistClick={() => { setShowSaveModal(false); setShowCreatePlaylistModal(true); }}
+      />
+
+      <CreatePlaylistModal
+        isOpen={showCreatePlaylistModal}
+        onClose={() => setShowCreatePlaylistModal(false)}
+        onCreate={handleCreateNewPlaylist}
+      />
+
 
       <div className={`welcome-banner ${showWelcome ? 'visible' : ''}`}>
         <div className="welcome-banner-content">
@@ -2978,7 +3218,10 @@ function WatchView({
   onAnimeSelect,
   audioMode = 'sub',
   setAudioMode,
-  showToast
+  showToast,
+  onOpenSaveModal,
+  onToggleLike,
+  isLiked
 }) {
   const EPISODES_PER_PART = 100;
   const totalPages = anime.episodePagination?.lastPage || 1;
@@ -3263,15 +3506,34 @@ function WatchView({
             </div>
 
             <div className="yt-watch-action-right">
-              <button className={`yt-action-btn ${liked ? 'active' : ''}`} onClick={() => setLiked(v => !v)}>
-                <ThumbsUp size={18} />
-                <span>{liked ? 'Liked' : 'Like'}</span>
+              <button
+                className={`yt-action-btn ${(isLiked || liked) ? 'active' : ''}`}
+                onClick={() => {
+                  setLiked(v => !v);
+                  if (onToggleLike) onToggleLike({ ...anime, episode_number: episode.number });
+                }}
+              >
+                <ThumbsUp size={18} fill={(isLiked || liked) ? "currentColor" : "none"} />
+                <span>{(isLiked || liked) ? 'Liked' : 'Like'}</span>
               </button>
-              <button className="yt-action-btn">
+              <button
+                className="yt-action-btn"
+                onClick={() => {
+                  if (navigator.clipboard) {
+                    navigator.clipboard.writeText(window.location.href);
+                  }
+                  if (showToast) showToast('Link copied to clipboard!');
+                }}
+              >
                 <Share2 size={18} />
                 <span>Share</span>
               </button>
-              <button className="yt-action-btn">
+              <button
+                className="yt-action-btn"
+                onClick={() => {
+                  if (onOpenSaveModal) onOpenSaveModal({ ...anime, episode_number: episode.number });
+                }}
+              >
                 <Bookmark size={18} />
                 <span>Save</span>
               </button>

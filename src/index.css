@@ -13151,14 +13151,775 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.wt-img-fallback {
-  background: linear-gradient(135deg, #1f1f2e, #111119);
+/* ════════════════════════════════════════════════════
+   YOUTUBE PLAYLISTS & HISTORY & MODALS (Matching Mockups)
+   ════════════════════════════════════════════════════ */
+
+/* Modal Backdrop */
+.yt-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  z-index: 99999;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #555;
-  font-size: 12px;
+  animation: fadeIn 0.15s ease;
 }
+
+/* Save to Modal (Image 3) */
+.yt-save-modal {
+  width: 320px;
+  background: #212121;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: #f1f1f1;
+}
+
+.yt-save-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.yt-save-modal-header h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.yt-modal-close {
+  background: transparent;
+  border: none;
+  color: #aaa;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+}
+.yt-modal-close:hover { color: #fff; background: rgba(255,255,255,0.1); }
+
+.yt-save-modal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.yt-save-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  color: #f1f1f1;
+  cursor: pointer;
+  width: 100%;
+  transition: background 0.15s ease;
+}
+
+.yt-save-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.yt-save-item-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.yt-save-checkbox {
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.checkbox-box {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #aaa;
+  border-radius: 3px;
+}
+
+.check-icon {
+  color: #3ea6ff;
+}
+
+.yt-save-item-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.yt-save-title {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.yt-save-sub {
+  font-size: 11px;
+  color: #aaa;
+}
+
+.yt-save-type-icon {
+  color: #888;
+}
+
+.yt-save-empty-hint {
+  font-size: 12px;
+  color: #888;
+  padding: 12px;
+  text-align: center;
+}
+
+.yt-save-new-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  color: #f1f1f1;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  margin-top: 4px;
+}
+
+.yt-save-new-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Create Playlist Modal (Image 4) */
+.yt-create-modal {
+  width: 320px;
+  background: #212121;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  color: #f1f1f1;
+}
+
+.yt-create-modal h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.yt-floating-input input {
+  width: 100%;
+  background: #121212;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 12px 14px;
+  color: #ffffff;
+  font-size: 14px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.yt-floating-input input:focus {
+  border-color: #3ea6ff;
+}
+
+.yt-create-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.yt-btn-text {
+  background: transparent;
+  border: none;
+  color: #f1f1f1;
+  padding: 8px 14px;
+  border-radius: 18px;
+  font-weight: 600;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.yt-btn-text:hover { background: rgba(255,255,255,0.08); }
+
+.yt-btn-primary-text {
+  background: #3ea6ff;
+  border: none;
+  color: #0f0f0f;
+  padding: 8px 16px;
+  border-radius: 18px;
+  font-weight: 600;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.yt-btn-primary-text:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Playlists Main Overview Grid (Image 5) ── */
+.yt-playlists-page {
+  padding: 24px 32px;
+  max-width: 1280px;
+  margin: 0 auto;
+  min-height: 80vh;
+}
+
+.yt-playlists-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.yt-playlists-header h2 {
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0;
+  color: #ffffff;
+}
+
+.yt-playlists-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.yt-playlists-chips {
+  display: flex;
+  gap: 8px;
+}
+
+.yt-chip {
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.08);
+  border: none;
+  color: #aaaaaa;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.yt-chip.active { background: #ffffff; color: #0f0f0f; font-weight: 600; }
+
+.yt-create-pl-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.15);
+  color: #ffffff;
+  padding: 7px 14px;
+  border-radius: 18px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.yt-create-pl-btn:hover { background: rgba(255,255,255,0.2); }
+
+.yt-playlists-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 24px 16px;
+}
+
+/* Playlist Stacked Card (Matching Image 5) */
+.yt-playlist-card {
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.yt-playlist-card:hover {
+  transform: translateY(-2px);
+}
+
+.yt-playlist-card-thumb {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16/9;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #1a1a1a;
+  box-shadow: 0 -6px 0 -2px rgba(255, 255, 255, 0.15), 0 -12px 0 -4px rgba(255, 255, 255, 0.08);
+  margin-top: 12px;
+}
+
+.yt-playlist-card-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.yt-playlist-card-placeholder {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #1e1e2e, #2d1b3d);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255,255,255,0.4);
+}
+
+.yt-playlist-card-badge {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(0,0,0,0.85);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.yt-playlist-card-meta {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 10px 4px 0;
+}
+
+.yt-playlist-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.yt-playlist-card-title {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.yt-playlist-card-sub {
+  font-size: 12px;
+  color: #aaa;
+}
+
+.yt-playlist-card-link {
+  font-size: 12px;
+  font-weight: 600;
+  color: #aaa;
+  margin-top: 4px;
+}
+.yt-playlist-card:hover .yt-playlist-card-link { color: #ffffff; }
+
+.yt-playlist-card-menu {
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 4px;
+}
+.yt-playlist-card-menu:hover { color: #ff4757; }
+
+.yt-playlist-card-create {
+  width: 100%;
+  aspect-ratio: 16/9;
+  margin-top: 12px;
+  border-radius: 10px;
+  border: 2px dashed rgba(255, 255, 255, 0.15);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #aaa;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.yt-playlist-card-create:hover {
+  border-color: #3ea6ff;
+  color: #3ea6ff;
+  background: rgba(62, 166, 255, 0.05);
+}
+
+/* ── History Page ── */
+.yt-history-page {
+  padding: 24px 32px;
+  max-width: 1280px;
+  margin: 0 auto;
+  min-height: 80vh;
+}
+
+.yt-history-container {
+  display: flex;
+  gap: 40px;
+}
+
+.yt-history-main {
+  flex: 1;
+}
+
+.yt-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.yt-history-header h2 {
+  font-size: 24px;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0;
+}
+
+.yt-clear-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: #ff4757;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 18px;
+}
+.yt-clear-btn:hover { background: rgba(255,71,87,0.1); }
+
+.yt-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.yt-history-card {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  position: relative;
+}
+
+.yt-history-thumb {
+  width: 200px;
+  aspect-ratio: 16/9;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.yt-history-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.yt-history-progress-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: rgba(255,255,255,0.3);
+}
+
+.yt-history-progress-fill {
+  height: 100%;
+  background: #ff0000;
+}
+
+.yt-history-ep-badge {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(0,0,0,0.85);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.yt-history-info {
+  flex: 1;
+}
+
+.yt-history-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #ffffff;
+  cursor: pointer;
+  margin-bottom: 4px;
+}
+.yt-history-title:hover { color: #3ea6ff; }
+
+.yt-history-sub {
+  font-size: 13px;
+  color: #aaa;
+}
+
+.yt-history-time {
+  font-size: 12px;
+  color: #666;
+  margin-top: 6px;
+}
+
+.yt-history-remove-btn {
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 50%;
+}
+.yt-history-remove-btn:hover { color: #fff; background: rgba(255,255,255,0.1); }
+
+.yt-history-sidebar {
+  width: 260px;
+  flex-shrink: 0;
+}
+
+.yt-history-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  padding: 8px 12px;
+  border-radius: 20px;
+  color: #aaa;
+}
+
+.yt-history-search input {
+  background: transparent;
+  border: none;
+  color: #fff;
+  outline: none;
+  font-size: 13px;
+  width: 100%;
+}
+
+/* ── Playlist Details View ── */
+.yt-pl-detail-page {
+  display: flex;
+  gap: 32px;
+  padding: 24px 32px;
+  max-width: 1280px;
+  margin: 0 auto;
+  min-height: 80vh;
+}
+
+.yt-pl-detail-sidebar {
+  width: 320px;
+  flex-shrink: 0;
+}
+
+.yt-pl-detail-banner-card {
+  background: linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.03) 100%);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 16px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: sticky;
+  top: 80px;
+}
+
+.yt-pl-detail-cover {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16/9;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #1a1a1a;
+}
+
+.yt-pl-detail-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.yt-pl-detail-cover-empty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #666;
+}
+
+.yt-pl-detail-cover-count {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(0,0,0,0.85);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.yt-pl-detail-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0;
+}
+
+.yt-pl-detail-sub {
+  font-size: 13px;
+  color: #aaa;
+}
+
+.yt-pl-detail-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.yt-pl-btn-play {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #ffffff;
+  color: #0f0f0f;
+  border: none;
+  padding: 10px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.yt-pl-btn-play:hover { background: #e8e8e8; }
+
+.yt-pl-btn-shuffle {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.1);
+  border: none;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.yt-pl-btn-shuffle:hover { background: rgba(255,255,255,0.2); }
+
+.yt-pl-detail-main {
+  flex: 1;
+}
+
+.yt-pl-item-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.yt-pl-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  transition: background 0.15s ease;
+}
+.yt-pl-item:hover { background: rgba(255,255,255,0.06); }
+
+.yt-pl-item-index {
+  font-size: 14px;
+  font-weight: 600;
+  color: #888;
+  width: 20px;
+  text-align: center;
+}
+
+.yt-pl-item-thumb {
+  width: 140px;
+  aspect-ratio: 16/9;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.yt-pl-item-thumb img { width: 100%; height: 100%; object-fit: cover; }
+
+.yt-pl-item-info {
+  flex: 1;
+}
+
+.yt-pl-item-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  margin-bottom: 2px;
+}
+.yt-pl-item-title:hover { color: #3ea6ff; }
+
+.yt-pl-item-sub {
+  font-size: 12.5px;
+  color: #aaa;
+}
+
+.yt-pl-item-remove {
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 50%;
+}
+.yt-pl-item-remove:hover { color: #ff4757; background: rgba(255,255,255,0.1); }
+
+.yt-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: #888;
+  text-align: center;
+  gap: 12px;
+}
+
+.yt-empty-state h3 { color: #fff; margin: 0; }
+
+@media (max-width: 768px) {
+  .yt-pl-detail-page { flex-direction: column; padding: 16px; }
+  .yt-pl-detail-sidebar { width: 100%; }
+  .yt-history-container { flex-direction: column; }
+  .yt-history-sidebar { width: 100%; }
+  .yt-playlists-page { padding: 16px; }
+}
+
 
 /* ════════════════════════════════════════════════════
    HINDI DUB — YouTube-Style Category Page
