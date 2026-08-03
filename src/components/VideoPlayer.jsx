@@ -1,8 +1,22 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Hls from 'hls.js';
-import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Tv, Globe, Subtitles, Settings, RotateCcw, RotateCw } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Tv, Globe, Subtitles, Settings, RotateCcw, RotateCw, ChevronLeft, ChevronRight } from 'lucide-react';
 
-export default function VideoPlayer({ source, poster, subtitles, malId, episodeNumber, title, type, onProgress, className = '' }) {
+export default function VideoPlayer({
+  source,
+  poster,
+  subtitles,
+  malId,
+  episodeNumber,
+  title,
+  type,
+  onProgress,
+  onNextEpisode,
+  onPrevEpisode,
+  hasNextEpisode = true,
+  hasPrevEpisode = true,
+  className = ''
+}) {
   const containerRef = useRef(null);
   const videoRef = useRef(null);
   const hlsRef = useRef(null);
@@ -702,34 +716,14 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
             onClick={handlePlayerClick}
           />
 
-          {/* Persistent floating Center Control Group (Rewind, Play/Pause, Forward) */}
+          {/* Center Play/Pause Control */}
           <div className={`floating-controls-group ${showControls ? 'floating-controls--visible' : ''}`}>
-            <button
-              className="floating-action-btn floating-rewind-btn"
-              onClick={(e) => { e.stopPropagation(); skipTime(-seekStep); }}
-              aria-label={`Rewind ${seekStep} seconds`}
-              title={`Rewind ${seekStep}s`}
-            >
-              <RotateCcw size={22} />
-              <span className="floating-btn-step">{seekStep}s</span>
-            </button>
-
             <button
               className="floating-play-btn"
               onClick={(e) => { e.stopPropagation(); togglePlay(); }}
               aria-label={isPlaying ? 'Pause' : 'Play'}
             >
               {isPlaying ? <Pause size={32} fill="white" /> : <Play size={32} fill="white" />}
-            </button>
-
-            <button
-              className="floating-action-btn floating-forward-btn"
-              onClick={(e) => { e.stopPropagation(); skipTime(seekStep); }}
-              aria-label={`Forward ${seekStep} seconds`}
-              title={`Forward ${seekStep}s`}
-            >
-              <RotateCw size={22} />
-              <span className="floating-btn-step">{seekStep}s</span>
             </button>
           </div>
 
@@ -859,8 +853,33 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
             {/* Buttons & Actions Row */}
             <div className="yt-controls-row">
               <div className="yt-controls-left">
+                {/* Previous Episode (<) */}
+                <button
+                  className="yt-control-btn ep-nav-btn"
+                  onClick={(e) => { e.stopPropagation(); if (hasPrevEpisode && onPrevEpisode) onPrevEpisode(); }}
+                  disabled={!hasPrevEpisode}
+                  aria-label="Previous episode"
+                  title={hasPrevEpisode ? "Previous episode (<)" : "First episode"}
+                  style={{ opacity: hasPrevEpisode ? 1 : 0.38, cursor: hasPrevEpisode ? 'pointer' : 'not-allowed' }}
+                >
+                  <ChevronLeft size={22} />
+                </button>
+
+                {/* Play / Pause */}
                 <button className="yt-control-btn" onClick={togglePlay} aria-label={isPlaying ? 'Pause' : 'Play'}>
                   {isPlaying ? <Pause size={20} fill="white" /> : <Play size={20} fill="white" />}
+                </button>
+
+                {/* Next Episode (>) */}
+                <button
+                  className="yt-control-btn ep-nav-btn"
+                  onClick={(e) => { e.stopPropagation(); if (hasNextEpisode && onNextEpisode) onNextEpisode(); }}
+                  disabled={!hasNextEpisode}
+                  aria-label="Next episode"
+                  title={hasNextEpisode ? "Next episode (>)" : "No more episodes"}
+                  style={{ opacity: hasNextEpisode ? 1 : 0.38, cursor: hasNextEpisode ? 'pointer' : 'not-allowed' }}
+                >
+                  <ChevronRight size={22} />
                 </button>
 
                 <div className="yt-volume-control">
@@ -894,16 +913,6 @@ export default function VideoPlayer({ source, poster, subtitles, malId, episodeN
                     <Subtitles size={20} color={ccActive ? 'var(--accent-primary)' : 'white'} />
                   </button>
                 )}
-
-                {/* Seek step adjust button (5s / 10s / 15s) */}
-                <button
-                  className="yt-control-btn seek-step-btn"
-                  onClick={cycleSeekStep}
-                  aria-label="Seek interval duration"
-                  title={`Seek step: ${seekStep}s (Click to toggle: 5s, 10s, 15s)`}
-                >
-                  <span className="seek-step-badge">±{seekStep}s</span>
-                </button>
 
                 {/* Quality selector — only shown when HLS levels are available */}
                 {qualityLevels.length > 1 && (

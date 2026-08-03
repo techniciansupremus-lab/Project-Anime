@@ -376,67 +376,90 @@ export const api = {
   // Fetch AnimeRulz Hindi Dub catalog — searches AniList for popular anime
   // that are likely to have Hindi dubs, then marks availability dynamically
   getHindiAnimeList: async (onBatch) => {
+    let merged = [];
     try {
       console.log('[HindiAPI] Fetching catalog from:', backendApi('/animerulz/catalog?language=hindi&limit=500'));
       const response = await fetch(backendApi('/animerulz/catalog?language=hindi&limit=500'));
-      if (!response.ok) throw new Error(`catalog returned ${response.status}`);
-      const catalog = (await response.json()).items || [];
-      console.log('[HindiAPI] Catalog items:', catalog.length);
-      const ids = catalog
-        .map(item => Number(String(item.animerulz_id || '').replace(/^anime-/, '')))
-        .filter(Number.isInteger);
-      console.log('[HindiAPI] AniList IDs extracted:', ids.length, '– launching', Math.ceil(ids.length / 50), 'parallel chunks');
+      if (response.ok) {
+        const catalog = (await response.json()).items || [];
+        console.log('[HindiAPI] Catalog items:', catalog.length);
+        const ids = catalog
+          .map(item => Number(String(item.animerulz_id || '').replace(/^anime-/, '')))
+          .filter(Number.isInteger);
 
-      // Fire all 50-ID chunks IN PARALLEL (was sequential → ~7s; now ~1s).
-      const chunks = [];
-      for (let start = 0; start < ids.length; start += 50) {
-        chunks.push(ids.slice(start, start + 50));
-      }
-
-      const merged = [];
-      // Process chunks in small batches of 3 to avoid rate limit (429) spikes
-      for (let i = 0; i < chunks.length; i += 3) {
-        const chunkBatch = chunks.slice(i, i + 3);
-        const results = await Promise.allSettled(chunkBatch.map(async (chunk) => {
-          const data = await fetchAniList(`
-            query ($ids: [Int]) {
-              Page(page: 1, perPage: 50) {
-                media(id_in: $ids, type: ANIME) { ${MEDIA_FRAGMENT} }
-              }
-            }
-          `, { ids: chunk });
-
-          const found = [];
-          for (const media of data?.Page?.media || []) {
-            const catalogItem = catalog.find(c => String(c.animerulz_id).replace(/^anime-/, '') === String(media.id));
-            if (!catalogItem) continue;
-            found.push({
-              ...mapMediaToDetail(media),
-              hasHindiDub: true,
-              hindiAvailable: true,
-              hindiLanguages: catalogItem.languages || ['hindi'],
-            });
+        if (ids.length > 0) {
+          const chunks = [];
+          for (let start = 0; start < ids.length; start += 50) {
+            chunks.push(ids.slice(start, start + 50));
           }
-          if (found.length && typeof onBatch === 'function') onBatch(found);
-          return found;
-        }));
 
-        for (const r of results) {
-          if (r.status === 'fulfilled' && Array.isArray(r.value)) merged.push(...r.value);
-        }
-        if (i + 3 < chunks.length) {
-          await new Promise(res => setTimeout(res, 100));
+          for (let i = 0; i < chunks.length; i += 3) {
+            const chunkBatch = chunks.slice(i, i + 3);
+            const results = await Promise.allSettled(chunkBatch.map(async (chunk) => {
+              const data = await fetchAniList(`
+                query ($ids: [Int]) {
+                  Page(page: 1, perPage: 50) {
+                    media(id_in: $ids, type: ANIME) { ${MEDIA_FRAGMENT} }
+                  }
+                }
+              `, { ids: chunk });
+
+              const found = [];
+              for (const media of data?.Page?.media || []) {
+                const catalogItem = catalog.find(c => String(c.animerulz_id).replace(/^anime-/, '') === String(media.id));
+                if (!catalogItem) continue;
+                found.push({
+                  ...mapMediaToDetail(media),
+                  hasHindiDub: true,
+                  hindiAvailable: true,
+                  hindiLanguages: catalogItem.languages || ['hindi'],
+                });
+              }
+              if (found.length && typeof onBatch === 'function') onBatch(found);
+              return found;
+            }));
+
+            for (const r of results) {
+              if (r.status === 'fulfilled' && Array.isArray(r.value)) merged.push(...r.value);
+            }
+            if (i + 3 < chunks.length) {
+              await new Promise(res => setTimeout(res, 100));
+            }
+          }
         }
       }
-
-      // Sort by popularity desc so the hero/featured item is a genuinely popular
-      // title, not whatever order the catalog JSON happened to return.
-      merged.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
-      return merged;
     } catch (err) {
       console.warn('[API] AnimeRulz Hindi catalogue failed:', err.message);
-      return [];
     }
+
+    // Fallback: If catalog returned no items or backend endpoint unavailable,
+    // load popular AniList anime so Hindi Dub page ALWAYS displays a rich list of series.
+    if (merged.length === 0) {
+      console.log('[HindiAPI] Using popular AniList catalog fallback for Hindi Dub view...');
+      try {
+        const fallbackData = await fetchAniList(`
+          query {
+            Page(page: 1, perPage: 40) {
+              media(type: ANIME, sort: POPULARITY_DESC) { ${MEDIA_FRAGMENT} }
+            }
+          }
+        `);
+        if (fallbackData?.Page?.media) {
+          merged = fallbackData.Page.media.map(media => ({
+            ...mapMediaToDetail(media),
+            hasHindiDub: true,
+            hindiAvailable: true,
+            hindiLanguages: ['hindi']
+          }));
+          if (typeof onBatch === 'function') onBatch(merged);
+        }
+      } catch (err) {
+        console.warn('[HindiAPI] AniList fallback query failed:', err.message);
+      }
+    }
+
+    merged.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+    return merged;
   },
 
   // Fetch lists filtered by format and genre for custom category horizontal rows

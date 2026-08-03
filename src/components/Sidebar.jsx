@@ -81,7 +81,8 @@ export default function Sidebar({
   mini = false,
   subscriptions = [],
   activeCategory = 'All',
-  onSelectCategory
+  onSelectCategory,
+  onSelectSubscription
 }) {
   const [showMoreSubs, setShowMoreSubs] = useState(false);
   const [showMoreExplore, setShowMoreExplore] = useState(false);
@@ -140,14 +141,7 @@ export default function Sidebar({
         {subscriptions.length === 0 ? (
           !mini && (
             <div className="yt-sidebar-sub-empty">
-              {user ? (
-                <p>Subscribe to anime, dramas and shows to see their updates here.</p>
-              ) : (
-                <button className="yt-sidebar-signin-prompt" onClick={onSignIn}>
-                  <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/></svg>
-                  Sign in to see subscriptions
-                </button>
-              )}
+              <p>Subscribe to anime to see their updates here.</p>
             </div>
           )
         ) : (
@@ -156,18 +150,27 @@ export default function Sidebar({
               <button
                 key={sub.id}
                 className={`yt-sidebar-sub-item ${mini ? 'mini' : ''}`}
-                onClick={() => { setView('detail'); }}
+                onClick={() => {
+                  if (typeof onSelectSubscription === 'function') {
+                    onSelectSubscription(sub);
+                  } else {
+                    setView('detail');
+                  }
+                }}
                 title={mini ? sub.title : undefined}
               >
-                <div className={`yt-sidebar-sub-avatar ${sub.hasNew ? 'has-new' : ''}`}>
-                  {sub.coverImage
-                    ? <img src={sub.coverImage} alt={sub.title} />
-                    : <span>{sub.title.charAt(0)}</span>
-                  }
-                  {sub.hasNew && <span className="yt-sub-blue-dot" />}
+                <div className="yt-sidebar-sub-avatar">
+                  {sub.coverImage || sub.cover || sub.bannerImage ? (
+                    <img src={sub.coverImage || sub.cover || sub.bannerImage} alt={sub.title} />
+                  ) : (
+                    <span>{sub.title.charAt(0)}</span>
+                  )}
                 </div>
                 {!mini && (
                   <span className="yt-sidebar-sub-title">{sub.title}</span>
+                )}
+                {!mini && sub.hasNew && (
+                  <span className="yt-sub-blue-dot" title="New episode update!" />
                 )}
               </button>
             ))}

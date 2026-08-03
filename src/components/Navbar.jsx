@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Mic, Bell, LogOut, User, Bookmark, History, Menu, ArrowLeft, X } from 'lucide-react';
+import { Search, Mic, Bell, LogOut, User, Bookmark, History, Menu, ArrowLeft, X, Settings } from 'lucide-react';
 
 export function MobileBottomNav({ activeView, setView, setSection, user, onSignIn }) {
   return (
@@ -43,11 +43,26 @@ export function MobileBottomNav({ activeView, setView, setSection, user, onSignI
   );
 }
 
-export default function Navbar({ onSearch, activeView, setView, onHome, activeSection = 'anime', user, onSignIn, onSignOut, onToggleSidebar }) {
+export default function Navbar({
+  onSearch,
+  activeView,
+  setView,
+  onHome,
+  activeSection = 'anime',
+  user,
+  onSignIn,
+  onSignOut,
+  onToggleSidebar,
+  notifications = [],
+  onSelectNotification
+}) {
   const [searchVal, setSearchVal] = useState('');
   const [profileOpen, setProfileOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+
   const profileRef = useRef(null);
+  const notifRef = useRef(null);
   const mobileInputRef = useRef(null);
 
   useEffect(() => { setSearchVal(''); }, [activeSection]);
@@ -55,6 +70,7 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
   useEffect(() => {
     const handleClick = (e) => {
       if (profileRef.current && !profileRef.current.contains(e.target)) setProfileOpen(false);
+      if (notifRef.current && !notifRef.current.contains(e.target)) setNotifOpen(false);
     };
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
@@ -80,6 +96,10 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
   const displayName = user?.user_metadata?.username || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User';
   const avatarLetter = displayName.charAt(0).toUpperCase();
   const avatarUrl = user?.user_metadata?.avatar_url || null;
+
+  const unreadCount = notifications.filter(n => !n.read).length;
+  const importantNotifs = notifications.filter(n => n.type === 'season');
+  const regularNotifs = notifications.filter(n => n.type !== 'season');
 
   return (
     <header className="yt-header">
@@ -149,11 +169,101 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
               <Search size={20} />
             </button>
 
-            {user && (
-              <button className="yt-icon-btn yt-notif-btn" title="Notifications" aria-label="Notifications">
+            {/* Notifications Dropdown Wrap (Matching Image 3) */}
+            <div className="yt-notif-wrap" ref={notifRef}>
+              <button className="yt-icon-btn yt-notif-btn" onClick={() => setNotifOpen(v => !v)} title="Notifications" aria-label="Notifications">
                 <Bell size={20} />
+                {unreadCount > 0 && (
+                  <span className="yt-notif-badge">{unreadCount > 9 ? '9+' : unreadCount}</span>
+                )}
               </button>
-            )}
+
+              {notifOpen && (
+                <div className="yt-notif-dropdown">
+                  <div className="yt-notif-header">
+                    <span>Notifications</span>
+                    <button className="yt-notif-gear-btn" title="Settings">
+                      <Settings size={18} />
+                    </button>
+                  </div>
+
+                  <div className="yt-notif-body">
+                    {/* Important Section (Season releases) */}
+                    {importantNotifs.length > 0 && (
+                      <div className="yt-notif-section">
+                        <div className="yt-notif-section-title">Important</div>
+                        {importantNotifs.map((n) => (
+                          <div
+                            key={n.id}
+                            className={`yt-notif-item ${!n.read ? 'unread' : ''}`}
+                            onClick={() => {
+                              setNotifOpen(false);
+                              if (onSelectNotification) onSelectNotification(n);
+                            }}
+                          >
+                            <div className="yt-notif-avatar">
+                              {n.avatar ? <img src={n.avatar} alt={n.animeTitle} /> : <span>🎙️</span>}
+                            </div>
+                            <div className="yt-notif-content">
+                              <div className="yt-notif-text">
+                                <strong>{n.animeTitle}</strong> {n.message}
+                              </div>
+                              <div className="yt-notif-time">{n.timeAgo || 'Recently'}</div>
+                            </div>
+                            {n.thumb && (
+                              <div className="yt-notif-thumb">
+                                <img src={n.thumb} alt="Preview" />
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* More notifications Section (Episode releases) */}
+                    <div className="yt-notif-section">
+                      {importantNotifs.length > 0 && (
+                        <div className="yt-notif-section-title">More notifications</div>
+                      )}
+                      {regularNotifs.length === 0 && importantNotifs.length === 0 ? (
+                        <div className="yt-notif-empty">
+                          <Bell size={32} />
+                          <p>No notifications yet</p>
+                          <small>Subscribe to anime shows to receive release updates!</small>
+                        </div>
+                      ) : (
+                        regularNotifs.map((n) => (
+                          <div
+                            key={n.id}
+                            className={`yt-notif-item ${!n.read ? 'unread' : ''}`}
+                            onClick={() => {
+                              setNotifOpen(false);
+                              if (onSelectNotification) onSelectNotification(n);
+                            }}
+                          >
+                            <div className="yt-notif-avatar">
+                              {n.avatar ? <img src={n.avatar} alt={n.animeTitle} /> : <span>🎙️</span>}
+                            </div>
+                            <div className="yt-notif-content">
+                              <div className="yt-notif-text">
+                                <strong>{n.animeTitle}</strong> {n.message}
+                              </div>
+                              <div className="yt-notif-time">{n.timeAgo || 'Recently'}</div>
+                            </div>
+                            {n.thumb && (
+                              <div className="yt-notif-thumb">
+                                <img src={n.thumb} alt="Preview" />
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {user ? (
               <div className="yt-profile-wrap" ref={profileRef}>
                 <button className="yt-avatar-btn" onClick={() => setProfileOpen(v => !v)} aria-label="Account">
@@ -177,14 +287,11 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
                     <button className="yt-dropdown-item" onClick={() => { setProfileOpen(false); setView('my-list'); }}>
                       <Bookmark size={16} /> My Watchlist
                     </button>
-                    <button className="yt-dropdown-item" onClick={() => setProfileOpen(false)}>
+                    <button className="yt-dropdown-item" onClick={() => { setProfileOpen(false); setView('watch-history'); }}>
                       <History size={16} /> Watch History
                     </button>
-                    <button className="yt-dropdown-item" onClick={() => setProfileOpen(false)}>
-                      <User size={16} /> Account Settings
-                    </button>
                     <div className="yt-dropdown-divider" />
-                    <button className="yt-dropdown-item yt-dropdown-signout" onClick={() => { setProfileOpen(false); if (onSignOut) onSignOut(); }}>
+                    <button className="yt-dropdown-item danger" onClick={() => { setProfileOpen(false); onSignOut(); }}>
                       <LogOut size={16} /> Sign out
                     </button>
                   </div>
@@ -192,7 +299,7 @@ export default function Navbar({ onSearch, activeView, setView, onHome, activeSe
               </div>
             ) : (
               <button className="yt-signin-btn" onClick={onSignIn}>
-                <User size={16} />
+                <User size={18} />
                 <span className="yt-signin-text">Sign in</span>
               </button>
             )}

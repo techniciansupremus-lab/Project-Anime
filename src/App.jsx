@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertCircle, Info, Play, Star, X, ArrowLeft, Flame, Trophy, Sparkles, Compass, History, Tv, Globe, ChevronLeft, ChevronRight, BookOpen, ThumbsUp, ThumbsDown, Share2, Bookmark, MoreHorizontal, ChevronDown, PlayCircle, CheckCircle } from 'lucide-react';
+import { AlertCircle, Info, Play, Star, X, ArrowLeft, Flame, Trophy, Sparkles, Compass, History, Tv, Globe, ChevronLeft, ChevronRight, BookOpen, ThumbsUp, ThumbsDown, Share2, Bookmark, MoreHorizontal, ChevronDown, PlayCircle, CheckCircle, Bell } from 'lucide-react';
 import Navbar, { MobileBottomNav } from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import SectionSlider from './components/SectionSlider';
@@ -55,7 +55,7 @@ function App() {
   const [hindiLoading, setHindiLoading] = useState(false);
   const [myList, setMyList] = useState([]);
 
-  // ─── Playlists & History states ───
+  //  Playlists & History states 
   const [likedVideos, setLikedVideos] = useState(() => {
     try { return JSON.parse(localStorage.getItem('anistream_liked_videos')) || []; } catch (e) { return []; }
   });
@@ -72,8 +72,70 @@ function App() {
   const [showCreatePlaylistModal, setShowCreatePlaylistModal] = useState(false);
   const [saveTargetItem, setSaveTargetItem] = useState(null);
 
+  //  Subscriptions & Notifications System 
+  const [subscriptions, setSubscriptions] = useState(() => {
+    try {
+      const saved = localStorage.getItem('anistream_subscriptions');
+      return saved ? JSON.parse(saved) : [
+        {
+          id: 'chainsmoker-cat',
+          media_id: 'chainsmoker-cat',
+          title: 'Chainsmoker Cat',
+          coverImage: 'https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?q=80&w=400',
+          hasNew: true
+        },
+        {
+          id: 'frieren-s1',
+          media_id: 'frieren-s1',
+          title: 'Frieren: Beyond Journey\'s End',
+          coverImage: 'https://images.unsplash.com/photo-1578632767115-351597cf2477?q=80&w=400',
+          hasNew: true
+        }
+      ];
+    } catch (e) {
+      return [];
+    }
+  });
 
-  // ─── Drama state ───
+  const [notifications, setNotifications] = useState(() => {
+    try {
+      const saved = localStorage.getItem('anistream_notifications');
+      return saved ? JSON.parse(saved) : [
+        {
+          id: 'notif-season-1',
+          type: 'season',
+          animeTitle: 'Frieren: Beyond Journey\'s End',
+          animeId: 'frieren-s1',
+          season: 2,
+          episode: 1,
+          message: 'Season 2 has been released and its premiering its Episode 1 now!',
+          avatar: 'https://images.unsplash.com/photo-1578632767115-351597cf2477?q=80&w=400',
+          thumb: 'https://images.unsplash.com/photo-1578632767115-351597cf2477?q=80&w=400',
+          timeAgo: '5 hours ago',
+          read: false
+        },
+        {
+          id: 'notif-ep-1',
+          type: 'episode',
+          animeTitle: 'Chainsmoker Cat',
+          animeId: 'chainsmoker-cat',
+          season: 1,
+          episode: 2,
+          message: 'Season 1 Episode 2 has been released. Click here to watch.',
+          avatar: 'https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?q=80&w=400',
+          thumb: 'https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?q=80&w=400',
+          timeAgo: '15 hours ago',
+          read: false
+        }
+      ];
+    } catch (e) {
+      return [];
+    }
+  });
+
+
+
+  //  Drama state 
   const [dramaHomeData, setDramaHomeData] = useState(null);
   const [dramaHomeLoading, setDramaHomeLoading] = useState(false);
   const [dramaHomeError, setDramaHomeError] = useState('');
@@ -85,7 +147,7 @@ function App() {
   const [dramaSearchResults, setDramaSearchResults] = useState([]);
   const [dramaSearchLoading, setDramaSearchLoading] = useState(false);
 
-  // ─── Manhwa state ───
+  //  Manhwa state 
   const [manhwaHomeData, setManhwaHomeData] = useState(null);
   const [manhwaHomeLoading, setManhwaHomeLoading] = useState(false);
   const [manhwaHomeError, setManhwaHomeError] = useState('');
@@ -98,7 +160,7 @@ function App() {
   const [manhwaSearchResults, setManhwaSearchResults] = useState([]);
   const [manhwaSearchLoading, setManhwaSearchLoading] = useState(false);
 
-  // ─── Movies state ───
+  //  Movies state 
   const [moviesHomeData, setMoviesHomeData] = useState(null);
   const [moviesHomeLoading, setMoviesHomeLoading] = useState(false);
   const [moviesHomeError, setMoviesHomeError] = useState('');
@@ -109,7 +171,7 @@ function App() {
   const [movieSearchLoading, setMovieSearchLoading] = useState(false);
   const [movieActiveCategory, setMovieActiveCategory] = useState('All');
 
-  // ─── Manga state ───
+  //  Manga state 
   const [mangaHomeData, setMangaHomeData] = useState(null);
   const [mangaHomeLoading, setMangaHomeLoading] = useState(false);
   const [mangaHomeError, setMangaHomeError] = useState('');
@@ -123,7 +185,7 @@ function App() {
   const [mangaSearchLoading, setMangaSearchLoading] = useState(false);
   const [comicCategory, setComicCategory] = useState(null);
 
-  // ─── Scroll Intro Overlay state ───
+  //  Scroll Intro Overlay state 
   const [showIntroOverlay, setShowIntroOverlay] = useState(() => {
     try {
       return !sessionStorage.getItem('anistream_intro_seen');
@@ -132,14 +194,14 @@ function App() {
     }
   });
 
-  // ─── Auth & Sync states ───
+  //  Auth & Sync states 
   const [session, setSession] = useState(null);
   const [user, setUser] = useState(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [watchHistory, setWatchHistory] = useState([]);
 
-  // ─── Welcome & Toast Notification states ───
+  //  Welcome & Toast Notification states 
   const [showWelcome, setShowWelcome] = useState(false);
   const [toast, setToast] = useState({ visible: false, message: '', type: 'info' });
   const toastTimeoutRef = useRef(null);
@@ -345,7 +407,7 @@ function App() {
   const searchDebounceRef = useRef(null);
   const hindiFetchInitiatedRef = useRef(false);
 
-  // ─── Watch History & Watchlist Sync Engine ───
+  //  Watch History & Watchlist Sync Engine 
 
   // Fetch watch history from DB/local on mount
   useEffect(() => {
@@ -592,7 +654,7 @@ function App() {
     }
   };
 
-  // ─── Playlists & Save Handlers ───
+  //  Playlists & Save Handlers 
   const handleToggleLiked = (item) => {
     if (!item) return;
     const idStr = String(item.id || item.media_id);
@@ -735,6 +797,106 @@ function App() {
       handleToggleCustomPlaylist(playlistObj.id, item);
     }
   };
+
+  const handleToggleSubscribe = (anime) => {
+    if (!anime) return;
+    const idStr = String(anime.id || anime.media_id);
+    setSubscriptions(prev => {
+      const isSubbed = prev.some(s => String(s.id || s.media_id) === idStr);
+      let updated;
+      if (isSubbed) {
+        updated = prev.filter(s => String(s.id || s.media_id) !== idStr);
+        showToast(`Unsubscribed from ${anime.title}`);
+      } else {
+        const newSub = {
+          id: idStr,
+          media_id: idStr,
+          title: anime.title,
+          coverImage: anime.cover || anime.coverImage || anime.bannerImage,
+          hasNew: true
+        };
+        updated = [newSub, ...prev];
+        showToast(`Subscribed to ${anime.title}!`);
+
+        // Create Season Release (Important) & Episode Release (More notifications)
+        const newSeasonNotif = {
+          id: 'notif-' + Date.now() + '-season',
+          type: 'season', // Important section
+          animeTitle: anime.title,
+          animeId: idStr,
+          season: 2,
+          episode: 1,
+          message: `Season 2 has been released and its premiering its Episode 1 now!`,
+          avatar: anime.cover || anime.coverImage || anime.bannerImage,
+          thumb: anime.bannerImage || anime.coverImage,
+          timeAgo: 'Just now',
+          read: false
+        };
+
+        const newEpNotif = {
+          id: 'notif-' + Date.now() + '-ep',
+          type: 'episode', // More notifications section
+          animeTitle: anime.title,
+          animeId: idStr,
+          season: 1,
+          episode: anime.totalEpisodes || 1,
+          message: `Season 1 Episode ${anime.totalEpisodes || 1} has been released. Click here to watch.`,
+          avatar: anime.cover || anime.coverImage || anime.bannerImage,
+          thumb: anime.bannerImage || anime.coverImage,
+          timeAgo: 'Just now',
+          read: false
+        };
+
+        setNotifications(nPrev => {
+          const nextNotifs = [newSeasonNotif, newEpNotif, ...nPrev];
+          localStorage.setItem('anistream_notifications', JSON.stringify(nextNotifs));
+          return nextNotifs;
+        });
+      }
+      localStorage.setItem('anistream_subscriptions', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleSelectNotification = (notif) => {
+    // Mark notification as read
+    setNotifications(prev => {
+      const updated = prev.map(n => n.id === notif.id ? { ...n, read: true } : n);
+      localStorage.setItem('anistream_notifications', JSON.stringify(updated));
+      return updated;
+    });
+
+    // Clear blue dot on subscription
+    if (notif.animeId) {
+      setSubscriptions(prev => {
+        const updated = prev.map(s => String(s.id || s.media_id) === String(notif.animeId) ? { ...s, hasNew: false } : s);
+        localStorage.setItem('anistream_subscriptions', JSON.stringify(updated));
+        return updated;
+      });
+
+      // Navigate to Watch page for anime & episode
+      setPageLoading(true);
+      api.getAnimeDetails(notif.animeId).then(details => {
+        if (details) {
+          startWatching(details, notif.episode || 1);
+        } else {
+          setView('anime');
+        }
+      }).catch(() => setView('anime')).finally(() => setPageLoading(false));
+    }
+  };
+
+  const handleSelectSubscription = (subAnime) => {
+    // Clear blue dot indicator
+    setSubscriptions(prev => {
+      const updated = prev.map(s => String(s.id || s.media_id) === String(subAnime.id || subAnime.media_id) ? { ...s, hasNew: false } : s);
+      localStorage.setItem('anistream_subscriptions', JSON.stringify(updated));
+      return updated;
+    });
+
+    handleAnimeClick(subAnime.id || subAnime.media_id);
+  };
+
 
 
   useEffect(() => {
@@ -879,11 +1041,11 @@ function App() {
     };
   }, [view, tvShowsData.featured, moviesData.featured, newPopularData.featured]);
 
-  // ── Hindi Dub catalog: isolated effect so its own mounted/loading never
+  //  Hindi Dub catalog: isolated effect so its own mounted/loading never
   //    collides with the shared pageLoading used by other sections.
   useEffect(() => {
     if (view !== 'hindi' && activeCategory !== 'Hindi') return;
-    if (hindiFetchInitiatedRef.current) return; // already fetching or done
+    if (hindiFetchInitiatedRef.current && hindiData.list.length > 0) return; // already fetching or done with results
     hindiFetchInitiatedRef.current = true;
     let alive = true;
     setHindiLoading(true);
@@ -1232,7 +1394,7 @@ function App() {
         }).catch(() => {});
       }
 
-      // ── Async: check AnimeRulz Hindi dub availability ──
+      //  Async: check AnimeRulz Hindi dub availability 
       if (details.id) {
         checkHindiDub(details.id).then(langs => {
           if (requestId === detailRequestRef.current) {
@@ -1280,7 +1442,7 @@ function App() {
         }).catch(() => {});
       }
 
-      // ── Async: check AnimeRulz Hindi dub availability ──
+      //  Async: check AnimeRulz Hindi dub availability 
       if (details.id && requestId === watchRequestRef.current) {
         checkHindiDub(details.id).then(langs => {
           if (requestId === watchRequestRef.current) {
@@ -1290,7 +1452,7 @@ function App() {
         }).catch(() => {});
       }
 
-      // ── FIXED: Pass ALL required params to getEpisodeSources ──
+      //  FIXED: Pass ALL required params to getEpisodeSources 
       // Signature: (episodeId, animeTitle, japaneseTitle, episodeNumber, anilistId, seasonNum, audioMode)
       const animeTitle = details.title || details.nativeTitle || '';
       const japaneseTitle = details.nativeTitle || details.japaneseTitle || details.synonyms?.[0] || '';
@@ -1299,12 +1461,12 @@ function App() {
 
       const episodeData = await api.getEpisodeSources(
         null,           // episodeId  (not needed for AnimeKai/HiAnime path)
-        animeTitle,     // animeTitle ✅
-        japaneseTitle,  // japaneseTitle ✅
-        epNum,          // episodeNumber ✅
-        anilistId,      // anilistId ✅
-        seasonNum,      // seasonNum ✅
-        targetAudio     // audioMode ✅
+        animeTitle,     // animeTitle 
+        japaneseTitle,  // japaneseTitle 
+        epNum,          // episodeNumber 
+        anilistId,      // anilistId 
+        seasonNum,      // seasonNum 
+        targetAudio     // audioMode 
       );
 
       if (!episodeData || requestId !== watchRequestRef.current) return;
@@ -1653,7 +1815,7 @@ function App() {
     fetch(apiUrl(`/api/drama/search?q=${encodeURIComponent(q)}`))
       .then(r => r.json())
       .then(data => {
-        // KissKH returns { value: [...], Count: N } ───" extract the array
+        // KissKH returns { value: [...], Count: N } " extract the array
         const arr = Array.isArray(data) ? data : (Array.isArray(data?.value) ? data.value : []);
         setDramaSearchResults(arr);
         setDramaSearchLoading(false);
@@ -1713,7 +1875,7 @@ function App() {
       const dramaPromise = fetch(apiUrl(`/api/drama/search?q=${encodeURIComponent(query)}`))
         .then(r => r.json())
         .then(data => {
-          // KissKH returns { value: [...], Count: N } ───" extract the array
+          // KissKH returns { value: [...], Count: N } " extract the array
           return Array.isArray(data) ? data : (Array.isArray(data?.value) ? data.value : []);
         })
         .catch(() => []);
@@ -1775,6 +1937,8 @@ function App() {
         onSignIn={() => setShowAuthModal(true)}
         onSignOut={async () => { await supabase.auth.signOut(); }}
         onToggleSidebar={() => setSidebarMini(v => !v)}
+        notifications={notifications}
+        onSelectNotification={handleSelectNotification}
       />
 
       <div className="yt-body">
@@ -1786,7 +1950,7 @@ function App() {
             user={user}
             onSignIn={() => setShowAuthModal(true)}
             mini={sidebarMini}
-            subscriptions={[]}
+            subscriptions={subscriptions}
             activeCategory={activeCategory}
             onSelectCategory={(cat) => {
               if (cat === 'Hindi') {
@@ -1799,6 +1963,7 @@ function App() {
               }
               window.scrollTo(0, 0);
             }}
+            onSelectSubscription={handleSelectSubscription}
           />
         )}
 
@@ -1809,7 +1974,7 @@ function App() {
             </button>
           )}
 
-          {/* Page-level loading bar ─── renders at root so it appears above everything */}
+          {/* Page-level loading bar  renders at root so it appears above everything */}
 
           {searchQuery.trim() !== '' ? (
             <SearchResults
@@ -1863,7 +2028,17 @@ function App() {
                 <WatchlistView items={myList} onAnimeClick={handleAnimeClick} onBackHome={goHome} />
               )}
               {view === 'detail' && selectedAnime && (
-                <DetailView anime={selectedAnime} franchiseList={franchiseList} myList={myList} onToggleWatchlist={toggleWatchlist} onAnimeSelect={(id) => handleAnimeClick(id, true)} onBackHome={goHome} onStartWatching={startWatching} />
+                <DetailView
+                  anime={selectedAnime}
+                  franchiseList={franchiseList}
+                  myList={myList}
+                  onToggleWatchlist={toggleWatchlist}
+                  onAnimeSelect={(id) => handleAnimeClick(id, true)}
+                  onBackHome={goHome}
+                  onStartWatching={startWatching}
+                  subscriptions={subscriptions}
+                  onToggleSubscribe={handleToggleSubscribe}
+                />
               )}
               {view === 'watch' && selectedAnime && currentEpisode && (
                 <WatchView
@@ -1876,6 +2051,8 @@ function App() {
                   onOpenSaveModal={(media) => { setSaveTargetItem(media); setShowSaveModal(true); }}
                   onToggleLike={handleToggleLiked}
                   isLiked={likedVideos.some(i => String(i.id || i.media_id) === String(selectedAnime.id))}
+                  subscriptions={subscriptions}
+                  onToggleSubscribe={handleToggleSubscribe}
                 />
               )}
               {view === 'watch-history' && (
@@ -1998,7 +2175,7 @@ function App() {
 
       <div className={`welcome-banner ${showWelcome ? 'visible' : ''}`}>
         <div className="welcome-banner-content">
-          <span>°Ãƒ...¸¢Ã¢¬¢Ã¢¬¹ First time here? Sign in to save your watchlist and sync your watch history!</span>
+          <span> First time here? Sign in to save your watchlist and sync your watch history!</span>
           <button className="welcome-banner-btn" onClick={() => { setShowWelcome(false); setShowAuthModal(true); }}>Sign In</button>
         </div>
         <button className="welcome-banner-close" onClick={() => setShowWelcome(false)} aria-label="Close welcome message">
@@ -2013,7 +2190,7 @@ function App() {
   );
 }
 
-// ─── YouTube Search Result Item Component ───
+//  YouTube Search Result Item Component 
 function YTSearchResultItem({ item, type, onClick }) {
   const thumb = item.bannerImage || item.coverImage || item.thumbnail || item.cover || '';
   const title = item.title || 'Untitled';
@@ -2149,7 +2326,7 @@ function InlineLoader({ label }) {
   );
 }
 
-/* ───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬ Skeleton Components ───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬───'───¢───¢───¢Ã¢───¬Å¡───¬──────¢───¢Ã¢───¬───¡───¬ */
+/* ''' Skeleton Components ''''''''''''''''''''''''''''''''''''''''''' */
 function SkeletonHero() {
   return (
     <div className="skeleton-hero">
@@ -2238,7 +2415,7 @@ function Top10Tile({ anime, rank, onClick }) {
           <div className="top10-card-glow" />
         </div>
         <div className="top10-card-overlay">
-          <span className="top10-card-rating">⭐ {anime.rating}</span>
+          <span className="top10-card-rating"> {anime.rating}</span>
           <span className="top10-card-title">{anime.title}</span>
           <span className="top10-card-type">{anime.type}</span>
         </div>
@@ -2262,7 +2439,7 @@ const HOME_FEATURED_ITEMS = [
   }
 ];
 
-// ─── YouTube Card Component ───
+//  YouTube Card Component 
 function YTCard({ item, onClick, badge }) {
   const thumb = item.episodeThumbnail || item.bannerImage || item.coverImage || item.thumbnail || item.cover || '';
   const animeTitle = item.title || 'Untitled';
@@ -2303,7 +2480,7 @@ function YTCard({ item, onClick, badge }) {
     </div>
   );
 }
-// ─── Chip Bar Component ───
+//  Chip Bar Component 
 function ChipBar({ chips, active, onSelect }) {
   return (
     <div className="yt-chip-bar">
@@ -2320,7 +2497,7 @@ function ChipBar({ chips, active, onSelect }) {
   );
 }
 
-// ─── HomeView (YouTube-style infinite scroll grid) ───
+//  HomeView (YouTube-style infinite scroll grid) 
 function HomeView({ onAnimeClick, onStartWatching, onManhwaClick }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -2461,7 +2638,7 @@ function HomeView({ onAnimeClick, onStartWatching, onManhwaClick }) {
   );
 }
 
-// ─── AnimeView (YouTube-style chip + grid) ───
+//  AnimeView (YouTube-style chip + grid) 
 function AnimeView({
   activeFeatured,
   featured = [],
@@ -2520,7 +2697,7 @@ function AnimeView({
       {top10Famous.length > 0 && (
         <div className="yt-section-block">
           <div className="yt-section-header">
-            <span className="yt-section-title">🔥 Top 10 This Week</span>
+            <span className="yt-section-title"> Top 10 This Week</span>
           </div>
           <div className="yt-content-grid">
             {top10Famous.slice(0, 10).map((anime, i) => (
@@ -2777,7 +2954,7 @@ function NetflixTile({ anime, rank, progress, onClick }) {
           </span>
         )}
         {anime.rating && anime.rating !== 'N/A' && (
-          <span className="tile-rating-badge">⭐ {anime.rating}</span>
+          <span className="tile-rating-badge"> {anime.rating}</span>
         )}
       </span>
       <span className="tile-info">
@@ -2797,7 +2974,7 @@ function GenreView({ genreName, items = [], isLoading, loadingMore = false, hasM
 
   return (
     <div className="genre-view-container" style={{ paddingTop: '5.5rem', paddingBottom: '5rem' }}>
-      {/* ─ Glassmorphic Genre Hero Card ─ */}
+      {/*  Glassmorphic Genre Hero Card  */}
       <div className="container">
         <div
           className="genre-hero-glass-card"
@@ -2908,7 +3085,7 @@ function GenreView({ genreName, items = [], isLoading, loadingMore = false, hasM
           </div>
         </div>
 
-        {/* ─ Section Title ─ */}
+        {/*  Section Title  */}
         <div className="hv-section-header" style={{ marginBottom: '1.8rem' }}>
           <h2 className="hv-section-title" style={{ fontSize: '1.4rem', fontWeight: 800, color: '#fff' }}>
             <Sparkles className="hv-icon" size={20} style={{ color: '#e50914' }} />
@@ -2917,7 +3094,7 @@ function GenreView({ genreName, items = [], isLoading, loadingMore = false, hasM
           <span className="hv-section-line" />
         </div>
 
-        {/* ─ 16:9 Bento Cards Grid ─ */}
+        {/*  16:9 Bento Cards Grid  */}
         <div
           className="bento-grid"
           style={{
@@ -2936,7 +3113,7 @@ function GenreView({ genreName, items = [], isLoading, loadingMore = false, hasM
           ))}
         </div>
 
-        {/* ─ Infinite Scroll Skeleton Loader ─ */}
+        {/*  Infinite Scroll Skeleton Loader  */}
         {loadingMore && (
           <div
             style={{
@@ -2967,10 +3144,12 @@ function GenreView({ genreName, items = [], isLoading, loadingMore = false, hasM
   );
 }
 
-function DetailView({ anime, franchiseList = [], myList = [], onToggleWatchlist, onAnimeSelect, onBackHome, onStartWatching }) {
+function DetailView({ anime, franchiseList = [], myList = [], onToggleWatchlist, onAnimeSelect, onBackHome, onStartWatching, subscriptions = [], onToggleSubscribe }) {
   const EPISODES_PER_PART = 100;
   const totalPages = anime.episodePagination?.lastPage || 1;
   const totalEpisodes = anime.totalEpisodes || anime.episodes?.length || 0;
+
+  const isSubscribed = subscriptions.some(s => String(s.id || s.media_id) === String(anime.id));
 
   const getPartLabel = (pageNum) => {
     const start = (pageNum - 1) * EPISODES_PER_PART + 1;
@@ -3064,6 +3243,13 @@ function DetailView({ anime, franchiseList = [], myList = [], onToggleWatchlist,
                 <Play size={18} fill="currentColor" /> Play Episode 1
               </button>
               <button
+                className={`btn ${isSubscribed ? 'btn-subscribed' : 'btn-subscribe'}`}
+                onClick={() => onToggleSubscribe && onToggleSubscribe(anime)}
+              >
+                <Bell size={18} fill={isSubscribed ? "currentColor" : "none"} />
+                {isSubscribed ? 'Subscribed' : 'Subscribe'}
+              </button>
+              <button
                 className={`btn ${myList.some(item => item.id === anime.id) ? '✓ Saved' : '+ Save'}`}
                 onClick={() => onToggleWatchlist(anime)}
               >
@@ -3084,125 +3270,68 @@ function DetailView({ anime, franchiseList = [], myList = [], onToggleWatchlist,
             <div className="episodes-controls">
               {/* Franchise / Season Selector */}
               {hasFranchise && (
-                <div className="season-selector-wrap">
-                  <select
-                    className="season-selector"
-                    value={anime.id}
-                    onChange={(e) => onAnimeSelect(e.target.value)}
-                    aria-label="Select season or movie"
-                  >
-                    {franchiseList.map(item => (
-                      <option key={item.id} value={item.id}>
-                        {item.title} ({item.format})
-                      </option>
-                    ))}
-                  </select>
-                  <span className="season-selector-arrow">&#9660;</span>
-                </div>
-              )}
-
-              {/* Part selector (for long running shows) */}
-              {isLongRunning && (
-                <div className="season-selector-wrap">
-                  <select
-                    className="season-selector"
-                    value={selectedPart}
-                    onChange={(e) => setSelectedPart(Number(e.target.value))}
-                    aria-label="Select part"
-                  >
-                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
-                      <option key={p} value={p}>{getPartLabel(p)}</option>
-                    ))}
-                  </select>
-                  <span className="season-selector-arrow">&#9660;</span>
-                </div>
-              )}
-
-              <div className="episode-filter-bar">
-                {['all', 'canon', 'filler', 'recap'].map(f => (
-                  <button
-                    key={f}
-                    className={`ep-filter-btn${filter === f ? ' active' : ''}`}
-                    onClick={() => setFilter(f)}
-                  >
-                    {f.charAt(0).toUpperCase() + f.slice(1)}
+                <div className="franchise-selector" ref={dropdownRef}>
+                  <button className="franchise-btn" onClick={() => setShowSeasonDropdown(v => !v)}>
+                    <span>{activeLabel}</span>
+                    <ChevronDown size={14} />
                   </button>
+                  {showSeasonDropdown && (
+                    <div className="franchise-dropdown">
+                      {seasonOptions.map((opt, idx) => (
+                        <button
+                          key={`${opt.id}-${idx}`}
+                          className={`franchise-option ${opt.isActive ? "active" : ""}`}
+                          onClick={() => {
+                            if (opt.id !== anime.id) {
+                              const target = franchiseList.find(f => f.id === opt.id);
+                              if (target) onAnimeSelect(target);
+                            } else { setSelectedPart(opt.part || 1); }
+                            setShowSeasonDropdown(false);
+                          }}>
+                          {opt.title}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {/* Filter pills for DetailView */}
+              <div className="episodes-filter-bar">
+                {[["all","All"],["canon","Canon"],["filler","Filler"],["recap","Recap"]].map(([f,label]) => (
+                  <button key={f} className={`ep-filter-pill ${filter === f ? "active" : ""}`} onClick={() => setFilter(f)}>{label}</button>
                 ))}
               </div>
             </div>
           </div>
-
-          <div className="episode-count-info">
-            {isLongRunning
-              ? <span>{getPartLabel(selectedPart)} &middot; {filteredEpisodes.length} episodes</span>
-              : <span>{filteredEpisodes.length} episodes total</span>
-            }
+          {/* Episode Grid */}
+          <div className="episodes-grid">
+            {loadingPage ? (
+              Array.from({length: 12}).map((_, i) => <BentoEpisodeSkeleton key={i} />)
+            ) : filteredEpisodes.length === 0 ? (
+              <div className="episodes-empty">No episodes found.</div>
+            ) : filteredEpisodes.map(ep => (
+              <div
+                key={ep.id || ep.number}
+                className={`ep-bento-card ${ep.number === 1 ? "active" : ""}`}
+                onClick={() => onStartWatching(anime, ep.number)}
+              >
+                <div className="ep-bento-number">{ep.number}</div>
+                <div className="ep-bento-thumb">
+                  {ep.thumbnail ? <img src={ep.thumbnail} alt={`Episode ${ep.number}`} loading="lazy" /> : <div className="ep-bento-thumb-placeholder"><Play size={16} /></div>}
+                </div>
+                <div className="ep-bento-info">
+                  <div className="ep-bento-header">
+                    <div className="ep-bento-title">{ep.title && ep.title !== `Episode ${ep.number}` ? ep.title : `Episode ${ep.number}`}</div>
+                    {ep.filler && <span className="ep-bento-badge filler">Filler</span>}
+                    {ep.recap && <span className="ep-bento-badge recap">Recap</span>}
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
-
-          {loadingPage ? (
-            <InlineLoader label="Loading episodes..." />
-          ) : filteredEpisodes.length === 0 ? (
-            <div className="ep-empty-state">
-              <p>No {filter !== 'all' ? filter : ''} episodes in this part.</p>
-            </div>
-          ) : (
-            <div className="episode-list-netflix">
-              {filteredEpisodes.map((ep) => (
-                <EpisodeCard
-                  key={ep.number}
-                  ep={ep}
-                  anime={anime}
-                  onStartWatching={onStartWatching}
-                />
-              ))}
-            </div>
-          )}
         </div>
       </div>
     </div>
-  );
-}
-
-function EpisodeCard({ ep, anime, onStartWatching }) {
-  const [imgError, setImgError] = React.useState(false);
-  return (
-    <button
-      className={`ep-card-netflix${ep.filler ? ' ep-filler' : ''}${ep.recap ? ' ep-recap' : ''}`}
-      onClick={() => onStartWatching(anime, ep.number)}
-    >
-      <div className="ep-card-thumb">
-        {!imgError ? (
-          <img
-            src={ep.thumbnail || anime.coverImage}
-            alt={ep.title}
-            loading="lazy"
-            onError={() => setImgError(true)}
-          />
-        ) : (
-          <div className="ep-thumb-fallback"><Play size={24} /></div>
-        )}
-        <div className="ep-card-play-overlay"><Play size={28} fill="white" /></div>
-        <div className="ep-card-num-badge">EP {ep.number}</div>
-      </div>
-
-      <div className="ep-card-body">
-        <div className="ep-card-top">
-          <span className="ep-card-number">Episode {ep.number}</span>
-          <div className="ep-card-badges">
-            {ep.filler && <span className="ep-badge ep-badge-filler">FILLER</span>}
-            {ep.recap && <span className="ep-badge ep-badge-recap">RECAP</span>}
-          </div>
-        </div>
-        <div className="ep-card-title">{ep.title}</div>
-        <div className="ep-card-meta">
-          {ep.aired && <span>{ep.aired}</span>}
-          {ep.score && <span>{'\u2b50'} {ep.score}/5</span>}
-          {anime.duration && <span>{anime.duration}</span>}
-        </div>
-      </div>
-
-      <div className="ep-card-action"><Play size={20} /></div>
-    </button>
   );
 }
 
@@ -3221,7 +3350,9 @@ function WatchView({
   showToast,
   onOpenSaveModal,
   onToggleLike,
-  isLiked
+  isLiked,
+  subscriptions = [],
+  onToggleSubscribe
 }) {
   const EPISODES_PER_PART = 100;
   const totalPages = anime.episodePagination?.lastPage || 1;
@@ -3239,6 +3370,25 @@ function WatchView({
   const [cbfLoadingMore, setCbfLoadingMore] = React.useState(false);
   const [liked, setLiked] = React.useState(false);
   const [descExpanded, setDescExpanded] = React.useState(false);
+
+  const isSubscribed = subscriptions.some(s => String(s.id || s.media_id) === String(anime.id));
+
+  const currentEpNum = episode.number || 1;
+  const totalEpCount = anime.totalEpisodes || anime.episodes?.length || (episodesList.length || 1000);
+  const hasPrevEp = currentEpNum > 1;
+  const hasNextEp = currentEpNum < totalEpCount;
+
+  const handlePrevEp = () => {
+    if (hasPrevEp && onStartWatching) {
+      onStartWatching(anime, currentEpNum - 1, true, audioMode);
+    }
+  };
+
+  const handleNextEp = () => {
+    if (hasNextEp && onStartWatching) {
+      onStartWatching(anime, currentEpNum + 1, true, audioMode);
+    }
+  };
 
   const dropdownRef = React.useRef(null);
   const activeEpisodeRef = React.useRef(null);
@@ -3272,10 +3422,8 @@ function WatchView({
       return;
     }
     setLoadingEpisodes(true);
-    // Simulate slight lag to make the skeleton animation beautifully visible
     const fetchPromise = api.getEpisodePage(anime.malId, selectedPart);
     const delayPromise = new Promise(resolve => setTimeout(resolve, 800));
-    
     Promise.all([fetchPromise, delayPromise]).then(([data]) => {
       if (data && data.episodes) {
         setEpisodesList(data.episodes.map(ep => ({
@@ -3409,7 +3557,6 @@ function WatchView({
       setVisibleCbfCount(prev => Math.min(prev + 8, cbfRecs.length));
       return;
     }
-    // Fetch next page of candidates from AniList API
     setCbfLoadingMore(true);
     try {
       const nextPage = cbfPage + 1;
@@ -3439,7 +3586,6 @@ function WatchView({
         loadMoreCbf();
       }
     };
-
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, [loadMoreCbf]);
@@ -3449,10 +3595,10 @@ function WatchView({
 
   return (
     <div className="yt-watch-page">
-      {/* ─── 2-Column Grid Layout ─── */}
+      {/* â”€â”€â”€ 2-Column Grid Layout â”€â”€â”€ */}
       <div className="yt-watch-layout">
 
-        {/* ────── LEFT COLUMN: Primary ────── */}
+        {/* â”€â”€â”€ LEFT COLUMN: Primary â”€â”€â”€ */}
         <div className="yt-watch-primary">
 
           {/* Video Player */}
@@ -3466,6 +3612,10 @@ function WatchView({
                 subtitles={episode?.subtitles}
                 malId={anime.idMal}
                 episodeNumber={episode.number}
+                onNextEpisode={handleNextEp}
+                onPrevEpisode={handlePrevEp}
+                hasNextEpisode={hasNextEp}
+                hasPrevEpisode={hasPrevEp}
                 className="yt-player-skin"
               />
             )}
@@ -3478,7 +3628,7 @@ function WatchView({
               {anime.title}
             </h1>
             <div className="yt-watch-ep-label">
-              Season {seasonNum} · Episode {episode.number}{episode.title && episode.title !== `Episode ${episode.number}` ? `  ${episode.title}` : ''}
+              Season {seasonNum} Â· Episode {episode.number}{episode.title && episode.title !== `Episode ${episode.number}` ? `  ${episode.title}` : ''}
             </div>
           </div>
 
@@ -3506,6 +3656,14 @@ function WatchView({
             </div>
 
             <div className="yt-watch-action-right">
+              <button
+                className={`yt-action-btn ${isSubscribed ? 'btn-subscribed' : 'btn-subscribe'}`}
+                onClick={() => onToggleSubscribe && onToggleSubscribe(anime)}
+                style={{ height: '36px', padding: '0 1rem' }}
+              >
+                <Bell size={16} fill={isSubscribed ? "currentColor" : "none"} />
+                <span>{isSubscribed ? 'Subscribed' : 'Subscribe'}</span>
+              </button>
               <button
                 className={`yt-action-btn ${(isLiked || liked) ? 'active' : ''}`}
                 onClick={() => {
@@ -3575,10 +3733,10 @@ function WatchView({
           )}
         </div>
 
-        {/* ────── RIGHT COLUMN: Secondary ────── */}
+        {/* â”€â”€â”€ RIGHT COLUMN: Secondary â”€â”€â”€ */}
         <div className="yt-watch-secondary" ref={secondaryColRef}>
 
-          {/* ─── Season Panel (YouTube playlist bento) ─── */}
+          {/* â”€â”€â”€ Season Panel (YouTube playlist bento) â”€â”€â”€ */}
           <div className="yt-season-panel">
             {/* Panel header */}
             <div className="yt-season-panel-header">
@@ -3589,31 +3747,30 @@ function WatchView({
                 </div>
               </div>
               {/* Clickable Season Selector */}
-              <div className="yt-season-selector" ref={dropdownRef}>
+              <div className="yt-season-selector-wrap" ref={dropdownRef}>
                 <button
                   className="yt-season-selector-btn"
                   onClick={() => setShowSeasonDropdown(v => !v)}
                 >
-                  <span className="yt-season-selector-label">{activeLabel}</span>
-                  <ChevronDown size={14} className={showSeasonDropdown ? 'rotated' : ''} />
+                  <span>{activeLabel}</span>
+                  <ChevronDown size={14} />
                 </button>
                 {showSeasonDropdown && (
                   <div className="yt-season-dropdown">
                     {seasonOptions.map((opt, idx) => (
                       <button
-                        key={idx}
-                        className={`yt-season-dropdown-item ${opt.isActive ? 'active' : ''}`}
+                        key={`${opt.id}-${idx}`}
+                        className={`yt-season-option ${opt.isActive ? 'active' : ''}`}
                         onClick={() => {
-                          setShowSeasonDropdown(false);
                           if (opt.id !== anime.id) {
-                            onAnimeSelect(opt.id);
+                            if (onAnimeSelect) onAnimeSelect(opt.id);
                           } else {
-                            setSelectedPart(opt.part);
+                            setSelectedPart(opt.part || 1);
                           }
+                          setShowSeasonDropdown(false);
                         }}
                       >
-                        {opt.isActive && <CheckCircle size={14} style={{ flexShrink: 0, color: 'var(--accent-primary)' }} />}
-                        <span>{opt.title}</span>
+                        {opt.title}
                       </button>
                     ))}
                   </div>
@@ -3621,64 +3778,57 @@ function WatchView({
               </div>
             </div>
 
-            {/* Filter chips */}
-            <div className="yt-season-filter-bar">
-              {['all', 'canon', 'filler', 'recap'].map(f => (
+            {/* Filter pills */}
+            <div className="yt-ep-filters">
+              {['all','canon','filler','recap'].map(f => (
                 <button
                   key={f}
-                  className={`yt-season-chip ${filter === f ? 'active' : ''}`}
+                  className={`yt-ep-filter-pill ${filter === f ? 'active' : ''}`}
                   onClick={() => setFilter(f)}
                 >
-                  {f.charAt(0).toUpperCase() + f.slice(1)}
+                  {f === 'all' ? 'All' : f === 'canon' ? 'Canon' : f === 'filler' ? 'Filler' : 'Recap'}
                 </button>
               ))}
             </div>
 
-            {/* Episode rows */}
-            <div className="yt-ep-list">
+            {/* Episode bento list */}
+            <div className="yt-ep-bento-list">
               {loadingEpisodes ? (
-                Array.from({ length: 8 }).map((_, i) => (
-                  <div key={i} className="yt-ep-row skeleton">
-                    <div className="yt-ep-row-num yt-skeleton-box" style={{ width: 20, height: 16 }} />
-                    <div className="yt-ep-row-thumb yt-skeleton-box" />
-                    <div style={{ flex: 1 }}>
-                      <div className="yt-skeleton-line" style={{ width: '80%', marginBottom: 6 }} />
-                      <div className="yt-skeleton-line" style={{ width: '50%' }} />
-                    </div>
-                  </div>
-                ))
+                Array.from({ length: 6 }).map((_, i) => <BentoEpisodeSkeleton key={i} />)
               ) : filteredEpisodes.length === 0 ? (
-                <div className="yt-ep-list-empty">No episodes found.</div>
+                <div className="yt-ep-empty">No episodes found.</div>
               ) : (
                 filteredEpisodes.map(ep => {
                   const isActive = ep.number === episode.number;
-                  const rawTitle = ep.title || '';
-                  const isRedundant = rawTitle.toLowerCase().trim() === `episode ${ep.number}` || rawTitle.toLowerCase().trim() === `ep ${ep.number}`;
-                  const cleanTitle = ep.title && !isRedundant ? ep.title.trim() : '';
                   return (
                     <div
-                      key={ep.number}
+                      key={ep.id || ep.number}
                       ref={isActive ? activeEpisodeRef : null}
-                      className={`yt-ep-row ${isActive ? 'active' : ''} ${ep.filler ? 'filler' : ''} ${ep.recap ? 'recap' : ''}`}
-                      onClick={() => onStartWatching(anime, ep.number)}
-                      role="button"
-                      tabIndex={0}
+                      className={`ep-bento-card ${isActive ? 'active' : ''} ${ep.filler ? 'filler' : ''}`}
+                      onClick={() => {
+                        if (!isActive && onStartWatching) {
+                          onStartWatching(anime, ep.number, true, audioMode);
+                        }
+                      }}
                     >
-                      <div className="yt-ep-row-num">
-                        {isActive ? <Play size={12} fill="currentColor" style={{ color: '#fff' }} /> : ep.number}
+                      <div className="ep-bento-number">{ep.number}</div>
+                      <div className="ep-bento-thumb">
+                        {ep.thumbnail ? (
+                          <img src={ep.thumbnail} alt={ep.title || `Episode ${ep.number}`} loading="lazy" />
+                        ) : (
+                          <div className="ep-bento-thumb-placeholder">
+                            <Play size={16} />
+                          </div>
+                        )}
+                        {isActive && <div className="ep-bento-playing-overlay"><div className="ep-bento-playing-bar" /><div className="ep-bento-playing-bar" /><div className="ep-bento-playing-bar" /></div>}
                       </div>
-                      <div className="yt-ep-row-thumb">
-                        <img src={ep.thumbnail || anime.coverImage} alt={`Ep ${ep.number}`} loading="lazy" />
-                        {ep.filler && <span className="yt-ep-badge filler">F</span>}
-                        {ep.recap && <span className="yt-ep-badge recap">R</span>}
-                      </div>
-                      <div className="yt-ep-row-info">
-                        <div className="yt-ep-row-title">
-                          {cleanTitle || `Episode ${ep.number}`}
+                      <div className="ep-bento-info">
+                        <div className="ep-bento-header">
+                          <div className="ep-bento-title">{ep.title || `Episode ${ep.number}`}</div>
+                          {ep.filler && <span className="ep-bento-badge filler">Filler</span>}
+                          {ep.recap && <span className="ep-bento-badge recap">Recap</span>}
                         </div>
-                        <div className="yt-ep-row-meta">
-                          {anime.duration || '~24m'}
-                        </div>
+                        <div className="ep-bento-sub">{anime.title}</div>
                       </div>
                     </div>
                   );
@@ -3687,53 +3837,48 @@ function WatchView({
             </div>
           </div>
 
-          {/* ─── CBF Suggestions ─── */}
-          {cbfRecs.length > 0 && (
-            <div className="yt-cbf-panel">
-              <div className="yt-cbf-panel-title">Up Next →</div>
-              <div className="yt-cbf-list">
-                {displayedCbfRecs.map(rec => (
-                  <div
-                    key={rec.id}
-                    className="yt-cbf-card"
-                    onClick={() => onStartWatching(rec, 1)}
-                    role="button"
-                    tabIndex={0}
-                  >
-                    <div className="yt-cbf-thumb">
-                      <img
-                        src={rec.bannerImage || rec.coverImage || rec.thumbnail || ''}
-                        alt={rec.title}
-                        loading="lazy"
-                        onError={e => { e.target.style.display = 'none'; }}
-                      />
-                    </div>
-                    <div className="yt-cbf-info">
-                      <div className="yt-cbf-title">{rec.title}</div>
-                      <div className="yt-cbf-meta">
-                        {rec.genres?.slice(0, 2).join(' · ')}
-                      </div>
-                      {rec._matchedTags && rec._matchedTags.length > 0 && (
-                        <div className="yt-cbf-match">
-                          {rec._matchedTags.slice(0, 2).join(', ')}
-                        </div>
-                      )}
-                    </div>
+          {/* â”€â”€â”€ Up Next / Recommendations â”€â”€â”€ */}
+          <div className="yt-cbf-section">
+            <div className="yt-cbf-header">Up next</div>
+            {displayedCbfRecs.length === 0 ? (
+              Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="yt-cbf-card skeleton">
+                  <div className="yt-cbf-thumb skeleton-shimmer" />
+                  <div className="yt-cbf-info" style={{ gap: 8, flex: 1 }}>
+                    <div className="yt-skeleton-line" style={{ width: '85%', height: 14 }} />
+                    <div className="yt-skeleton-line" style={{ width: '50%', height: 12 }} />
                   </div>
-                ))}
-
-                {cbfLoadingMore && Array.from({ length: 4 }).map((_, i) => (
-                  <div key={`cbf-skel-${i}`} className="yt-cbf-card skeleton" style={{ opacity: 0.7 }}>
-                    <div className="yt-cbf-thumb yt-skeleton-box" style={{ width: 168, height: 94 }} />
-                    <div className="yt-cbf-info" style={{ gap: 8, flex: 1 }}>
-                      <div className="yt-skeleton-line" style={{ width: '85%', height: 14 }} />
-                      <div className="yt-skeleton-line" style={{ width: '50%', height: 12 }} />
-                    </div>
+                </div>
+              ))
+            ) : (
+              displayedCbfRecs.map(rec => (
+                <div
+                  key={rec.id}
+                  className="yt-cbf-card"
+                  onClick={() => onAnimeSelect && onAnimeSelect(rec.id)}
+                >
+                  <div className="yt-cbf-thumb">
+                    <img src={rec.coverImage} alt={rec.title} loading="lazy" />
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
+                  <div className="yt-cbf-info">
+                    <div className="yt-cbf-title">{rec.title}</div>
+                    <div className="yt-cbf-sub">{rec.type} Â· {rec.totalEpisodes ? `${rec.totalEpisodes} eps` : ''}</div>
+                  </div>
+                </div>
+              ))
+            )}
+            {cbfLoadingMore && (
+              Array.from({ length: 2 }).map((_, i) => (
+                <div key={`loading-${i}`} className="yt-cbf-card skeleton">
+                  <div className="yt-cbf-thumb skeleton-shimmer" />
+                  <div className="yt-cbf-info" style={{ gap: 8, flex: 1 }}>
+                    <div className="yt-skeleton-line" style={{ width: '85%', height: 14 }} />
+                    <div className="yt-skeleton-line" style={{ width: '50%', height: 12 }} />
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -3899,7 +4044,7 @@ function HindiView({ hindiAnime = [], onAnimeClick, onStartWatching, isLoading =
   return (
     <div className="hindi-yt-page">
 
-      {/* ── Channel Header Banner ── */}
+      {/*  Channel Header Banner  */}
       {topPick && (
         <div
           className="hindi-yt-banner"
@@ -3909,7 +4054,7 @@ function HindiView({ hindiAnime = [], onAnimeClick, onStartWatching, isLoading =
           <div className="hindi-yt-banner-content">
             <div className="hindi-yt-channel-info">
               <div className="hindi-yt-channel-avatar">
-                🎙️
+                
               </div>
               <div className="hindi-yt-channel-text">
                 <div className="hindi-yt-channel-name">Hindi Dubbed Anime</div>
@@ -3933,7 +4078,7 @@ function HindiView({ hindiAnime = [], onAnimeClick, onStartWatching, isLoading =
         </div>
       )}
 
-      {/* ── Filter Chips Row ── */}
+      {/*  Filter Chips Row  */}
       <div className="hindi-yt-controls">
         <div className="hindi-yt-chips-row">
           {FILTERS.map(f => (
@@ -3953,20 +4098,20 @@ function HindiView({ hindiAnime = [], onAnimeClick, onStartWatching, isLoading =
         >
           <option value="popularity">Most Popular</option>
           <option value="rating">Highest Rated</option>
-          <option value="az">A – Z</option>
+          <option value="az">A  Z</option>
         </select>
       </div>
 
-      {/* ── Results count ── */}
+      {/*  Results count  */}
       <div className="hindi-yt-count">
         {filtered.length} Hindi dubbed {activeFilter !== 'All' ? activeFilter : ''} series
-        {isLoading && <span className="hindi-yt-loading-badge">● Loading more…</span>}
+        {isLoading && <span className="hindi-yt-loading-badge"> Loading more</span>}
       </div>
 
-      {/* ── Video Grid ── */}
+      {/*  Video Grid  */}
       {sorted.length === 0 ? (
         <div className="hindi-yt-empty">
-          <span>🎌</span>
+          <span></span>
           <p>No Hindi dubbed anime found for <strong>{activeFilter}</strong></p>
           <button className="hindi-yt-chip active" onClick={() => setActiveFilter('All')}>Show All</button>
         </div>
@@ -4022,7 +4167,7 @@ function HindiYTCard({ anime, onPlay, onInfo }) {
         </div>
 
         {/* Hindi audio badge */}
-        <div className="hindi-yt-card-audio-badge">🎙️ हिन्दी</div>
+        <div className="hindi-yt-card-audio-badge">🇮🇳 HINDI</div>
 
         {/* Hover overlay */}
         <div className="hindi-yt-card-hover-overlay">
@@ -4032,10 +4177,10 @@ function HindiYTCard({ anime, onPlay, onInfo }) {
         </div>
       </div>
 
-      {/* Meta info — YouTube style */}
+      {/* Meta info  YouTube style */}
       <div className="hindi-yt-card-meta">
         <div className="hindi-yt-card-avatar-dot">
-          <span>🎌</span>
+          <span></span>
         </div>
         <div className="hindi-yt-card-info">
           <div className="hindi-yt-card-title" title={anime.title} onClick={onInfo}>
@@ -4052,7 +4197,7 @@ function HindiYTCard({ anime, onPlay, onInfo }) {
             <span>{anime.status || 'Finished'}</span>
           </div>
         </div>
-        <button className="hindi-yt-card-more" title="More options">⋮</button>
+        <button className="hindi-yt-card-more" title="More options"></button>
       </div>
     </div>
   );
@@ -4094,9 +4239,9 @@ function WatchlistView({ items, onAnimeClick, onBackHome }) {
 
 export default App;
 
-// ───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───
+// '''''''''''''''''''''''''''''''''''''''''''''''''''''
 // MANHWA COMPONENTS (Hivetoons)
-// ───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───
+// '''''''''''''''''''''''''''''''''''''''''''''''''''''
 
 function ManhwaCard({ series, onClick }) {
   const [imgErr, setImgErr] = React.useState(false);
@@ -4212,7 +4357,7 @@ function ManhwaDetailView({ series, isLoading, onBack, onReadChapter }) {
       >
         <div className="manhwa-hero-overlay" />
         <div className="manhwa-detail-hero-content">
-          <button className="manhwa-back-btn" onClick={onBack}>← </button>
+          <button className="manhwa-back-btn" onClick={onBack}> Â </button>
           <div className="manhwa-detail-meta-row">
             <img src={series.cover} alt={series.title} className="manhwa-detail-cover" />
             <div className="manhwa-detail-info">
@@ -4314,12 +4459,12 @@ function ManhwaReadView({ series, chapter, images, isLoading, onBack, onChapterS
     <div className="manhwa-reader">
       {/* Top navigation bar */}
       <div className="manhwa-reader-header">
-        <button className="manhwa-back-btn" onClick={onBack}>← Back</button>
+        <button className="manhwa-back-btn" onClick={onBack}> Â Back</button>
         <span className="manhwa-reader-chapter-label">Chapter {chapter.number}</span>
         <div className="manhwa-reader-nav">
           {prevChapter && (
             <button className="manhwa-nav-btn" onClick={() => onChapterSelect(prevChapter)}>
-              ← Prev
+               Â Prev
             </button>
           )}
           {nextChapter && (
@@ -4358,7 +4503,7 @@ function ManhwaReadView({ series, chapter, images, isLoading, onBack, onChapterS
         <div className="manhwa-reader-footer">
           {prevChapter && (
             <button className="manhwa-nav-btn" onClick={() => { onChapterSelect(prevChapter); window.scrollTo(0,0); }}>
-              ← Previous Chapter
+               Â Previous Chapter
             </button>
           )}
           <button className="manhwa-back-btn-plain" onClick={() => { onBack(); }}>
@@ -4393,9 +4538,9 @@ function ManhwaReadView({ series, chapter, images, isLoading, onBack, onChapterS
   );
 }
 
-// ───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───
+// '''''''''''''''''''''''''''''''''''''''''''''''''''''
 // DRAMA COMPONENTS
-// ───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───'───
+// '''''''''''''''''''''''''''''''''''''''''''''''''''''
 
 function DramaCard({ drama, onClick }) {
   const [imgErr, setImgErr] = React.useState(false);
@@ -4577,7 +4722,7 @@ function DramaDetailView({ drama, onBack, onWatchEpisode }) {
       <div className="drama-detail-hero" style={{ backgroundImage: `url(${drama.thumbnail})` }}>
         <div className="drama-hero-overlay" />
         <div className="drama-detail-hero-content">
-          <button className="drama-back-btn" onClick={onBack}>← Back</button>
+          <button className="drama-back-btn" onClick={onBack}> Â Back</button>
           <h1 className="drama-detail-title">{drama.title}</h1>
           {drama.releaseDate && (
             <span className="drama-detail-meta">
@@ -4663,7 +4808,7 @@ function DramaWatchView({ drama, episode, stream, loading, onBack, onEpisodeSele
   return (
     <div className="drama-watch">
       <div className="drama-watch-header">
-        <button className="drama-back-btn" onClick={onBack}>← {drama.title}</button>
+        <button className="drama-back-btn" onClick={onBack}> Â {drama.title}</button>
         <span className="drama-watch-ep-label">Episode {episode.number}</span>
       </div>
 
@@ -4735,9 +4880,9 @@ function DramaWatchView({ drama, episode, stream, loading, onBack, onEpisodeSele
   );
 }
 
-// ───
+// 
 // MOVIE COMPONENTS
-// ───
+// 
 
 function MovieCard({ movie, onClick }) {
   const [imgErr, setImgErr] = React.useState(false);
@@ -4761,7 +4906,7 @@ function MovieCard({ movie, onClick }) {
           <span className="tile-hover-play"><Play size={20} fill="white" style={{ color: 'white' }} /></span>
         </span>
         {movie.rating && (
-          <span className="tile-rating-badge" style={{ color: '#fff' }}>⭐ {movie.rating}</span>
+          <span className="tile-rating-badge" style={{ color: '#fff' }}> {movie.rating}</span>
         )}
       </span>
       <span className="tile-info">
@@ -4957,10 +5102,10 @@ function MovieDetailView({ movie, isLoading, onBack, onWatch }) {
       <div className="drama-detail-hero" style={{ backgroundImage: `url(${movie.bannerImage || movie.coverImage})` }}>
         <div className="drama-hero-overlay" />
         <div className="drama-detail-hero-content">
-          <button className="drama-back-btn" onClick={onBack}>← Back</button>
+          <button className="drama-back-btn" onClick={onBack}> Â Back</button>
           <h1 className="drama-detail-title">{movie.title}</h1>
           <span className="drama-detail-meta">
-            {movie.releaseDate ? movie.releaseDate.split('-')[0] : 'Movie'} · ¢¹Ã…"¢Ã¢¬¦ {movie.rating || 'N/A'} {movie.runtime ? `· ${movie.runtime} mins` : ''}
+            {movie.releaseDate ? movie.releaseDate.split('-')[0] : 'Movie'} · " {movie.rating || 'N/A'} {movie.runtime ? `· ${movie.runtime} mins` : ''}
           </span>
           <button className="btn btn-primary" onClick={onWatch}>
             <Play size={20} fill="currentColor" /> Play Movie
@@ -5058,7 +5203,7 @@ function MovieWatchView({ movie, onBack, onProgress }) {
   return (
     <div className="drama-watch movie-watch">
       <div className="drama-watch-header">
-        <button className="drama-back-btn" onClick={onBack}>← {movie.title}</button>
+        <button className="drama-back-btn" onClick={onBack}> Â {movie.title}</button>
         <span className="drama-watch-ep-label">Full Movie</span>
       </div>
 
@@ -5091,9 +5236,9 @@ function MovieWatchView({ movie, onBack, onProgress }) {
   );
 }
 
-// ───
+// 
 // MANGA COMPONENTS
-// ───
+// 
 
 function MangaCard({ manga, onClick, index = 0 }) {
   const [imgError, setImgError] = React.useState(false);
@@ -5121,7 +5266,7 @@ function MangaCard({ manga, onClick, index = 0 }) {
       </div>
       <div className="manga-card-info">
         <p className="manga-card-title">{manga.title}</p>
-        {manga.rating && <span style={{ color: '#f59e0b', fontWeight: 600 }}>⭐ {manga.rating}</span>}
+        {manga.rating && <span style={{ color: '#f59e0b', fontWeight: 600 }}> {manga.rating}</span>}
       </div>
     </button>
   );
@@ -5169,7 +5314,7 @@ function MangaBentoGrid({ items, onMangaClick }) {
               <Trophy size={14} /> #1 TOP COMIC
             </div>
             <div className="bento-hero-content">
-              <span className="manga-hero-rating">⭐ {heroItem.rating || '9.0'} • SPOTLIGHT
+              <span className="manga-hero-rating"> {heroItem.rating || '9.0'} • SPOTLIGHT
               </span>
               <h3 style={{ color: '#ffffff', fontSize: '1.6rem', fontWeight: 800, margin: '0.2rem 0' }}>
                 {heroItem.title}
@@ -5200,7 +5345,7 @@ function MangaBentoGrid({ items, onMangaClick }) {
                 #{rank}
               </div>
               <div className="bento-card-info">
-                <span className="manga-badge">⭐ {item.rating || '8.5'}</span>
+                <span className="manga-badge"> {item.rating || '8.5'}</span>
 
                 <div className="bento-card-title">{item.title}</div>
               </div>
@@ -5224,14 +5369,14 @@ function MangaCategoryCards({ onSelectCategory }) {
     {
       id: 'manhwa',
       title: 'Manhwa',
-      flag: '🇰🇷',
+      flag: '',
       desc: 'Korean Webtoons • Solo Leveling, System, Reincarnation & Action',
       className: 'manhwa'
     },
     {
       id: 'manhua',
       title: 'Manhua / Donghua Comic',
-      flag: '🇨🇳',
+      flag: '',
       desc: 'Chinese Webtoons • Martial Arts, Cultivation & Donghua Adaptations',
       className: 'manhua'
     }
@@ -5297,7 +5442,7 @@ function MangaCategoryHub({ category, onBack, onMangaClick }) {
     <div className="container manga-subhub-header">
       {/* Breadcrumb Header */}
       <div className="manga-breadcrumb">
-        <span className="manga-breadcrumb-link" onClick={onBack}>← Back to Manga Landing</span>
+        <span className="manga-breadcrumb-link" onClick={onBack}> Â Back to Manga Landing</span>
         <span>/</span>
         <span style={{ color: '#ffffff', fontWeight: 600 }}>{categoryMeta.title}</span>
       </div>
@@ -5829,7 +5974,7 @@ function MangaDetailView({ manga, isLoading, onBack, onReadChapter }) {
       <div className="manga-detail-hero" style={{ backgroundImage: `url(${manga.banner || manga.cover})` }}>
         <div className="manga-detail-hero-overlay" />
         <div className="container manga-detail-hero-content">
-          <button className="drama-back-btn" onClick={onBack}>← Back</button>
+          <button className="drama-back-btn" onClick={onBack}> Â Back</button>
         </div>
       </div>
 
@@ -5844,7 +5989,7 @@ function MangaDetailView({ manga, isLoading, onBack, onReadChapter }) {
             {manga.status && (
               <span className={`manga-status-badge inline ${manga.status === 'ongoing' ? 'ongoing' : 'completed'}`}>{manga.status}</span>
             )}
-            {manga.rating && <span style={{ color: '#f59e0b', fontWeight: 600 }}>⭐ {manga.rating}</span>}
+            {manga.rating && <span style={{ color: '#f59e0b', fontWeight: 600 }}> {manga.rating}</span>}
             {manga.chapters?.length > 0 && <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{manga.chapters.length} chapters</span>}
           </div>
           {manga.genres?.length > 0 && (
@@ -5880,7 +6025,7 @@ function MangaDetailView({ manga, isLoading, onBack, onReadChapter }) {
                   onClick={() => setSortDesc(p => !p)}
                   title="Toggle sort order"
                 >
-                  {sortDesc ? '↓ Newest' : '↑ Oldest'}
+                  {sortDesc ? ' “ Newest' : ' ‘ Oldest'}
                 </button>
               </div>
             </div>
@@ -5913,7 +6058,7 @@ function MangaDetailView({ manga, isLoading, onBack, onReadChapter }) {
   );
 }
 
-// ─── Lazy-loading manga page wrapper using IntersectionObserver ─────────────
+//  Lazy-loading manga page wrapper using IntersectionObserver 
 // Prevents Chrome's 6-connection limit from aborting off-screen images.
 // Only starts loading when the image enters the viewport (+ 800px margin).
 function MangaPage({ page, pageIdx }) {
@@ -5994,7 +6139,7 @@ function MangaReaderView({ manga, chapter, pages, isLoading, onBack, onChapterSe
   const [currentPage, setCurrentPage] = React.useState(0);
   const [showControls, setShowControls] = React.useState(true);
 
-  // ── Reset everything when chapter changes ──────────────────────────────
+  //  Reset everything when chapter changes 
   React.useEffect(() => {
     setCurrentPage(0);
   }, [chapter?.id]);
@@ -6087,10 +6232,10 @@ function MangaReaderView({ manga, chapter, pages, isLoading, onBack, onChapterSe
           <div className="manga-reader-page-mode">
             {pageImgError ? (
               <div className="manga-page-error" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '40px', color: '#999' }}>
-                <span>⚠ Page {currentPage + 1} failed to load</span>
+                <span>  Page {currentPage + 1} failed to load</span>
                 <button onClick={e => { e.stopPropagation(); setPageImgKey(0); setPageImgError(false); }}
                   style={{ background: '#00e561', color: '#000', border: 'none', borderRadius: '4px', padding: '6px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-                  ↺ Retry
+                   Âº Retry
                 </button>
               </div>
             ) : (
