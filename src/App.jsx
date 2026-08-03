@@ -3162,6 +3162,19 @@ function DetailView({ anime, franchiseList = [], myList = [], onToggleWatchlist,
   const [pageEpisodes, setPageEpisodes] = React.useState(anime.episodes || []);
   const [loadingPage, setLoadingPage] = React.useState(false);
   const [filter, setFilter] = React.useState('all');
+  const [showSeasonDropdown, setShowSeasonDropdown] = React.useState(false);
+  const dropdownRef = React.useRef(null);
+
+  // Close season dropdown when clicking outside
+  React.useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setShowSeasonDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   React.useEffect(() => {
     // Reset selection to part 1 when selected anime changes
@@ -3201,6 +3214,38 @@ function DetailView({ anime, franchiseList = [], myList = [], onToggleWatchlist,
 
   const isLongRunning = totalPages > 1;
   const hasFranchise = franchiseList.length > 1;
+
+  // Build season/franchise selector options (mirrors WatchView logic)
+  const seasonOptions = [];
+  if (franchiseList && franchiseList.length > 0) {
+    franchiseList.forEach(item => {
+      const isActive = item.id === anime.id;
+      if (isActive && isLongRunning) {
+        for (let p = 1; p <= totalPages; p++) {
+          const start = (p - 1) * EPISODES_PER_PART + 1;
+          const end = Math.min(p * EPISODES_PER_PART, totalEpisodes || (p * EPISODES_PER_PART));
+          seasonOptions.push({
+            id: item.id,
+            title: `${item.title} - Part ${p} (Ep ${start}–${end})`,
+            part: p,
+            isActive: isActive && selectedPart === p
+          });
+        }
+      } else {
+        seasonOptions.push({
+          id: item.id,
+          title: `${item.title} (${item.format || ''})`.trim(),
+          part: 1,
+          isActive
+        });
+      }
+    });
+  }
+  if (seasonOptions.length === 0) {
+    seasonOptions.push({ id: anime.id, title: 'Season 1', part: 1, isActive: true });
+  }
+  const activeOption = seasonOptions.find(opt => opt.isActive) || seasonOptions[0];
+  const activeLabel = activeOption ? activeOption.title : 'Select Season';
 
   return (
     <div>
