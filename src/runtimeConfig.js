@@ -87,9 +87,9 @@ export async function loadRuntimeConfig() {
   }
 
   let configBase =
-    pickApiBase(staticConfig) ||
-    pickApiBase(runtimeEndpoint) ||
-    envBase;
+    pickApiBase(runtimeEndpoint) ||  // /api/runtime-config (reads Vercel env vars)
+    envBase ||                       // VITE_API_BASE baked at build time
+    pickApiBase(staticConfig);       // /eetnet-config.json (static fallback, lowest priority)
 
   // On localhost dev, ignore stale trycloudflare URLs from config files
   if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {

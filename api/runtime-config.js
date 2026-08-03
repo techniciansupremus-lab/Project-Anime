@@ -12,10 +12,10 @@ export default function handler(req, res) {
   } catch (e) {}
 
   const apiBase = (
-    staticApiBase ||
     process.env.API_BASE ||
     process.env.VITE_API_BASE ||
     process.env.PUBLIC_API_BASE ||
+    staticApiBase ||
     ''
   ).trim().replace(/\/+$/, '');
 
