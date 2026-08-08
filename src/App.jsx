@@ -1147,7 +1147,7 @@ function App() {
     if (moviesHomeData) return;
     setMoviesHomeLoading(true);
     setMoviesHomeError('');
-    fetch('/api/movies/home')
+    fetch(apiUrl('/api/movies/home'))
       .then(async r => {
         const data = await r.json().catch(() => null);
         if (!r.ok) throw new Error(data?.message || data?.error || `Backend returned ${r.status}`);
@@ -1839,7 +1839,7 @@ function App() {
     // MoviePlex catalog items don't need TMDB info — skip the fetch
     // MoviePlex items: fetch thumbnail via post-info (fast scrape)
     if (movie.movieplexSlug || movie.source === 'movieplex') {
-      fetch(`/api/movieplex/post-info?slug=${encodeURIComponent(movie.movieplexSlug || movie.slug)}`)
+      fetch(apiUrl(`/api/movieplex/post-info?slug=${encodeURIComponent(movie.movieplexSlug || movie.slug)}`))
         .then(r => r.json())
         .then(info => {
           setSelectedMovie(prev => ({
@@ -1856,7 +1856,7 @@ function App() {
     }
 
     try {
-      const r = await fetch(`/api/movies/info/${movie.id}`);
+      const r = await fetch(apiUrl(`/api/movies/info/${movie.id}`));
       const data = await r.json();
       setSelectedMovie({ ...data, coverImage: data.coverImage || movie.coverImage, bannerImage: data.bannerImage || movie.bannerImage });
     } catch (e) {
@@ -1870,7 +1870,7 @@ function App() {
     setMovieSearchQuery(q);
     if (!q.trim()) { setMovieSearchResults([]); return; }
     setMovieSearchLoading(true);
-    fetch(`/api/movieplex/catalog?search=${encodeURIComponent(q)}`)
+    fetch(apiUrl(`/api/movieplex/catalog?search=${encodeURIComponent(q)}`))
       .then(r => r.json())
       .then(data => {
         setMovieSearchResults(Array.isArray(data.movies) ? data.movies : []);
@@ -4999,7 +4999,7 @@ function MovieCard({ movie, onClick }) {
   const handleImgErr = React.useCallback(() => {
     setImgErr(true);
     if (movie.movieplexSlug && !fetchedPoster) {
-      fetch('/api/movieplex/post-info?slug=' + encodeURIComponent(movie.movieplexSlug))
+      fetch(apiUrl('/api/movieplex/post-info?slug=' + encodeURIComponent(movie.movieplexSlug)))
         .then(r => r.json())
         .then(d => {
           if (d.thumbnail) { setFetchedPoster(d.thumbnail); setImgErr(false); }
@@ -5293,7 +5293,7 @@ function MovieHomeView({
     if (config.id) queryParams.set('category', config.id);
     if (config.is18) queryParams.set('is18', 'true');
 
-    fetch(`/api/movieplex/catalog?${queryParams.toString()}`)
+    fetch(apiUrl(`/api/movieplex/catalog?${queryParams.toString()}`))
       .then(r => r.json())
       .then(res => {
         setCatMovies(Array.isArray(res.movies) ? res.movies : []);
@@ -5317,7 +5317,7 @@ function MovieHomeView({
     if (config.id) queryParams.set('category', config.id);
     if (config.is18) queryParams.set('is18', 'true');
 
-    fetch(`/api/movieplex/catalog?${queryParams.toString()}`)
+    fetch(apiUrl(`/api/movieplex/catalog?${queryParams.toString()}`))
       .then(r => r.json())
       .then(res => {
         if (Array.isArray(res.movies)) {
@@ -5623,7 +5623,7 @@ function MovieDetailView({ movie, isLoading, onBack, onWatch }) {
   // Fetch "More Like This" recommendations
   React.useEffect(() => {
     setRelatedLoading(true);
-    fetch('/api/movieplex/catalog?page=1&limit=12')
+    fetch(apiUrl('/api/movieplex/catalog?page=1&limit=12'))
       .then(r => r.json())
       .then(res => {
         const items = Array.isArray(res.movies) ? res.movies.filter(m => m.id !== movie.id) : [];
@@ -5805,7 +5805,7 @@ function MoviePlexPlayerView({ movie, onBack }) {
 
   React.useEffect(() => {
     if (!slug) return;
-    fetch(`/api/movieplex/post-info?slug=${encodeURIComponent(slug)}`)
+    fetch(apiUrl(`/api/movieplex/post-info?slug=${encodeURIComponent(slug)}`))
       .then(r => r.json())
       .then(data => { setPostInfo(data); })
       .catch(() => {});
@@ -5814,7 +5814,7 @@ function MoviePlexPlayerView({ movie, onBack }) {
   React.useEffect(() => {
     if (!slug) { setError('No slug provided'); setLoading(false); return; }
     setLoading(true); setError(null); setUseFallback(false);
-    fetch(`/api/movieplex/stream?slug=${encodeURIComponent(slug)}`)
+    fetch(apiUrl(`/api/movieplex/stream?slug=${encodeURIComponent(slug)}`))
       .then(r => r.json())
       .then(data => {
         setStreamData(data);
@@ -5826,7 +5826,7 @@ function MoviePlexPlayerView({ movie, onBack }) {
 
   // Fetch recommendations for below player
   React.useEffect(() => {
-    fetch('/api/movieplex/catalog?page=1&limit=12')
+    fetch(apiUrl('/api/movieplex/catalog?page=1&limit=12'))
       .then(r => r.json())
       .then(res => {
         if (Array.isArray(res.movies)) setMoreMovies(res.movies.slice(0, 10));
