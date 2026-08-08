@@ -153,18 +153,57 @@ export function CreatePlaylistModal({ isOpen, onClose, onCreate }) {
 // ─────────────────────────────────────────────────────
 // 3. PLAYLISTS OVERVIEW PAGE (Matching Image 5)
 // ─────────────────────────────────────────────────────
+// 3. WATCH HISTORY PAGE
+// ─────────────────────────────────────────────────────
 export function YTHistoryView({
   history = [],
-  onAnimeClick,
-  onStartWatching,
+  onItemClick,
   onRemoveItem,
   onClearHistory
 }) {
   const [searchFilter, setSearchFilter] = useState('');
+  const [activeFilter, setActiveFilter] = useState('All');
 
-  const filtered = history.filter(item =>
-    (item.title || '').toLowerCase().includes(searchFilter.toLowerCase())
-  );
+  const filtered = history.filter(item => {
+    const matchSearch = (item.title || '').toLowerCase().includes(searchFilter.toLowerCase());
+    const matchType = activeFilter === 'All' || (item.type || 'anime').toLowerCase() === activeFilter.toLowerCase();
+    return matchSearch && matchType;
+  });
+
+  // Group items by date
+  const groupedByDate = filtered.reduce((acc, item) => {
+    const dateKey = item.updated_at
+      ? (() => {
+          const d = new Date(item.updated_at);
+          const today = new Date();
+          const yesterday = new Date(); yesterday.setDate(today.getDate() - 1);
+          if (d.toDateString() === today.toDateString()) return 'Today';
+          if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+          return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+        })()
+      : 'Unknown date';
+    if (!acc[dateKey]) acc[dateKey] = [];
+    acc[dateKey].push(item);
+    return acc;
+  }, {});
+
+  const TYPE_COLORS = { anime: '#6366f1', movie: '#f59e0b', drama: '#ec4899', manhwa: '#10b981', manga: '#3b82f6' };
+
+  const getBadgeLabel = (item) => {
+    const t = item.type || 'anime';
+    if (t === 'movie') return 'Movie';
+    if (t === 'drama') return `Ep. ${item.episode_number || '1'}`;
+    if (t === 'manhwa') return `Ch. ${item.chapter_number || '1'}`;
+    if (t === 'manga') return `Ch. ${item.chapter_number || '1'}`;
+    return `Ep. ${item.episode_number || '?'}`;
+  };
+
+  const getTypeLabel = (item) => {
+    const t = item.type || 'anime';
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  };
+
+  const FILTERS = ['All', 'Anime', 'Movie', 'Drama', 'Manhwa'];
 
   return (
     <div className="yt-history-page">
@@ -180,56 +219,90 @@ export function YTHistoryView({
             )}
           </div>
 
+          {/* Type filter chips */}
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1.2rem' }}>
+            {FILTERS.map(f => (
+              <button
+                key={f}
+                onClick={() => setActiveFilter(f)}
+                style={{
+                  padding: '0.3rem 0.9rem', borderRadius: '20px', border: 'none', cursor: 'pointer',
+                  fontSize: '0.8rem', fontWeight: 600, transition: 'all 0.15s',
+                  background: activeFilter === f ? '#fff' : 'rgba(255,255,255,0.1)',
+                  color: activeFilter === f ? '#000' : 'rgba(255,255,255,0.75)',
+                }}
+              >{f}</button>
+            ))}
+          </div>
+
           {filtered.length === 0 ? (
             <div className="yt-empty-state">
               <History size={48} />
-              <h3>No watch history found</h3>
-              <p>Shows and episodes you watch will appear here.</p>
+              <h3>{searchFilter || activeFilter !== 'All' ? 'No results found' : 'No watch history yet'}</h3>
+              <p>{searchFilter ? 'Try a different search.' : 'Content you watch will appear here.'}</p>
             </div>
           ) : (
             <div className="yt-history-list">
-              {filtered.map((item, idx) => {
-                const epNum = item.episode_number || item.episode?.number || 1;
-                const progressPct = item.duration_seconds > 0
-                  ? Math.min(100, Math.round((item.progress_seconds / item.duration_seconds) * 100))
-                  : 0;
-
-                return (
-                  <div key={`${item.id}-${idx}`} className="yt-history-card">
-                    <div className="yt-history-thumb" onClick={() => onStartWatching(item, epNum)}>
-                      <img src={item.cover || item.coverImage || item.bannerImage} alt={item.title} />
-                      {progressPct > 0 && (
-                        <div className="yt-history-progress-bar">
-                          <div className="yt-history-progress-fill" style={{ width: `${progressPct}%` }} />
-                        </div>
-                      )}
-                      <span className="yt-history-ep-badge">EP {epNum}</span>
-                    </div>
-
-                    <div className="yt-history-info">
-                      <div className="yt-history-title" onClick={() => onAnimeClick(item.media_id || item.id)}>
-                        {item.title}
-                      </div>
-                      <div className="yt-history-sub">
-                        Episode {epNum} • {item.type || 'Anime'}
-                      </div>
-                      {item.updated_at && (
-                        <div className="yt-history-time">
-                          Watched {new Date(item.updated_at).toLocaleDateString()}
-                        </div>
-                      )}
-                    </div>
-
-                    <button
-                      className="yt-history-remove-btn"
-                      onClick={() => onRemoveItem(item)}
-                      title="Remove from watch history"
-                    >
-                      <X size={18} />
-                    </button>
+              {Object.entries(groupedByDate).map(([dateLabel, items]) => (
+                <div key={dateLabel}>
+                  <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', margin: '1.2rem 0 0.6rem', paddingLeft: '2px' }}>
+                    {dateLabel}
                   </div>
-                );
-              })}
+                  {items.map((item, idx) => {
+                    const progressPct = item.duration_seconds > 0
+                      ? Math.min(100, Math.round((item.progress_seconds / item.duration_seconds) * 100))
+                      : 0;
+                    const typeColor = TYPE_COLORS[item.type || 'anime'] || '#6366f1';
+
+                    return (
+                      <div
+                        key={`${item.id}-${idx}`}
+                        className="yt-history-card"
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => onItemClick && onItemClick(item)}
+                      >
+                        <div className="yt-history-thumb">
+                          <img src={item.cover || item.coverImage || item.bannerImage} alt={item.title} />
+                          {progressPct > 0 && (
+                            <div className="yt-history-progress-bar">
+                              <div className="yt-history-progress-fill" style={{ width: `${progressPct}%` }} />
+                            </div>
+                          )}
+                          <span className="yt-history-ep-badge">{getBadgeLabel(item)}</span>
+                        </div>
+
+                        <div className="yt-history-info">
+                          <div className="yt-history-title">{item.title}</div>
+                          <div className="yt-history-sub" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <span style={{ background: typeColor, color: '#fff', borderRadius: '4px', padding: '1px 6px', fontSize: '0.68rem', fontWeight: 700 }}>
+                              {getTypeLabel(item)}
+                            </span>
+                            {item.type !== 'movie' && item.episode_number && (
+                              <span>Episode {item.episode_number}</span>
+                            )}
+                            {progressPct > 0 && (
+                              <span style={{ color: 'rgba(255,255,255,0.4)' }}>{progressPct}% watched</span>
+                            )}
+                          </div>
+                          {item.updated_at && (
+                            <div className="yt-history-time">
+                              {new Date(item.updated_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                          )}
+                        </div>
+
+                        <button
+                          className="yt-history-remove-btn"
+                          onClick={(e) => { e.stopPropagation(); onRemoveItem(item); }}
+                          title="Remove from watch history"
+                        >
+                          <X size={18} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -243,6 +316,9 @@ export function YTHistoryView({
               value={searchFilter}
               onChange={(e) => setSearchFilter(e.target.value)}
             />
+          </div>
+          <div style={{ marginTop: '1rem', padding: '0 0.5rem', fontSize: '0.75rem', color: 'rgba(255,255,255,0.35)', lineHeight: 1.6 }}>
+            History is saved locally on your device. Sign in to sync across devices.
           </div>
         </div>
       </div>

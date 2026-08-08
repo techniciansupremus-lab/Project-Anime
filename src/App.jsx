@@ -1260,6 +1260,7 @@ function App() {
     const episodeNum = type === 'manhwa' ? '' : String(itemDetail?.number || itemDetail || '');
     const chapterNum = type === 'manhwa' ? String(itemDetail?.number || itemDetail?.slug || itemDetail || '') : '';
 
+    // Store full metadata so history items can be resumed correctly
     const newHistoryItem = {
       media_id: mediaId,
       id: mediaId,
@@ -1271,7 +1272,14 @@ function App() {
       chapter_number: chapterNum,
       progress_seconds: progDetail.progressSeconds,
       duration_seconds: progDetail.durationSeconds,
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
+      // Preserve routing metadata so clicking in history resumes correctly
+      slug: mediaItem.slug || mediaItem.movieplexSlug || null,
+      movieplexSlug: mediaItem.movieplexSlug || null,
+      netmirrorId: mediaItem.netmirrorId || null,
+      source: mediaItem.source || null,
+      dramaId: mediaItem.id || null,
+      anilistId: mediaItem.id || null,
     };
 
     setWatchHistory(prev => {
@@ -2043,6 +2051,33 @@ function App() {
                   onDramaClick={handleDramaClick}
                   onManhwaClick={(m) => { setSelectedManhwa(m); setView('manhwa-detail'); }}
                   hindiLoading={hindiLoading}
+                  onHistoryItemClick={(item) => {
+                    const t = item.type || 'anime';
+                    if (t === 'movie') {
+                      handleMovieClick({
+                        id: item.media_id || item.id,
+                        title: item.title,
+                        slug: item.slug || item.movieplexSlug,
+                        movieplexSlug: item.movieplexSlug || item.slug,
+                        netmirrorId: item.netmirrorId,
+                        source: item.source,
+                        coverImage: item.cover || item.coverImage,
+                        bannerImage: item.cover || item.coverImage,
+                        thumbnail: item.cover || item.coverImage,
+                      });
+                    } else if (t === 'drama') {
+                      setSelectedDrama({
+                        id: item.dramaId || item.media_id || item.id,
+                        title: item.title,
+                        thumbnail: item.cover || item.coverImage,
+                        episodes: [],
+                      });
+                      setView('drama-detail');
+                      window.scrollTo(0, 0);
+                    } else {
+                      handleAnimeClick(item.anilistId || item.media_id || item.id);
+                    }
+                  }}
                 />
               )}
               {view === 'tv-shows' && (
@@ -2091,8 +2126,35 @@ function App() {
               {view === 'watch-history' && (
                 <YTHistoryView
                   history={watchHistory}
-                  onAnimeClick={handleAnimeClick}
-                  onStartWatching={startWatching}
+                  onItemClick={(item) => {
+                    const t = item.type || 'anime';
+                    if (t === 'movie') {
+                      handleMovieClick({
+                        id: item.media_id || item.id,
+                        title: item.title,
+                        slug: item.slug || item.movieplexSlug,
+                        movieplexSlug: item.movieplexSlug || item.slug,
+                        netmirrorId: item.netmirrorId,
+                        source: item.source,
+                        coverImage: item.cover || item.coverImage,
+                        bannerImage: item.cover || item.coverImage,
+                        thumbnail: item.cover || item.coverImage,
+                      });
+                    } else if (t === 'drama') {
+                      // Navigate to drama section so user can pick episode
+                      setSelectedDrama({
+                        id: item.dramaId || item.media_id || item.id,
+                        title: item.title,
+                        thumbnail: item.cover || item.coverImage,
+                        episodes: [],
+                      });
+                      setView('drama-detail');
+                      window.scrollTo(0, 0);
+                    } else {
+                      // anime / manhwa / manga
+                      handleAnimeClick(item.anilistId || item.media_id || item.id);
+                    }
+                  }}
                   onRemoveItem={handleRemoveFromHistory}
                   onClearHistory={handleClearHistory}
                 />
@@ -2173,7 +2235,13 @@ function App() {
                 <MovieDetailView movie={selectedMovie} isLoading={selectedMovieLoading} onBack={goMovies} onWatch={() => { setView('movie-watch'); window.scrollTo(0, 0); }} />
               )}
               {view === 'movie-watch' && selectedMovie && (
-                <MovieWatchView movie={selectedMovie} onBack={() => { setView('movie-detail'); window.scrollTo(0, 0); }} onProgress={(prog) => handleWatchProgress(selectedMovie, { id: 'full', number: 1 }, 'movie', prog)} />
+                <MovieWatchView movie={selectedMovie} onBack={() => { setView('movie-detail'); window.scrollTo(0, 0); }} onProgress={(prog) => handleWatchProgress(
+                  {
+                    ...selectedMovie,
+                    slug: selectedMovie.movieplexSlug || selectedMovie.slug,
+                    movieplexSlug: selectedMovie.movieplexSlug || selectedMovie.slug,
+                  },
+                  { id: 'full', number: 1 }, 'movie', prog)} />
               )}
             </>
           )}
@@ -2705,6 +2773,7 @@ function AnimeView({
   onAnimeClick,
   onStartWatching,
   watchHistory = [],
+  onHistoryItemClick,
   onDramaClick,
   onManhwaClick,
   hindiLoading = false
@@ -2723,7 +2792,17 @@ function AnimeView({
     { id: 'Hindi', label: 'Hindi Dub' },
   ];
 
-  const continueWatching = watchHistory.slice(0, 10).filter(h => h.type === 'anime' || !h.type);
+  // Show all types in Continue Watching (anime, movie, drama, manhwa)
+  const continueWatching = watchHistory.slice(0, 12);
+
+  const TYPE_COLORS = { anime: '#6366f1', movie: '#f59e0b', drama: '#ec4899', manhwa: '#10b981', manga: '#3b82f6' };
+  const getCWBadge = (h) => {
+    const t = h.type || 'anime';
+    if (t === 'movie') return '▶ Movie';
+    if (t === 'drama') return `Ep. ${h.episode_number || '?'}`;
+    if (t === 'manhwa') return `Ch. ${h.chapter_number || '?'}`;
+    return `Ep. ${h.episode_number || '?'}`;
+  };
 
   return (
     <div className="yt-section-view">
@@ -2737,14 +2816,33 @@ function AnimeView({
             <span className="yt-section-title">Continue Watching</span>
           </div>
           <div className="yt-content-grid">
-            {continueWatching.slice(0, 8).map(h => (
-              <YTCard
-                key={h.media_id || h.id}
-                item={{ id: h.media_id || h.id, title: h.title, coverImage: h.cover || h.coverImage, rating: 'N/A', genres: [] }}
-                badge={`Ep. ${h.episode_number || '?'}`}
-                onClick={() => onAnimeClick(h.media_id || h.id)}
-              />
-            ))}
+            {continueWatching.slice(0, 8).map(h => {
+              const typeColor = TYPE_COLORS[h.type || 'anime'] || '#6366f1';
+              return (
+                <div key={h.media_id || h.id} style={{ position: 'relative' }}>
+                  <YTCard
+                    item={{ id: h.media_id || h.id, title: h.title, coverImage: h.cover || h.coverImage, rating: 'N/A', genres: [] }}
+                    badge={getCWBadge(h)}
+                    onClick={() => onHistoryItemClick ? onHistoryItemClick(h) : onAnimeClick(h.media_id || h.id)}
+                  />
+                  {/* Type label */}
+                  <span style={{
+                    position: 'absolute', top: 6, left: 6,
+                    background: typeColor, color: '#fff',
+                    borderRadius: '4px', padding: '2px 6px',
+                    fontSize: '0.62rem', fontWeight: 700, textTransform: 'uppercase', zIndex: 2,
+                  }}>
+                    {(h.type || 'anime').charAt(0).toUpperCase() + (h.type || 'anime').slice(1)}
+                  </span>
+                  {/* Progress bar */}
+                  {h.duration_seconds > 0 && (
+                    <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '3px', background: 'rgba(255,255,255,0.15)', borderRadius: '0 0 6px 6px' }}>
+                      <div style={{ height: '100%', background: '#e50914', width: `${Math.min(100, Math.round((h.progress_seconds / h.duration_seconds) * 100))}%`, borderRadius: '0 0 6px 6px' }} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
