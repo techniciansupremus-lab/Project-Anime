@@ -1952,10 +1952,10 @@ function App() {
   }, [currentEpisode, currentSourceIndex]);
 
   const isImmersiveView = ['watch', 'drama-watch', 'movie-watch', 'manhwa-read'].includes(view);
-  const mainContentClass = ['main-content', isImmersiveView ? 'immersive' : '', !isImmersiveView && sidebarMini ? 'sidebar-mini' : ''].filter(Boolean).join(' ');
+  const mainContentClass = ['main-content', isImmersiveView ? 'immersive' : '', !isImmersiveView && sidebarMini ? 'sidebar-mini' : '', isMobile ? 'is-mobile-view' : 'is-desktop-view'].filter(Boolean).join(' ');
 
   return (
-    <div className="app-container">
+    <div className={`app-container ${isMobile ? 'app-mobile' : 'app-desktop'}`}>
       {(pageLoading || loadingSources) && <GlobalLoader />}
       <Navbar
         onSearch={handleSearch}
@@ -1972,7 +1972,7 @@ function App() {
       />
 
       <div className="yt-body">
-        {!isImmersiveView && (
+        {!isImmersiveView && !isMobile && (
           <Sidebar
             activeView={view}
             setView={setView}
