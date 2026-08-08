@@ -1969,6 +1969,7 @@ function App() {
         onToggleSidebar={() => setSidebarMini(v => !v)}
         notifications={notifications}
         onSelectNotification={handleSelectNotification}
+        setSection={handleSectionChange}
       />
 
       <div className="yt-body">
@@ -5267,6 +5268,83 @@ function MovieHomeView({
     '🔞 18+': { id: 21, is18: true }
   };
 
+  // ─── Admin identity (only this UID can write picks) ───
+  const ADMIN_UID = '01d0cb3e-2c7b-4357-9c5b-5500be26e592';
+
+  // ─── Random Picks (Supabase-backed: visible to ALL visitors) ───
+  const [randomPicks, setRandomPicks] = React.useState([]);
+  const [picksLoaded, setPicksLoaded] = React.useState(false);
+
+  // Load picks from Supabase on mount
+  React.useEffect(() => {
+    const loadPicks = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('site_config')
+          .select('value')
+          .eq('key', 'random_picks')
+          .single();
+        if (!error && data) setRandomPicks(data.value || []);
+      } catch (e) {
+        console.warn('[RandomPicks] Could not load from Supabase:', e);
+      } finally {
+        setPicksLoaded(true);
+      }
+    };
+    loadPicks();
+
+    // Realtime: update all open tabs when admin pushes new picks
+    const channel = supabase
+      .channel('site_config_picks')
+      .on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'site_config', filter: 'key=eq.random_picks' },
+        (payload) => { if (payload.new?.value) setRandomPicks(payload.new.value); }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  const saveRandomPicks = async (picks) => {
+    setRandomPicks(picks);
+    try {
+      await supabase
+        .from('site_config')
+        .upsert({ key: 'random_picks', value: picks, updated_at: new Date().toISOString() });
+    } catch (e) {
+      console.error('[RandomPicks] Save failed:', e);
+    }
+  };
+
+  // ─── Dev Selection Mode ───
+  const [devModeActive, setDevModeActive] = React.useState(false);
+  const [selectedMovieIds, setSelectedMovieIds] = React.useState(new Set());
+  const [showPushPopup, setShowPushPopup] = React.useState(false);
+
+  const toggleMovieSelection = (movie) => {
+    setSelectedMovieIds(prev => {
+      const next = new Set(prev);
+      if (next.has(movie.id)) next.delete(movie.id);
+      else next.add(movie.id);
+      if (next.size > 0) setShowPushPopup(true);
+      return next;
+    });
+  };
+
+  const handlePushPicks = async () => {
+    const picked = catMovies.filter(m => selectedMovieIds.has(m.id));
+    const merged = [...randomPicks, ...picked.filter(p => !randomPicks.some(e => e.id === p.id))];
+    await saveRandomPicks(merged);
+    setSelectedMovieIds(new Set());
+    setShowPushPopup(false);
+    setDevModeActive(false);
+    setActiveCategory('All');
+  };
+
+  const handleCancelPicks = () => {
+    setSelectedMovieIds(new Set());
+    setShowPushPopup(false);
+  };
+
   // State for category grid view (paginated loading for 200+ movies per category)
   const [catMovies, setCatMovies] = React.useState([]);
   const [catPage, setCatPage] = React.useState(1);
@@ -5490,6 +5568,28 @@ function MovieHomeView({
           {activeCategory === 'All' ? (
             /* ALL CATEGORIES HOME VIEW (Horizontal Scrolling Rows) */
             <div style={{ padding: '0.5rem clamp(1rem, 4vw, 3rem) 4rem' }}>
+              {/* ──  Random Picks Row (developer-curated) ── */}
+              {randomPicks.length > 0 && (
+                <section style={{ marginTop: '2.2rem', position: 'relative' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.9rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                      <span style={{ fontSize: '1.25rem' }}>🎲</span>
+                      <h2 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 700, color: '#ffffff', letterSpacing: '-0.2px' }}>Random Picks!</h2>
+                      <span style={{ background: 'rgba(139,92,246,0.25)', color: '#a78bfa', padding: '2px 8px', borderRadius: '12px', fontSize: '0.7rem', fontWeight: 700 }}>{randomPicks.length} movies</span>
+                    </div>
+                    <button
+                      onClick={() => { if (window.confirm('Clear all Random Picks?')) saveRandomPicks([]); }}
+                      style={{ background: 'none', border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.4)', padding: '3px 10px', borderRadius: '12px', cursor: 'pointer', fontSize: '0.72rem' }}
+                    >Clear</button>
+                  </div>
+                  {/* Full infinite-scroll grid for Random Picks (not a limited row) */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '1.2rem 1rem' }}>
+                    {randomPicks.map((m, idx) => (
+                      <MovieCard key={m.id + '-rp-' + idx} movie={m} onClick={() => onMovieClick(m)} />
+                    ))}
+                  </div>
+                </section>
+              )}
               {mpTrending.length > 0 && (
                 <MovieRow title="🔥 Trending" icon={<Flame size={20} style={{ color: '#ef4444' }} />} movies={mpTrending} onMovieClick={onMovieClick} />
               )}
@@ -5521,12 +5621,30 @@ function MovieHomeView({
           ) : (
             /* DEDICATED CATEGORY GRID VIEW (Full paginated catalog of 200+ movies) */
             <div style={{ padding: '1.5rem clamp(1rem, 4vw, 3rem) 4rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-                <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0, color: '#fff' }}>
-                  {activeCategory} Movies {catTotalCount > 0 && <span style={{ fontSize: '0.9rem', color: '#b3b3b3', fontWeight: 400 }}>({catTotalCount} items)</span>}
-                </h2>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.8rem', marginBottom: '1.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap' }}>
+                  <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0, color: '#fff' }}>
+                    {activeCategory} Movies {catTotalCount > 0 && <span style={{ fontSize: '0.9rem', color: '#b3b3b3', fontWeight: 400 }}>({catTotalCount} items)</span>}
+                  </h2>
+                  {/* Developer mode toggle – only shown in 18+ category */}
+                  {activeCategory === '🔞 18+' && (
+                    <button
+                      onClick={() => { setDevModeActive(v => !v); setSelectedMovieIds(new Set()); setShowPushPopup(false); }}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+                        background: devModeActive ? 'rgba(139,92,246,0.25)' : 'rgba(255,255,255,0.07)',
+                        border: `1px solid ${devModeActive ? '#8b5cf6' : 'rgba(255,255,255,0.15)'}`,
+                        color: devModeActive ? '#c4b5fd' : 'rgba(255,255,255,0.5)',
+                        padding: '0.3rem 0.9rem', borderRadius: '20px', cursor: 'pointer',
+                        fontSize: '0.75rem', fontWeight: 700, transition: 'all 0.18s',
+                      }}
+                    >
+                      🛠️ {devModeActive ? 'Dev Mode ON – tap to select' : 'Developer Options'}
+                    </button>
+                  )}
+                </div>
                 <button
-                  onClick={() => setActiveCategory('All')}
+                  onClick={() => { setActiveCategory('All'); setDevModeActive(false); setSelectedMovieIds(new Set()); setShowPushPopup(false); }}
                   style={{
                     background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
                     color: '#fff', padding: '0.4rem 1rem', borderRadius: '20px',
@@ -5534,6 +5652,24 @@ function MovieHomeView({
                   }}
                 >← All Categories</button>
               </div>
+
+              {/* Dev mode instruction banner */}
+              {devModeActive && activeCategory === '🔞 18+' && (
+                <div style={{
+                  background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.35)',
+                  borderRadius: '10px', padding: '0.8rem 1.2rem', marginBottom: '1.2rem',
+                  display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap',
+                }}>
+                  <span style={{ fontSize: '1.2rem' }}>🛠️</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ color: '#c4b5fd', fontWeight: 700, fontSize: '0.88rem' }}>Developer Selection Mode Active</div>
+                    <div style={{ color: 'rgba(196,181,253,0.7)', fontSize: '0.75rem', marginTop: '2px' }}>Tap any movie card to select it. Selected movies will be pushed to the <strong>🎲 Random Picks!</strong> row on the homepage.</div>
+                  </div>
+                  {selectedMovieIds.size > 0 && (
+                    <span style={{ background: '#8b5cf6', color: '#fff', padding: '4px 12px', borderRadius: '20px', fontWeight: 700, fontSize: '0.78rem' }}>{selectedMovieIds.size} selected</span>
+                  )}
+                </div>
+              )}
 
               {catLoading ? (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '1rem' }}>
@@ -5549,7 +5685,30 @@ function MovieHomeView({
                     gap: '1.2rem 1rem'
                   }}>
                     {catMovies.map((m, idx) => (
-                      <MovieCard key={m.id + '-' + idx} movie={m} onClick={() => onMovieClick(m)} />
+                      <div key={m.id + '-' + idx} style={{ position: 'relative' }}
+                        onClick={devModeActive ? (e) => { e.stopPropagation(); toggleMovieSelection(m); } : undefined}
+                      >
+                        {/* Checkmark overlay in dev mode */}
+                        {devModeActive && (
+                          <div style={{
+                            position: 'absolute', top: '6px', right: '6px', zIndex: 10,
+                            width: '22px', height: '22px', borderRadius: '50%',
+                            background: selectedMovieIds.has(m.id) ? '#8b5cf6' : 'rgba(0,0,0,0.55)',
+                            border: `2px solid ${selectedMovieIds.has(m.id) ? '#8b5cf6' : 'rgba(255,255,255,0.5)'}`,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            transition: 'all 0.15s', cursor: 'pointer',
+                          }}>
+                            {selectedMovieIds.has(m.id) && (
+                              <svg viewBox="0 0 12 12" width="12" height="12" fill="none">
+                                <path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                              </svg>
+                            )}
+                          </div>
+                        )}
+                        <div style={{ opacity: devModeActive && selectedMovieIds.has(m.id) ? 0.85 : 1, outline: devModeActive && selectedMovieIds.has(m.id) ? '2px solid #8b5cf6' : 'none', borderRadius: '8px', transition: 'all 0.15s' }}>
+                          <MovieCard movie={m} onClick={devModeActive ? () => {} : () => onMovieClick(m)} />
+                        </div>
+                      </div>
                     ))}
                   </div>
 
@@ -5573,6 +5732,48 @@ function MovieHomeView({
               ) : (
                 <p style={{ color: 'rgba(255,255,255,0.4)', textAlign: 'center', padding: '4rem 0' }}>No movies found in this category.</p>
               )}
+            </div>
+          )}
+
+          {/* ── Push to Random Picks Popup ── */}
+          {showPushPopup && selectedMovieIds.size > 0 && (
+            <div style={{
+              position: 'fixed', bottom: '90px', left: '50%', transform: 'translateX(-50%)',
+              zIndex: 9999, minWidth: 'min(92vw, 380px)',
+            }}>
+              <div style={{
+                background: '#1a1a2e', border: '1px solid rgba(139,92,246,0.5)',
+                borderRadius: '16px', padding: '1.2rem 1.4rem',
+                boxShadow: '0 20px 60px rgba(0,0,0,0.8)',
+                display: 'flex', flexDirection: 'column', gap: '0.9rem',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <span style={{ fontSize: '1.4rem' }}>🎲</span>
+                  <div>
+                    <div style={{ color: '#fff', fontWeight: 700, fontSize: '0.95rem' }}>{selectedMovieIds.size} movie{selectedMovieIds.size > 1 ? 's' : ''} selected</div>
+                    <div style={{ color: 'rgba(196,181,253,0.7)', fontSize: '0.75rem' }}>Push to <strong>Random Picks!</strong> on the homepage?</div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '0.7rem' }}>
+                  <button
+                    onClick={handleCancelPicks}
+                    style={{
+                      flex: 1, padding: '0.65rem', background: 'rgba(255,255,255,0.08)',
+                      border: '1px solid rgba(255,255,255,0.15)', color: '#fff',
+                      borderRadius: '10px', cursor: 'pointer', fontWeight: 600, fontSize: '0.88rem',
+                    }}
+                  >✕ Cancel</button>
+                  <button
+                    onClick={handlePushPicks}
+                    style={{
+                      flex: 2, padding: '0.65rem', background: 'linear-gradient(135deg, #7c3aed, #8b5cf6)',
+                      border: 'none', color: '#fff',
+                      borderRadius: '10px', cursor: 'pointer', fontWeight: 700, fontSize: '0.88rem',
+                      boxShadow: '0 4px 16px rgba(139,92,246,0.5)',
+                    }}
+                  >🚀 Push to Random Picks!</button>
+                </div>
+              </div>
             </div>
           )}
         </>
