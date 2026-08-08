@@ -49,14 +49,23 @@ function readQueryOverride() {
   return value;
 }
 
+const FALLBACK_TUNNEL = 'https://saves-included-software-park.trycloudflare.com';
+
 async function fetchJson(url) {
+  const isNativeCapacitor = typeof window !== 'undefined' && Boolean(window.Capacitor?.isNativePlatform?.());
   try {
-    // Add timestamp to bust Vercel CDN edge cache on static files
-    const bustUrl = url.includes('?') ? `${url}&_t=${Date.now()}` : `${url}?_t=${Date.now()}`;
-    const response = await fetch(bustUrl, { cache: 'no-store' });
+    let response;
+    if (isNativeCapacitor) {
+      // In native Android WebView, fetch local files cleanly without cache-busting headers
+      response = await fetch(url);
+    } else {
+      const bustUrl = url.includes('?') ? `${url}&_t=${Date.now()}` : `${url}?_t=${Date.now()}`;
+      response = await fetch(bustUrl, { cache: 'no-store' });
+    }
     if (!response.ok) return {};
     return await response.json();
-  } catch {
+  } catch (e) {
+    console.warn('[Config] fetchJson failed for', url, e.message);
     return {};
   }
 }
@@ -74,10 +83,9 @@ export async function loadRuntimeConfig() {
   const queryOverride = readQueryOverride();
 
   // /api/runtime-config is a Vercel serverless function — never CDN-cached, always fresh.
-  // Set API_BASE env var on Vercel dashboard to propagate instantly without redeploy.
   const runtimeEndpoint = await fetchJson('/api/runtime-config');
 
-  // /eetnet-config.json is a static fallback. CDN-cache-busted via timestamp above.
+  // /eetnet-config.json is a static fallback.
   const staticConfig = await fetchJson('/eetnet-config.json');
 
   let envBase = cleanApiBase(import.meta.env.VITE_API_BASE);
@@ -91,17 +99,24 @@ export async function loadRuntimeConfig() {
     envBase ||                       // VITE_API_BASE baked at build time
     pickApiBase(staticConfig);       // /eetnet-config.json (static fallback, lowest priority)
 
-  // On localhost dev, ignore stale trycloudflare URLs from config files
-  if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+  const isNativeCapacitor = typeof window !== 'undefined' && Boolean(window.Capacitor?.isNativePlatform?.());
+
+  // On localhost dev in PC browser (not Capacitor APK), ignore trycloudflare URLs
+  if (typeof window !== 'undefined' && !isNativeCapacitor && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
     if (configBase.includes('trycloudflare.com')) {
       configBase = '';
     }
   }
 
+  // Inside Capacitor APK, if configBase is empty, default to fallback tunnel
+  if (isNativeCapacitor && !configBase) {
+    configBase = FALLBACK_TUNNEL;
+  }
+
   const apiBase =
     queryOverride ||
     configBase ||
-    getLocalDevBase();
+    (isNativeCapacitor ? FALLBACK_TUNNEL : getLocalDevBase());
 
   window.__EETNET_CONFIG__ = { API_BASE: cleanApiBase(apiBase) };
 
