@@ -5359,6 +5359,28 @@ function MovieHomeView({
   const [catLoading, setCatLoading] = React.useState(false);
   const [loadingMore, setLoadingMore] = React.useState(false);
 
+  // Filter out any movies that have been pushed to Random Picks from the 18+ category view
+  const randomPickIds = React.useMemo(() => {
+    const set = new Set();
+    randomPicks.forEach(p => {
+      if (p.id) set.add(String(p.id));
+      if (p.slug) set.add(String(p.slug));
+      if (p.movieplexSlug) set.add(String(p.movieplexSlug));
+    });
+    return set;
+  }, [randomPicks]);
+
+  const displayCatMovies = React.useMemo(() => {
+    if (activeCategory === '🔞 18+') {
+      return catMovies.filter(m => 
+        !randomPickIds.has(String(m.id)) && 
+        !randomPickIds.has(String(m.slug || '')) && 
+        !randomPickIds.has(String(m.movieplexSlug || ''))
+      );
+    }
+    return catMovies;
+  }, [catMovies, activeCategory, randomPickIds]);
+
   // Fetch paginated category movies whenever activeCategory changes
   React.useEffect(() => {
     if (activeCategory === 'All') {
@@ -5631,7 +5653,7 @@ function MovieHomeView({
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.8rem', marginBottom: '1.5rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap' }}>
                   <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0, color: '#fff' }}>
-                    {activeCategory} Movies {catTotalCount > 0 && <span style={{ fontSize: '0.9rem', color: '#b3b3b3', fontWeight: 400 }}>({catTotalCount} items)</span>}
+                    {activeCategory} Movies {displayCatMovies.length > 0 && <span style={{ fontSize: '0.9rem', color: '#b3b3b3', fontWeight: 400 }}>({displayCatMovies.length} items)</span>}
                   </h2>
                   {/* Developer mode toggle – only shown to admin godkiller in 18+ category */}
                   {activeCategory === '🔞 18+' && isAdmin && (
@@ -5684,14 +5706,14 @@ function MovieHomeView({
                     <div key={i} className="mp-skeleton-card" />
                   ))}
                 </div>
-              ) : catMovies.length > 0 ? (
+              ) : displayCatMovies.length > 0 ? (
                 <>
                   <div style={{
                     display: 'grid',
                     gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
                     gap: '1.2rem 1rem'
                   }}>
-                    {catMovies.map((m, idx) => (
+                    {displayCatMovies.map((m, idx) => (
                       <div key={m.id + '-' + idx} style={{ position: 'relative' }}
                         onClick={devModeActive ? (e) => { e.stopPropagation(); toggleMovieSelection(m); } : undefined}
                       >
