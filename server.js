@@ -3346,6 +3346,28 @@ app.get('/api/movies/home', async function(req, res) {
     const thriller = getCatPosts(MP_CATS.thriller);
     const romance = getCatPosts(MP_CATS.romance);
 
+    // Live on-the-fly TMDB poster enrichment for homepage row items missing a thumbnail
+    const topRowItems = [
+      ...trending.slice(0, 12),
+      ...hindiDubbed.slice(0, 12),
+      ...bollywood.slice(0, 12),
+      ...hollywood.slice(0, 12),
+      ...webSeries.slice(0, 12),
+      ...action.slice(0, 12),
+    ];
+    await Promise.allSettled(topRowItems.map(async function(p) {
+      if (!p.thumbnail) {
+        const clean = mpCleanTitle(p.title);
+        const tmdb = await mpTmdbPoster(clean);
+        if (tmdb && tmdb.poster) {
+          p.thumbnail = tmdb.poster;
+          p.coverImage = tmdb.poster;
+          p.bannerImage = tmdb.backdrop || tmdb.poster;
+          if (tmdb.rating) p.rating = tmdb.rating;
+        }
+      }
+    }));
+
     // Pick a featured title with a valid image if possible (excluding 18+)
     const withThumb = mpCache.posts.filter(function(p) { return !!p.thumbnail && !p.is18Plus; });
     const featured = withThumb[0] || trending[0] || hindiDubbed[0] || bollywood[0] || mpCache.posts.find(function(p) { return !p.is18Plus; }) || null;
