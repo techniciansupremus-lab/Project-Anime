@@ -1,7 +1,22 @@
 import { createClient } from '@supabase/supabase-js';
+import { storage } from './utils/storage';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+// Custom persistent storage adapter for Capacitor Preferences + localStorage
+const customAuthStorage = {
+  getItem: async (key) => {
+    const val = await storage.get(key);
+    return typeof val === 'string' ? val : (val ? JSON.stringify(val) : null);
+  },
+  setItem: async (key, value) => {
+    await storage.set(key, value);
+  },
+  removeItem: async (key) => {
+    await storage.remove(key);
+  },
+};
 
 // Check if credentials are valid/configured
 const isConfigured = Boolean(supabaseUrl && supabaseAnonKey);
@@ -10,7 +25,14 @@ let client = null;
 
 if (isConfigured) {
   try {
-    client = createClient(supabaseUrl, supabaseAnonKey);
+    client = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        storage: customAuthStorage,
+        autoRefreshToken: true,
+        persistSession: true,
+        detectSessionInUrl: true,
+      }
+    });
   } catch (err) {
     console.error('[Supabase Client] Failed to initialize real client:', err.message);
   }

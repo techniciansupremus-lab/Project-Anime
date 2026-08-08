@@ -13,6 +13,9 @@ import { getRecommendations } from './utils/cbf';
 import { useDeviceType } from './utils/useDeviceType';
 import WebtoonComicView from './components/WebtoonComicView';
 import WebtoonDetailView from './components/WebtoonDetailView';
+import { storage } from './utils/storage';
+import { saveSession, loadSession, saveVideoProgress, getVideoProgress } from './utils/sessionRestore';
+import { initNativeApp } from './utils/nativeApp';
 import {
   SaveToPlaylistModal,
   CreatePlaylistModal,
@@ -207,7 +210,48 @@ function App() {
   const toastTimeoutRef = useRef(null);
 
   const isPopStateRef = useRef(false);
+  const stateObjRef = useRef(null);
   const [isInitialRouteReady, setInitialRouteReady] = useState(false);
+
+  // Initialize Native APK Handlers (Back Button, Dark Status Bar, Splash Screen, Pause/Resume)
+  useEffect(() => {
+    initNativeApp({
+      onBackButton: () => {
+        if (window.history.length > 1) {
+          window.history.back();
+        }
+      },
+      onAppPause: () => {
+        if (stateObjRef.current) {
+          saveSession(stateObjRef.current);
+        }
+      },
+      onAppResume: () => {
+        console.log('[Native App] Resumed');
+      },
+      onDeepLink: (url) => {
+        if (url && url.includes('callback')) {
+          supabase.auth.getSession();
+        }
+      }
+    });
+
+    // Auto-restore previous app session if launched clean
+    loadSession().then((restored) => {
+      if (restored && restored.view && restored.view !== 'home' && window.location.pathname === '/') {
+        if (restored.activeSection) setActiveSection(restored.activeSection);
+        if (restored.selectedAnime) setSelectedAnime(restored.selectedAnime);
+        if (restored.currentEpisode) setCurrentEpisode(restored.currentEpisode);
+        if (restored.selectedMovie) setSelectedMovie(restored.selectedMovie);
+        if (restored.selectedDrama) setSelectedDrama(restored.selectedDrama);
+        if (restored.dramaEpisode) setDramaEpisode(restored.dramaEpisode);
+        if (restored.selectedManhwa) setSelectedManhwa(restored.selectedManhwa);
+        if (restored.currentManhwaChapter) setCurrentManhwaChapter(restored.currentManhwaChapter);
+        setRawView(restored.view);
+        console.log('[Session] Restored app view to:', restored.view);
+      }
+    }).catch(() => {});
+  }, []);
 
   // Hook to handle Browser Back / Forward buttons (popstate)
   useEffect(() => {
@@ -372,6 +416,8 @@ function App() {
         window.history.pushState(stateObj, '', targetUrl);
       }
     }
+    stateObjRef.current = stateObj;
+    saveSession(stateObj);
   }, [isInitialRouteReady, view, comicCategory, selectedAnime?.id, currentEpisode?.number, selectedDrama?.id, dramaEpisode?.id, selectedManhwa?.slug, currentManhwaChapter?.slug, selectedMovie?.id, selectedManga?.id, currentMangaChapter?.id]);
 
   const showToast = (message, type = 'info') => {
