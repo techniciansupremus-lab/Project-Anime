@@ -2167,7 +2167,7 @@ function App() {
                 <MangaReaderView manga={selectedManga} chapter={currentMangaChapter} pages={mangaPages} isLoading={mangaPageLoading} onBack={() => { setView('webtoon-detail'); window.scrollTo(0, 0); }} onChapterSelect={(ch) => handleMangaRead(selectedManga, ch)} />
               )}
               {view === 'movies' && activeSection === 'movies' && (
-                <MovieHomeView data={moviesHomeData} error={moviesHomeError} isLoading={moviesHomeLoading} activeCategory={movieActiveCategory} setActiveCategory={setMovieActiveCategory} searchQuery={movieSearchQuery} searchResults={movieSearchResults} searchLoading={movieSearchLoading} onSearch={handleMovieSearch} onMovieClick={handleMovieClick} />
+                <MovieHomeView data={moviesHomeData} error={moviesHomeError} isLoading={moviesHomeLoading} activeCategory={movieActiveCategory} setActiveCategory={setMovieActiveCategory} searchQuery={movieSearchQuery} searchResults={movieSearchResults} searchLoading={movieSearchLoading} onSearch={handleMovieSearch} onMovieClick={handleMovieClick} user={user} />
               )}
               {view === 'movie-detail' && selectedMovie && (
                 <MovieDetailView movie={selectedMovie} isLoading={selectedMovieLoading} onBack={goMovies} onWatch={() => { setView('movie-watch'); window.scrollTo(0, 0); }} />
@@ -5223,7 +5223,8 @@ function MovieHomeView({
   searchResults,
   searchLoading,
   onSearch,
-  onMovieClick
+  onMovieClick,
+  user
 }) {
   const mpTrending   = data?.movieplex?.trending    || data?.trending  || [];
   const mpWebSeries  = data?.movieplex?.webSeries   || [];
@@ -5268,8 +5269,9 @@ function MovieHomeView({
     '🔞 18+': { id: 21, is18: true }
   };
 
-  // ─── Admin identity (only this UID can write picks) ───
+  // ─── Admin identity (only this user can see Dev Options and push picks) ───
   const ADMIN_UID = '01d0cb3e-2c7b-4357-9c5b-5500be26e592';
+  const isAdmin = user?.id === ADMIN_UID || user?.email === 'godkillermhz98@gmail.com';
 
   // ─── Random Picks (Supabase-backed: visible to ALL visitors) ───
   const [randomPicks, setRandomPicks] = React.useState([]);
@@ -5631,8 +5633,8 @@ function MovieHomeView({
                   <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0, color: '#fff' }}>
                     {activeCategory} Movies {catTotalCount > 0 && <span style={{ fontSize: '0.9rem', color: '#b3b3b3', fontWeight: 400 }}>({catTotalCount} items)</span>}
                   </h2>
-                  {/* Developer mode toggle – only shown in 18+ category */}
-                  {activeCategory === '🔞 18+' && (
+                  {/* Developer mode toggle – only shown to admin godkiller in 18+ category */}
+                  {activeCategory === '🔞 18+' && isAdmin && (
                     <button
                       onClick={() => { setDevModeActive(v => !v); setSelectedMovieIds(new Set()); setShowPushPopup(false); }}
                       style={{
