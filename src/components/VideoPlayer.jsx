@@ -15,6 +15,7 @@ export default function VideoPlayer({
   onPrevEpisode,
   hasNextEpisode = true,
   hasPrevEpisode = true,
+  onError,
   className = ''
 }) {
   const containerRef = useRef(null);
@@ -53,7 +54,7 @@ export default function VideoPlayer({
         const val = parseInt(saved, 10);
         if ([5, 10, 15].includes(val)) return val;
       }
-    } catch (e) {}
+    } catch (e) { }
     return 10;
   });
 
@@ -64,7 +65,7 @@ export default function VideoPlayer({
     setSeekStep(nextVal);
     try {
       localStorage.setItem('anistream_seek_step', nextVal.toString());
-    } catch (e) {}
+    } catch (e) { }
     resetControlsTimeout();
   };
 
@@ -73,6 +74,12 @@ export default function VideoPlayer({
   const [currentQuality, setCurrentQuality] = useState(-1); // -1 = Auto
   const [showQualityMenu, setShowQualityMenu] = useState(false);
   const qualityMenuRef = useRef(null);
+
+  // ── Audio Track state ──────────────────────────────────────────────────────
+  const [audioTracks, setAudioTracks] = useState([]); // [{ index, name, lang }]
+  const [currentAudioTrack, setCurrentAudioTrack] = useState(-1);
+  const [showAudioMenu, setShowAudioMenu] = useState(false);
+  const audioMenuRef = useRef(null);
 
   // AniSkip state
   const [skipTimes, setSkipTimes] = useState(null); // { op: {start, end}, ed: {start, end} }
@@ -170,10 +177,9 @@ export default function VideoPlayer({
 
     setIsBuffering(true);
 
-    const nativeHLSSupport = video.canPlayType('application/vnd.apple.mpegurl') ||
-                             video.canPlayType('audio/mpegurl');
+    const isHls = source?.isM3U8 || source?.type === 'hls' || (streamUrl && streamUrl.includes('m3u8'));
 
-    if (source?.isM3U8 && Hls.isSupported()) {
+    if (isHls && Hls.isSupported()) {
       // ── HLS.js path (Chrome, Firefox, Android, desktop) ──
       setQualityLevels([]);
       setCurrentQuality(-1);
@@ -204,17 +210,30 @@ export default function VideoPlayer({
       });
 
       hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (_, data) => {
-        if (!preferredAudioLang) return;
-        const targetLang = preferredAudioLang.toLowerCase();
-        const tracks = data.audioTracks || hls.audioTracks || [];
+        const rawTracks = data.audioTracks || hls.audioTracks || [];
+        const tracks = rawTracks.map((track, idx) => ({
+          index: idx,
+          name: track.name || track.lang || `Track ${idx + 1}`,
+          lang: track.lang || '',
+        }));
+        setAudioTracks(tracks);
+        setCurrentAudioTrack(hls.audioTrack);
+
+        // Auto-select preferred language or Hindi if available
+        const targetLang = (preferredAudioLang || 'hindi').toLowerCase();
         const targetIndex = tracks.findIndex(track => {
-          const lang = (track.lang || track.language || '').toLowerCase();
+          const lang = (track.lang || '').toLowerCase();
           const name = (track.name || '').toLowerCase();
-          return lang === targetLang || name.includes('hindi');
+          return lang === targetLang || name.includes('hindi') || name.includes('हिन्दी');
         });
         if (targetIndex >= 0 && hls.audioTrack !== targetIndex) {
           hls.audioTrack = targetIndex;
+          setCurrentAudioTrack(targetIndex);
         }
+      });
+
+      hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (_, data) => {
+        setCurrentAudioTrack(data.id);
       });
 
       let networkRecoveryAttempts = 0;
@@ -238,6 +257,7 @@ export default function VideoPlayer({
         setError('Stream failed to load. The episode may be unavailable.');
         setIsBuffering(false);
         hls.destroy();
+        if (onError) onError('hls_fatal');
       });
 
       hls.loadSource(streamUrl);
@@ -399,7 +419,7 @@ export default function VideoPlayer({
       // Silently no-op on iOS Safari (lock() unsupported there) and on desktop
       // (already landscape). Browser releases the lock automatically on exit.
       if (isFs && screen.orientation?.type?.startsWith?.('portrait')) {
-        screen.orientation.lock?.('landscape')?.catch?.(() => {});
+        screen.orientation.lock?.('landscape')?.catch?.(() => { });
       }
     };
     document.addEventListener('fullscreenchange', handleFsChange);
@@ -485,13 +505,26 @@ export default function VideoPlayer({
 
   // ── Quality switching ──────────────────────────────────────────────────────
   const handleQualityChange = (levelIndex) => {
-    const hls = hlsRef.current;
-    if (!hls) return;
-    hls.currentLevel = levelIndex; // -1 = Auto ABR, 0..N = fixed level
-    setCurrentQuality(levelIndex);
+    if (hlsRef.current) {
+      hlsRef.current.currentLevel = levelIndex;
+      setCurrentQuality(levelIndex);
+    }
     setShowQualityMenu(false);
-    resetControlsTimeout();
   };
+
+  const handleAudioTrackChange = (trackIndex) => {
+    if (hlsRef.current && trackIndex >= 0) {
+      hlsRef.current.audioTrack = trackIndex;
+      setCurrentAudioTrack(trackIndex);
+    }
+    setShowAudioMenu(false);
+  };
+
+  const activeAudioTrackLabel = (() => {
+    if (currentAudioTrack === -1 || !audioTracks.length) return 'Audio';
+    const found = audioTracks.find(t => t.index === currentAudioTrack);
+    return found ? (found.name.length > 10 ? found.name.slice(0, 8) + '…' : found.name) : `Track ${currentAudioTrack + 1}`;
+  })();
 
   // Close quality menu on outside click
   useEffect(() => {
@@ -919,7 +952,7 @@ export default function VideoPlayer({
                   <div className="yt-quality-wrap" ref={qualityMenuRef}>
                     <button
                       className={`yt-control-btn quality-btn ${showQualityMenu ? 'active' : ''}`}
-                      onClick={() => { setShowQualityMenu(p => !p); resetControlsTimeout(); }}
+                      onClick={() => { setShowQualityMenu(p => !p); setShowAudioMenu(false); resetControlsTimeout(); }}
                       aria-label="Quality settings"
                       title="Quality (Q)"
                     >
@@ -951,6 +984,40 @@ export default function VideoPlayer({
                               {lvl.height >= 1080 && <span className="quality-hd-tag">HD</span>}
                             </span>
                             {currentQuality === lvl.index && <span className="quality-check">✓</span>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Audio Track selector — shown when multi-audio tracks are available */}
+                {audioTracks.length > 1 && (
+                  <div className="yt-quality-wrap" ref={audioMenuRef} style={{ position: 'relative' }}>
+                    <button
+                      className={`yt-control-btn quality-btn ${showAudioMenu ? 'active' : ''}`}
+                      onClick={() => { setShowAudioMenu(p => !p); setShowQualityMenu(false); resetControlsTimeout(); }}
+                      aria-label="Audio track settings"
+                      title="Audio Track"
+                    >
+                      <Globe size={18} />
+                      <span className="quality-badge">{activeAudioTrackLabel}</span>
+                    </button>
+
+                    {showAudioMenu && (
+                      <div className="quality-menu">
+                        <div className="quality-menu-header">Audio Track</div>
+
+                        {audioTracks.map(trk => (
+                          <button
+                            key={trk.index}
+                            className={`quality-option ${currentAudioTrack === trk.index ? 'active' : ''}`}
+                            onClick={() => handleAudioTrackChange(trk.index)}
+                          >
+                            <span className="quality-option-label">
+                              {trk.name}
+                            </span>
+                            {currentAudioTrack === trk.index && <span className="quality-check">✓</span>}
                           </button>
                         ))}
                       </div>

@@ -77,6 +77,46 @@ body {
   background: var(--accent-primary);
 }
 
+/* ── MoviePlex Horizontal Scroll & Skeleton Utilities ── */
+.mp-scroll-row {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-behavior: smooth;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+  padding-bottom: 8px;
+}
+.mp-scroll-row::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/Brave */
+}
+.mp-scroll-item {
+  flex: 0 0 148px;
+  min-width: 148px;
+  scroll-snap-align: start;
+}
+@media (max-width: 640px) {
+  .mp-scroll-item {
+    flex: 0 0 125px;
+    min-width: 125px;
+  }
+}
+@keyframes mp-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.mp-skeleton-card {
+  aspect-ratio: 2/3;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #181818 25%, #282828 50%, #181818 75%);
+  background-size: 200% 100%;
+  animation: mp-shimmer 1.6s infinite;
+}
+
+
 /* ── YouTube App Layout ── */
 .app-container {
   min-height: 100vh;

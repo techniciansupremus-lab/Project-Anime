@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertCircle, Info, Play, Star, X, ArrowLeft, Flame, Trophy, Sparkles, Compass, History, Tv, Globe, ChevronLeft, ChevronRight, BookOpen, ThumbsUp, ThumbsDown, Share2, Bookmark, MoreHorizontal, ChevronDown, PlayCircle, CheckCircle, Bell } from 'lucide-react';
+import { AlertCircle, Info, Play, Star, X, ArrowLeft, Flame, Trophy, Sparkles, Compass, History, Tv, Globe, ChevronLeft, ChevronRight, BookOpen, ThumbsUp, ThumbsDown, Share2, Bookmark, MoreHorizontal, ChevronDown, PlayCircle, CheckCircle, Bell, Zap } from 'lucide-react';
 import Navbar, { MobileBottomNav } from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import SectionSlider from './components/SectionSlider';
@@ -34,7 +34,7 @@ function App() {
   const [featured, setFeatured] = useState([]);
   const [trending, setTrending] = useState([]);
   const [top10Famous, setTop10Famous] = useState([]);
-  const [searchResults, setSearchResults] = useState({ anime: [], dramas: [], manga: [] });
+  const [searchResults, setSearchResults] = useState({ anime: [], dramas: [], movies: [], manga: [] });
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
   const [selectedAnime, setSelectedAnime] = useState(null);
@@ -1055,7 +1055,7 @@ function App() {
       accumulated.push(...batch);
       const sorted = [...accumulated].sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
       setHindiData({ featured: sorted[0] || null, list: sorted });
-      setHindiLoading(false); // first batch → stop spinner immediately
+      setHindiLoading(false); // first batch â†’ stop spinner immediately
     }).then((list) => {
       if (!alive) return;
       const sorted = [...list].sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
@@ -1829,6 +1829,32 @@ function App() {
     setView('movie-detail');
     setSelectedMovieLoading(true);
     window.scrollTo(0, 0);
+
+    // If it is a NetMirror catalog item, skip TMDB movie info call
+    if (movie.netmirrorId) {
+      setSelectedMovieLoading(false);
+      return;
+    }
+
+    // MoviePlex catalog items don't need TMDB info — skip the fetch
+    // MoviePlex items: fetch thumbnail via post-info (fast scrape)
+    if (movie.movieplexSlug || movie.source === 'movieplex') {
+      fetch(`/api/movieplex/post-info?slug=${encodeURIComponent(movie.movieplexSlug || movie.slug)}`)
+        .then(r => r.json())
+        .then(info => {
+          setSelectedMovie(prev => ({
+            ...prev,
+            thumbnail: info.thumbnail || prev.thumbnail,
+            coverImage: info.thumbnail || prev.coverImage,
+            bannerImage: info.thumbnail || prev.bannerImage,
+            title: info.title || prev.title,
+          }));
+        })
+        .catch(() => {})
+        .finally(() => setSelectedMovieLoading(false));
+      return;
+    }
+
     try {
       const r = await fetch(`/api/movies/info/${movie.id}`);
       const data = await r.json();
@@ -1844,10 +1870,10 @@ function App() {
     setMovieSearchQuery(q);
     if (!q.trim()) { setMovieSearchResults([]); return; }
     setMovieSearchLoading(true);
-    fetch(`/api/movies/search?q=${encodeURIComponent(q)}`)
+    fetch(`/api/movieplex/catalog?search=${encodeURIComponent(q)}`)
       .then(r => r.json())
       .then(data => {
-        setMovieSearchResults(Array.isArray(data) ? data : []);
+        setMovieSearchResults(Array.isArray(data.movies) ? data.movies : []);
         setMovieSearchLoading(false);
       })
       .catch(() => { setMovieSearchResults([]); setMovieSearchLoading(false); });
@@ -1857,7 +1883,7 @@ function App() {
     setSearchQuery(query);
 
     if (query.trim() === '') {
-      setSearchResults({ anime: [], dramas: [], manga: [] });
+      setSearchResults({ anime: [], dramas: [], movies: [], manga: [] });
       setSearchLoading(false);
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
       return;
@@ -1875,13 +1901,16 @@ function App() {
       const dramaPromise = fetch(apiUrl(`/api/drama/search?q=${encodeURIComponent(query)}`))
         .then(r => r.json())
         .then(data => {
-          // KissKH returns { value: [...], Count: N } " extract the array
           return Array.isArray(data) ? data : (Array.isArray(data?.value) ? data.value : []);
         })
         .catch(() => []);
+      const moviePromise = fetch(`/api/movieplex/catalog?search=${encodeURIComponent(query)}`)
+        .then(r => r.json())
+        .then(data => Array.isArray(data.movies) ? data.movies : [])
+        .catch(() => []);
       const mangaPromise = api.searchManga(query).catch(() => []);
 
-      Promise.all([animePromise, dramaPromise, mangaPromise]).then(([animeItems, dramaItems, mangaItems]) => {
+      Promise.all([animePromise, dramaPromise, moviePromise, mangaPromise]).then(([animeItems, dramaItems, movieItems, mangaItems]) => {
         if (requestId === searchRequestRef.current) {
           const animeList = Array.isArray(animeItems) ? animeItems : [];
           const dramaRaw = Array.isArray(dramaItems) ? dramaItems : [];
@@ -1896,13 +1925,14 @@ function App() {
           setSearchResults({
             anime: animeList,
             dramas: cleanDramas,
+            movies: Array.isArray(movieItems) ? movieItems : [],
             manga: Array.isArray(mangaItems) ? mangaItems : []
           });
           setSearchLoading(false);
         }
       }).catch(() => {
         if (requestId === searchRequestRef.current) {
-          setSearchResults({ anime: [], dramas: [], manga: [] });
+          setSearchResults({ anime: [], dramas: [], movies: [], manga: [] });
           setSearchLoading(false);
         }
       });
@@ -1980,10 +2010,12 @@ function App() {
             <SearchResults
               query={searchQuery}
               animeResults={searchResults.anime}
+              movieResults={searchResults.movies}
               dramaResults={searchResults.dramas}
               mangaResults={searchResults.manga}
               loading={searchLoading}
               onAnimeClick={handleAnimeClick}
+              onMovieClick={handleMovieClick}
               onDramaClick={handleDramaClick}
               onMangaClick={handleMangaClick}
             />
@@ -2196,12 +2228,14 @@ function YTSearchResultItem({ item, type, onClick }) {
   const title = item.title || 'Untitled';
   const displayTitle = type === 'manga'
     ? `${title} | Chapter 1`
+    : type === 'movie'
+    ? title
     : `${title} | Season 1 | Episode 1`;
 
   const viewsText = formatViews(item.popularity || item.viewsCount || 500000);
-  const timeAgoText = formatRelativeTime(item.startDate, 1);
-  const durationText = type === 'manga' ? 'Ch. 1' : '23:45';
-  const genres = item.genres?.slice(0, 2).join(' • ') || (type === 'manga' ? 'Manga' : type === 'drama' ? 'Drama' : 'Anime');
+  const timeAgoText = formatRelativeTime(item.startDate || item.date, 1);
+  const durationText = type === 'manga' ? 'Ch. 1' : type === 'movie' ? 'Movie' : '23:45';
+  const genres = item.genres?.slice(0, 2).join(' • ') || (type === 'manga' ? 'Manga / Comic' : type === 'drama' ? 'Drama' : type === 'movie' ? 'Movie' : 'Anime');
   const desc = item.description || 'Watch high quality episodes, detailed synopses, and recommendations on EetNet.';
 
   const initial = title.charAt(0).toUpperCase();
@@ -2236,11 +2270,12 @@ function YTSearchResultItem({ item, type, onClick }) {
   );
 }
 
-function SearchResults({ query, animeResults = [], dramaResults = [], mangaResults = [], loading, onAnimeClick, onDramaClick, onMangaClick }) {
+function SearchResults({ query, animeResults = [], movieResults = [], dramaResults = [], mangaResults = [], loading, onAnimeClick, onMovieClick, onDramaClick, onMangaClick }) {
   const [activeChip, setActiveChip] = useState('all');
 
   const allList = [
     ...animeResults.map(item => ({ ...item, _searchType: 'anime' })),
+    ...movieResults.map(item => ({ ...item, _searchType: 'movie' })),
     ...dramaResults.map(item => ({ ...item, _searchType: 'drama' })),
     ...mangaResults.map(item => ({ ...item, _searchType: 'manga' })),
   ];
@@ -2255,10 +2290,29 @@ function SearchResults({ query, animeResults = [], dramaResults = [], mangaResul
     <div className="yt-search-page">
       <div className="yt-search-header-bar">
         <div className="yt-search-chip-group">
-          <button className={`yt-search-chip ${activeChip === 'all' ? 'active' : ''}`} onClick={() => setActiveChip('all')}>All</button>
-          {animeResults.length > 0 && <button className={`yt-search-chip ${activeChip === 'anime' ? 'active' : ''}`} onClick={() => setActiveChip('anime')}>Anime</button>}
-          {dramaResults.length > 0 && <button className={`yt-search-chip ${activeChip === 'drama' ? 'active' : ''}`} onClick={() => setActiveChip('drama')}>Dramas</button>}
-          {mangaResults.length > 0 && <button className={`yt-search-chip ${activeChip === 'manga' ? 'active' : ''}`} onClick={() => setActiveChip('manga')}>Manga</button>}
+          <button className={`yt-search-chip ${activeChip === 'all' ? 'active' : ''}`} onClick={() => setActiveChip('all')}>
+            All ({allList.length})
+          </button>
+          {animeResults.length > 0 && (
+            <button className={`yt-search-chip ${activeChip === 'anime' ? 'active' : ''}`} onClick={() => setActiveChip('anime')}>
+              Anime ({animeResults.length})
+            </button>
+          )}
+          {movieResults.length > 0 && (
+            <button className={`yt-search-chip ${activeChip === 'movie' ? 'active' : ''}`} onClick={() => setActiveChip('movie')}>
+              Movies ({movieResults.length})
+            </button>
+          )}
+          {dramaResults.length > 0 && (
+            <button className={`yt-search-chip ${activeChip === 'drama' ? 'active' : ''}`} onClick={() => setActiveChip('drama')}>
+              Dramas ({dramaResults.length})
+            </button>
+          )}
+          {mangaResults.length > 0 && (
+            <button className={`yt-search-chip ${activeChip === 'manga' ? 'active' : ''}`} onClick={() => setActiveChip('manga')}>
+              Comics / Manga ({mangaResults.length})
+            </button>
+          )}
         </div>
         <button className="yt-search-filter-btn">
           <Sparkles size={16} /> Filters
@@ -2281,13 +2335,14 @@ function SearchResults({ query, animeResults = [], dramaResults = [], mangaResul
         </div>
       ) : hasResults ? (
         <div className="yt-search-list">
-          {filteredList.map((item) => (
+          {filteredList.map((item, idx) => (
             <YTSearchResultItem
-              key={`${item._searchType}-${item.id}`}
+              key={`${item._searchType}-${item.id || item.slug || item.movieplexSlug || idx}`}
               item={item}
               type={item._searchType}
               onClick={() => {
                 if (item._searchType === 'anime') onAnimeClick(item.id);
+                else if (item._searchType === 'movie') onMovieClick(item);
                 else if (item._searchType === 'drama') onDramaClick(item);
                 else if (item._searchType === 'manga') onMangaClick(item);
               }}
@@ -2447,7 +2502,7 @@ function YTCard({ item, onClick, badge }) {
   const epNum = item.episode || 1;
   const displayTitle = `${animeTitle} | Season ${seasonNum} | Episode ${epNum}`;
 
-  const channelText = item.genres?.slice(0, 2).join(' • ') || item.type || 'Anime';
+  const channelText = item.genres?.slice(0, 2).join(' â€¢ ') || item.type || 'Anime';
   const viewsText = formatViews(item.popularity || item.viewsCount);
   const timeAgoText = formatRelativeTime(item.startDate, epNum);
   const durationText = item.formattedDuration || (item.rawDuration ? `${item.rawDuration}:00` : (item.duration && !isNaN(parseInt(item.duration)) ? `${parseInt(item.duration)}:00` : '23:45'));
@@ -2474,7 +2529,7 @@ function YTCard({ item, onClick, badge }) {
         <div className="yt-card-info">
           <div className="yt-card-title">{displayTitle}</div>
           <div className="yt-card-channel">{channelText}</div>
-          <div className="yt-card-stats">{viewsText} · {timeAgoText}</div>
+          <div className="yt-card-stats">{viewsText} Â· {timeAgoText}</div>
         </div>
       </div>
     </div>
@@ -2720,7 +2775,7 @@ function AnimeView({
           </span>
           {featured.length > 0 && (
             <button className="yt-section-more" onClick={() => onAnimeClick(featured[0]?.id)}>
-              View all →
+              View all â†’
             </button>
           )}
         </div>
@@ -2959,7 +3014,7 @@ function NetflixTile({ anime, rank, progress, onClick }) {
       </span>
       <span className="tile-info">
         <strong>{anime.title}</strong>
-        <small>{anime.subtitle || `${anime.type} · ${anime.rating}`}</small>
+        <small>{anime.subtitle || `${anime.type} Â· ${anime.rating}`}</small>
       </span>
     </button>
   );
@@ -3226,7 +3281,7 @@ function DetailView({ anime, franchiseList = [], myList = [], onToggleWatchlist,
           const end = Math.min(p * EPISODES_PER_PART, totalEpisodes || (p * EPISODES_PER_PART));
           seasonOptions.push({
             id: item.id,
-            title: `${item.title} - Part ${p} (Ep ${start}–${end})`,
+            title: `${item.title} - Part ${p} (Ep ${start}â€“${end})`,
             part: p,
             isActive: isActive && selectedPart === p
           });
@@ -3295,10 +3350,10 @@ function DetailView({ anime, franchiseList = [], myList = [], onToggleWatchlist,
                 {isSubscribed ? 'Subscribed' : 'Subscribe'}
               </button>
               <button
-                className={`btn ${myList.some(item => item.id === anime.id) ? '✓ Saved' : '+ Save'}`}
+                className={`btn ${myList.some(item => item.id === anime.id) ? 'âœ“ Saved' : '+ Save'}`}
                 onClick={() => onToggleWatchlist(anime)}
               >
-                {myList.some(item => item.id === anime.id) ? '✓ In My List' : '+ My List'}
+                {myList.some(item => item.id === anime.id) ? 'âœ“ In My List' : '+ My List'}
               </button>
               <button className="btn btn-secondary" onClick={onBackHome}>
                 Back to Home
@@ -3511,7 +3566,7 @@ function WatchView({
             const end = Math.min(p * EPISODES_PER_PART, anime.totalEpisodes || (p * EPISODES_PER_PART));
             seasonOptions.push({
               id: item.id,
-              title: `${item.title} - Part ${p} (Ep ${start}–${end})`,
+              title: `${item.title} - Part ${p} (Ep ${start}â€“${end})`,
               part: p,
               isActive: isActive && selectedPart === p
             });
@@ -3543,7 +3598,7 @@ function WatchView({
         const end = Math.min(p * EPISODES_PER_PART, anime.totalEpisodes || (p * EPISODES_PER_PART));
         seasonOptions.push({
           id: anime.id,
-          title: `Season 1 - Part ${p} (Ep ${start}–${end})`,
+          title: `Season 1 - Part ${p} (Ep ${start}â€“${end})`,
           part: p,
           isActive: selectedPart === p
         });
@@ -3640,10 +3695,10 @@ function WatchView({
 
   return (
     <div className="yt-watch-page">
-      {/* â”€â”€â”€ 2-Column Grid Layout â”€â”€â”€ */}
+      {/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ 2-Column Grid Layout Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
       <div className="yt-watch-layout">
 
-        {/* â”€â”€â”€ LEFT COLUMN: Primary â”€â”€â”€ */}
+        {/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ LEFT COLUMN: Primary Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
         <div className="yt-watch-primary">
 
           {/* Video Player */}
@@ -3673,7 +3728,7 @@ function WatchView({
               {anime.title}
             </h1>
             <div className="yt-watch-ep-label">
-              Season {seasonNum} Â· Episode {episode.number}{episode.title && episode.title !== `Episode ${episode.number}` ? `  ${episode.title}` : ''}
+              Season {seasonNum} Ã‚Â· Episode {episode.number}{episode.title && episode.title !== `Episode ${episode.number}` ? `  ${episode.title}` : ''}
             </div>
           </div>
 
@@ -3691,9 +3746,9 @@ function WatchView({
                       if (onStartWatching) onStartWatching(anime, episode.number, true, mode);
                     }}
                   >
-                    {mode === 'sub' ? '🇯🇵 SUB' : mode === 'dub' ? '🇺🇸 DUB' : '🇮🇳 HIN'}
+                    {mode === 'sub' ? 'ðŸ‡¯ðŸ‡µ SUB' : mode === 'dub' ? 'ðŸ‡ºðŸ‡¸ DUB' : 'ðŸ‡®ðŸ‡³ HIN'}
                     {mode === 'hindi' && anime.hindiAvailable && (
-                      <span className="yt-hindi-badge">✓</span>
+                      <span className="yt-hindi-badge">âœ“</span>
                     )}
                   </button>
                 ))}
@@ -3778,10 +3833,10 @@ function WatchView({
           )}
         </div>
 
-        {/* â”€â”€â”€ RIGHT COLUMN: Secondary â”€â”€â”€ */}
+        {/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ RIGHT COLUMN: Secondary Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
         <div className="yt-watch-secondary" ref={secondaryColRef}>
 
-          {/* â”€â”€â”€ Season Panel (YouTube playlist bento) â”€â”€â”€ */}
+          {/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Season Panel (YouTube playlist bento) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
           <div className="yt-season-panel">
             {/* Panel header */}
             <div className="yt-season-panel-header">
@@ -3882,7 +3937,7 @@ function WatchView({
             </div>
           </div>
 
-          {/* â”€â”€â”€ Up Next / Recommendations â”€â”€â”€ */}
+          {/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Up Next / Recommendations Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
           <div className="yt-cbf-section">
             <div className="yt-cbf-header">Up next</div>
             {displayedCbfRecs.length === 0 ? (
@@ -3907,7 +3962,7 @@ function WatchView({
                   </div>
                   <div className="yt-cbf-info">
                     <div className="yt-cbf-title">{rec.title}</div>
-                    <div className="yt-cbf-sub">{rec.type} Â· {rec.totalEpisodes ? `${rec.totalEpisodes} eps` : ''}</div>
+                    <div className="yt-cbf-sub">{rec.type} Ã‚Â· {rec.totalEpisodes ? `${rec.totalEpisodes} eps` : ''}</div>
                   </div>
                 </div>
               ))
@@ -4212,7 +4267,7 @@ function HindiYTCard({ anime, onPlay, onInfo }) {
         </div>
 
         {/* Hindi audio badge */}
-        <div className="hindi-yt-card-audio-badge">🇮🇳 HINDI</div>
+        <div className="hindi-yt-card-audio-badge">ðŸ‡®ðŸ‡³ HINDI</div>
 
         {/* Hover overlay */}
         <div className="hindi-yt-card-hover-overlay">
@@ -4231,7 +4286,7 @@ function HindiYTCard({ anime, onPlay, onInfo }) {
           <div className="hindi-yt-card-title" title={anime.title} onClick={onInfo}>
             {anime.title}
           </div>
-          <div className="hindi-yt-card-channel">{genre} • {anime.type || 'TV'}</div>
+          <div className="hindi-yt-card-channel">{genre} â€¢ {anime.type || 'TV'}</div>
           <div className="hindi-yt-card-stats">
             {rating > 0 && (
               <span className="hindi-yt-card-rating">
@@ -4402,7 +4457,7 @@ function ManhwaDetailView({ series, isLoading, onBack, onReadChapter }) {
       >
         <div className="manhwa-hero-overlay" />
         <div className="manhwa-detail-hero-content">
-          <button className="manhwa-back-btn" onClick={onBack}> Â </button>
+          <button className="manhwa-back-btn" onClick={onBack}>Â Ã‚Â </button>
           <div className="manhwa-detail-meta-row">
             <img src={series.cover} alt={series.title} className="manhwa-detail-cover" />
             <div className="manhwa-detail-info">
@@ -4504,17 +4559,17 @@ function ManhwaReadView({ series, chapter, images, isLoading, onBack, onChapterS
     <div className="manhwa-reader">
       {/* Top navigation bar */}
       <div className="manhwa-reader-header">
-        <button className="manhwa-back-btn" onClick={onBack}> Â Back</button>
+        <button className="manhwa-back-btn" onClick={onBack}>Â Ã‚Â Back</button>
         <span className="manhwa-reader-chapter-label">Chapter {chapter.number}</span>
         <div className="manhwa-reader-nav">
           {prevChapter && (
             <button className="manhwa-nav-btn" onClick={() => onChapterSelect(prevChapter)}>
-               Â Prev
+              Â Ã‚Â Prev
             </button>
           )}
           {nextChapter && (
             <button className="manhwa-nav-btn" onClick={() => onChapterSelect(nextChapter)}>
-              Next →
+              Next â†’
             </button>
           )}
         </div>
@@ -4548,7 +4603,7 @@ function ManhwaReadView({ series, chapter, images, isLoading, onBack, onChapterS
         <div className="manhwa-reader-footer">
           {prevChapter && (
             <button className="manhwa-nav-btn" onClick={() => { onChapterSelect(prevChapter); window.scrollTo(0,0); }}>
-               Â Previous Chapter
+              Â Ã‚Â Previous Chapter
             </button>
           )}
           <button className="manhwa-back-btn-plain" onClick={() => { onBack(); }}>
@@ -4556,7 +4611,7 @@ function ManhwaReadView({ series, chapter, images, isLoading, onBack, onChapterS
           </button>
           {nextChapter && (
             <button className="manhwa-nav-btn" onClick={() => { onChapterSelect(nextChapter); window.scrollTo(0,0); }}>
-              Next Chapter →
+              Next Chapter â†’
             </button>
           )}
         </div>
@@ -4614,7 +4669,7 @@ function DramaCard({ drama, onClick }) {
       </span>
       <span className="tile-info">
         <strong>{drama.title}</strong>
-        <small>{drama.country || 'Drama'} · {drama.status || 'Ongoing'}</small>
+        <small>{drama.country || 'Drama'} Â· {drama.status || 'Ongoing'}</small>
       </span>
     </button>
   );
@@ -4694,7 +4749,7 @@ function DramaHomeView({ data, error, isLoading, searchQuery, searchResults, sea
                   <div className="hero-eyebrow">
                     <span className="hero-eyebrow-badge" style={{ background: '#3b82f6' }}>D</span>
                     <span className="hero-eyebrow-text">Drama</span>
-                    <span className="hero-eyebrow-dot">•</span>
+                    <span className="hero-eyebrow-dot">â€¢</span>
                     <span className="hero-live-tag" style={{ background: 'rgba(59, 130, 246, 0.15)', borderColor: 'rgba(59, 130, 246, 0.5)', color: '#60a5fa' }}>Popular</span>
                   </div>
 
@@ -4767,11 +4822,11 @@ function DramaDetailView({ drama, onBack, onWatchEpisode }) {
       <div className="drama-detail-hero" style={{ backgroundImage: `url(${drama.thumbnail})` }}>
         <div className="drama-hero-overlay" />
         <div className="drama-detail-hero-content">
-          <button className="drama-back-btn" onClick={onBack}> Â Back</button>
+          <button className="drama-back-btn" onClick={onBack}>Â Ã‚Â Back</button>
           <h1 className="drama-detail-title">{drama.title}</h1>
           {drama.releaseDate && (
             <span className="drama-detail-meta">
-              {new Date(drama.releaseDate).getFullYear()} · {drama.country} · {drama.status}
+              {new Date(drama.releaseDate).getFullYear()} Â· {drama.country} Â· {drama.status}
             </span>
           )}
           {episodes.length > 0 && (
@@ -4853,7 +4908,7 @@ function DramaWatchView({ drama, episode, stream, loading, onBack, onEpisodeSele
   return (
     <div className="drama-watch">
       <div className="drama-watch-header">
-        <button className="drama-back-btn" onClick={onBack}> Â {drama.title}</button>
+        <button className="drama-back-btn" onClick={onBack}>Â Ã‚Â {drama.title}</button>
         <span className="drama-watch-ep-label">Episode {episode.number}</span>
       </div>
 
@@ -4930,52 +4985,228 @@ function DramaWatchView({ drama, episode, stream, loading, onBack, onEpisodeSele
 // 
 
 function MovieCard({ movie, onClick }) {
+  const [imgSrc, setImgSrc] = React.useState(movie.coverImage || movie.thumbnail || null);
   const [imgErr, setImgErr] = React.useState(false);
+  const [fetchedPoster, setFetchedPoster] = React.useState(null);
+
+  // Sync src when parent updates the movie object (e.g. after background enrichment)
+  React.useEffect(() => {
+    const src = movie.coverImage || movie.thumbnail || null;
+    if (src && src !== imgSrc) { setImgSrc(src); setImgErr(false); }
+  }, [movie.coverImage, movie.thumbnail]);
+
+  // If img failed or no poster at all, try fetching from backend on-demand
+  const handleImgErr = React.useCallback(() => {
+    setImgErr(true);
+    if (movie.movieplexSlug && !fetchedPoster) {
+      fetch('/api/movieplex/post-info?slug=' + encodeURIComponent(movie.movieplexSlug))
+        .then(r => r.json())
+        .then(d => {
+          if (d.thumbnail) { setFetchedPoster(d.thumbnail); setImgErr(false); }
+        })
+        .catch(() => {});
+    }
+  }, [movie.movieplexSlug, fetchedPoster]);
+
+  const activeSrc = fetchedPoster || imgSrc;
+
+  // Generate a stable vibrant gradient per title initial
+  const GRADIENTS = [
+    'linear-gradient(145deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+    'linear-gradient(145deg, #2d1b33 0%, #1a0a2e 50%, #6b21a8 100%)',
+    'linear-gradient(145deg, #1e3a1e 0%, #14532d 50%, #166534 100%)',
+    'linear-gradient(145deg, #1e1a0e 0%, #451a03 50%, #7c2d12 100%)',
+    'linear-gradient(145deg, #0c1445 0%, #1e3a5f 50%, #1e40af 100%)',
+    'linear-gradient(145deg, #3f0d0d 0%, #7f1d1d 50%, #991b1b 100%)',
+    'linear-gradient(145deg, #1a1a1a 0%, #374151 50%, #111827 100%)',
+    'linear-gradient(145deg, #0d2137 0%, #0e4f69 50%, #155e75 100%)',
+  ];
+  const gradientIdx = (movie.title?.charCodeAt(0) || 0) % GRADIENTS.length;
+  const placeholder = GRADIENTS[gradientIdx];
+
   return (
-    <button className="netflix-tile movie-tile" onClick={onClick}>
-      <span className="tile-art">
-        {!imgErr && movie.coverImage ? (
+    <button
+      className="movie-tile"
+      onClick={onClick}
+      style={{
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: 0,
+        textAlign: 'left',
+        width: '100%',
+      }}
+    >
+      <span style={{
+        display: 'block',
+        position: 'relative',
+        aspectRatio: '2/3',
+        borderRadius: '6px',
+        overflow: 'hidden',
+        background: '#161618',
+        transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s',
+      }}
+      onMouseEnter={e => {
+        e.currentTarget.style.transform = 'scale(1.08) translateY(-4px)';
+        e.currentTarget.style.boxShadow = '0 14px 36px rgba(0,0,0,0.85)';
+      }}
+      onMouseLeave={e => {
+        e.currentTarget.style.transform = 'scale(1) translateY(0)';
+        e.currentTarget.style.boxShadow = 'none';
+      }}
+      >
+        {activeSrc && !imgErr ? (
           <img
-            src={movie.coverImage}
+            src={activeSrc}
             alt={movie.title}
             loading="lazy"
-            onError={() => setImgErr(true)}
+            onError={handleImgErr}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
           />
         ) : (
-          <div className="drama-card-placeholder">
-            <span>{movie.title?.[0] || '?'}</span>
+          /* Beautiful gradient placeholder — no more grey letter boxes */
+          <div style={{
+            width: '100%', height: '100%',
+            background: placeholder,
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+            padding: '1rem', textAlign: 'center', position: 'relative', overflow: 'hidden'
+          }}>
+            {/* Decorative glow rings */}
+            <div style={{
+              position: 'absolute', width: '150px', height: '150px',
+              borderRadius: '50%', border: '1px solid rgba(255,255,255,0.06)',
+              top: '-30px', right: '-30px'
+            }} />
+            <div style={{
+              position: 'absolute', width: '100px', height: '100px',
+              borderRadius: '50%', border: '1px solid rgba(255,255,255,0.05)',
+              bottom: '-20px', left: '-20px'
+            }} />
+            <span style={{
+              fontSize: '2.8rem', fontWeight: 900,
+              color: 'rgba(255,255,255,0.22)',
+              letterSpacing: '-1px', lineHeight: 1,
+              textTransform: 'uppercase', fontFamily: 'Inter, sans-serif',
+              position: 'relative', zIndex: 1
+            }}>
+              {movie.title?.[0] || '?'}
+            </span>
+            <span style={{
+              position: 'absolute', bottom: '10px',
+              left: '8px', right: '8px',
+              fontSize: '0.6rem', color: 'rgba(255,255,255,0.25)',
+              fontWeight: 600, textAlign: 'center',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+            }}>{movie.title}</span>
           </div>
         )}
-        <span className="tile-logo-mark">EN</span>
-        <span className="tile-hover-overlay">
-          <span className="tile-hover-play"><Play size={20} fill="white" style={{ color: 'white' }} /></span>
+        {/* Hover overlay */}
+        <span style={{
+          position: 'absolute', inset: 0,
+          background: 'linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.3) 50%, transparent 100%)',
+          opacity: 0, transition: 'opacity 0.22s ease',
+          display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: '0.75rem'
+        }}
+        onMouseEnter={e => e.currentTarget.style.opacity = 1}
+        onMouseLeave={e => e.currentTarget.style.opacity = 0}
+        >
+          <span style={{
+            background: '#E50914', color: '#fff',
+            padding: '0.4rem 1rem', borderRadius: '20px',
+            fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.4px',
+            display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+            boxShadow: '0 4px 12px rgba(229,9,20,0.4)'
+          }}>▶ Play</span>
         </span>
+        {/* Rating badge */}
         {movie.rating && (
-          <span className="tile-rating-badge" style={{ color: '#fff' }}> {movie.rating}</span>
+          <span style={{
+            position: 'absolute', top: '6px', right: '6px',
+            background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(4px)',
+            color: '#facc15', padding: '2px 6px',
+            borderRadius: '4px', fontSize: '0.68rem', fontWeight: 700
+          }}>★ {movie.rating}</span>
         )}
       </span>
-      <span className="tile-info">
-        <strong>{movie.title}</strong>
-        <small>{movie.releaseDate ? movie.releaseDate.split('-')[0] : 'Movie'} · {movie.genres?.[0] || 'Cinema'}</small>
+      {/* Title below card */}
+      <span style={{ display: 'block', padding: '0.45rem 0.1rem 0' }}>
+        <strong style={{
+          display: 'block', color: '#ffffff', fontSize: '0.82rem',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          fontWeight: 500, lineHeight: 1.3
+        }}>{movie.title}</strong>
+        <small style={{ color: '#b3b3b3', fontSize: '0.7rem' }}>
+          {movie.releaseDate ? String(movie.releaseDate).split('-')[0] : movie.type || 'Movie'}
+        </small>
       </span>
     </button>
+
   );
 }
 
 function MovieRow({ title, icon, movies, onMovieClick }) {
+  const rowRef = React.useRef(null);
+  const [showChevrons, setShowChevrons] = React.useState(false);
+
   if (!movies || movies.length === 0) return null;
+
+  const scroll = (direction) => {
+    if (!rowRef.current) return;
+    const scrollAmount = direction === 'left' ? -480 : 480;
+    rowRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+  };
+
   return (
-    <section className="hv-section netflix-row">
-      <div className="hv-section-header">
-        <h2 className="hv-section-title">
-          {icon && <span className="hv-title-accent">{icon}</span>} {title}
-        </h2>
-        <span className="hv-section-line" />
+    <section style={{ marginTop: '2.2rem', position: 'relative' }}
+      onMouseEnter={() => setShowChevrons(true)}
+      onMouseLeave={() => setShowChevrons(false)}
+    >
+      {/* Row Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.9rem' }}>
+        {icon && <span style={{ display: 'flex', alignItems: 'center' }}>{icon}</span>}
+        <h2 style={{
+          margin: 0, fontSize: '1.15rem', fontWeight: 700,
+          color: '#ffffff', letterSpacing: '-0.2px'
+        }}>{title}</h2>
       </div>
-      <div className="netflix-slider">
-        {movies.map(m => (
-          <MovieCard key={m.id} movie={m} onClick={() => onMovieClick(m)} />
-        ))}
+
+      {/* Horizontal scrolling row wrapper with chevrons */}
+      <div style={{ position: 'relative' }}>
+        {showChevrons && (
+          <>
+            <button
+              onClick={() => scroll('left')}
+              style={{
+                position: 'absolute', left: '-16px', top: '50%', transform: 'translateY(-50%)',
+                zIndex: 10, width: '40px', height: '40px', borderRadius: '50%',
+                background: 'rgba(20,20,20,0.85)', border: '1px solid rgba(255,255,255,0.15)',
+                color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)'
+              }}
+              aria-label="Scroll left"
+            ><ChevronLeft size={22} /></button>
+            <button
+              onClick={() => scroll('right')}
+              style={{
+                position: 'absolute', right: '-16px', top: '50%', transform: 'translateY(-50%)',
+                zIndex: 10, width: '40px', height: '40px', borderRadius: '50%',
+                background: 'rgba(20,20,20,0.85)', border: '1px solid rgba(255,255,255,0.15)',
+                color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)'
+              }}
+              aria-label="Scroll right"
+            ><ChevronRight size={22} /></button>
+          </>
+        )}
+
+        <div ref={rowRef} className="mp-scroll-row">
+          {movies.slice(0, 30).map(m => (
+            <div key={m.id} className="mp-scroll-item">
+              <MovieCard movie={m} onClick={() => onMovieClick(m)} />
+            </div>
+          ))}
+        </div>
       </div>
     </section>
   );
@@ -4993,251 +5224,844 @@ function MovieHomeView({
   onSearch,
   onMovieClick
 }) {
-  const featured = data?.featured || data?.bollywood?.[0];
+  const mpTrending   = data?.movieplex?.trending    || data?.trending  || [];
+  const mpWebSeries  = data?.movieplex?.webSeries   || [];
+  const mpHindiDub   = data?.movieplex?.hindiDubbed || [];
+  const mpBollywood  = data?.movieplex?.bollywood   || data?.bollywood || [];
+  const mpHollywood  = data?.movieplex?.hollywood   || data?.hollywood || [];
+  const mpAction     = data?.movieplex?.action      || data?.action    || [];
+  const mpShortFilm  = data?.movieplex?.shortFilm   || [];
+  const mpThriller   = data?.movieplex?.thriller    || [];
+  const mpRomance    = data?.movieplex?.romance     || [];
+  const mpHot        = data?.movieplex?.hot         || [];
 
-  const categories = ['All', 'Bollywood', 'Hollywood Hindi Dubbed', 'Bollywood Classics'];
+  // Hero carousel auto-rotate
+  const featuredPool = React.useMemo(() => {
+    const list = mpTrending.length ? mpTrending : mpHindiDub.length ? mpHindiDub : mpBollywood;
+    return list.slice(0, 5);
+  }, [mpTrending, mpHindiDub, mpBollywood]);
 
-  let displayedBollywood = data?.bollywood || [];
-  let displayedHollywood = data?.hollywood || [];
-  let displayedClassics = data?.classics || [];
+  const [heroIdx, setHeroIdx] = React.useState(0);
+  React.useEffect(() => {
+    if (!featuredPool.length) return;
+    const interval = setInterval(() => {
+      setHeroIdx(prev => (prev + 1) % featuredPool.length);
+    }, 8000);
+    return () => clearInterval(interval);
+  }, [featuredPool]);
 
-  if (activeCategory === 'Bollywood') {
-    displayedHollywood = [];
-    displayedClassics = [];
-  } else if (activeCategory === 'Hollywood Hindi Dubbed') {
-    displayedBollywood = [];
-    displayedClassics = [];
-  } else if (activeCategory === 'Bollywood Classics') {
-    displayedBollywood = [];
-    displayedHollywood = [];
-  }
+  const featured = featuredPool[heroIdx] || data?.featured || mpTrending[0] || null;
+
+  const categories = ['All', 'Trending', 'Hindi Dubbed', 'Bollywood', 'Hollywood', 'Web Series', 'Action', 'Short Film', 'Thriller', 'Romance', '🔞 18+'];
+
+  const CAT_MAP = {
+    'Trending': { id: 29 },
+    'Hindi Dubbed': { id: 17 },
+    'Bollywood': { id: 10 },
+    'Hollywood': { id: 19 },
+    'Web Series': { id: 33 },
+    'Action': { id: 6 },
+    'Short Film': { id: 26 },
+    'Thriller': { id: 28 },
+    'Romance': { id: 24 },
+    '🔞 18+': { id: 21, is18: true }
+  };
+
+  // State for category grid view (paginated loading for 200+ movies per category)
+  const [catMovies, setCatMovies] = React.useState([]);
+  const [catPage, setCatPage] = React.useState(1);
+  const [catTotalPages, setCatTotalPages] = React.useState(1);
+  const [catTotalCount, setCatTotalCount] = React.useState(0);
+  const [catLoading, setCatLoading] = React.useState(false);
+  const [loadingMore, setLoadingMore] = React.useState(false);
+
+  // Fetch paginated category movies whenever activeCategory changes
+  React.useEffect(() => {
+    if (activeCategory === 'All') {
+      setCatMovies([]);
+      setCatPage(1);
+      return;
+    }
+
+    const config = CAT_MAP[activeCategory];
+    if (!config) return;
+
+    setCatLoading(true);
+    setCatPage(1);
+
+    const queryParams = new URLSearchParams({ page: 1, limit: 36 });
+    if (config.id) queryParams.set('category', config.id);
+    if (config.is18) queryParams.set('is18', 'true');
+
+    fetch(`/api/movieplex/catalog?${queryParams.toString()}`)
+      .then(r => r.json())
+      .then(res => {
+        setCatMovies(Array.isArray(res.movies) ? res.movies : []);
+        setCatTotalPages(res.totalPages || 1);
+        setCatTotalCount(res.total || 0);
+        setCatLoading(false);
+      })
+      .catch(() => {
+        setCatMovies([]);
+        setCatLoading(false);
+      });
+  }, [activeCategory]);
+
+  const loadMoreCategoryMovies = () => {
+    if (loadingMore || catPage >= catTotalPages) return;
+    const nextPage = catPage + 1;
+    setLoadingMore(true);
+
+    const config = CAT_MAP[activeCategory] || {};
+    const queryParams = new URLSearchParams({ page: nextPage, limit: 36 });
+    if (config.id) queryParams.set('category', config.id);
+    if (config.is18) queryParams.set('is18', 'true');
+
+    fetch(`/api/movieplex/catalog?${queryParams.toString()}`)
+      .then(r => r.json())
+      .then(res => {
+        if (Array.isArray(res.movies)) {
+          setCatMovies(prev => [...prev, ...res.movies]);
+        }
+        setCatPage(nextPage);
+        setLoadingMore(false);
+      })
+      .catch(() => setLoadingMore(false));
+  };
 
   return (
-    <div className="netflix-home movie-home" style={{ paddingTop: '5rem' }}>
+    <div style={{ minHeight: '100vh', background: '#0a0a0a', color: '#fff', fontFamily: '"Inter","Roboto",sans-serif' }}>
 
       {searchQuery.trim() ? (
-        <div className="container drama-search-results" style={{ marginTop: '2rem' }}>
-          <div className="hv-section-header">
-            <h2 className="hv-section-title">
-              <Sparkles className="hv-icon" size={20} style={{ color: '#eab308' }} /> Results for "{searchQuery}"
-            </h2>
-            <span className="hv-section-line" />
-          </div>
+        <div style={{ padding: '1.5rem', maxWidth: '1400px', margin: '0 auto' }}>
+          <h2 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 1rem', color: '#fff' }}>
+            Results for "{searchQuery}"
+          </h2>
           {searchLoading ? (
-            <div className="drama-loading" style={{ minHeight: '30vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ minHeight: '30vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <InlineLoader />
             </div>
           ) : searchResults.length ? (
-            <div className="netflix-slider" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gridAutoFlow: 'initial', gap: '1.5rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '1rem' }}>
               {searchResults.map(m => <MovieCard key={m.id} movie={m} onClick={() => onMovieClick(m)} />)}
             </div>
           ) : (
-            <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '3rem 0' }}>No movies found.</p>
+            <p style={{ color: 'rgba(255,255,255,0.4)', textAlign: 'center', padding: '4rem 0' }}>No movies found.</p>
           )}
         </div>
       ) : isLoading ? (
-        <CategorySkeleton />
-      ) : !data || !Array.isArray(data.bollywood) ? (
+        <div style={{ padding: '2rem', display: 'flex', gap: '1rem', overflow: 'hidden' }}>
+          {[1,2,3,4,5,6].map(i => <div key={i} className="mp-skeleton-card" style={{ flex: '0 0 148px' }} />)}
+        </div>
+      ) : !data || (!Array.isArray(data.popular) && !Array.isArray(data.bollywood) && !data.movieplex) ? (
         <div style={{ minHeight: '60vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.2rem' }}>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem', textAlign: 'center', maxWidth: '640px' }}>
-            {error || 'Could not load movie catalog. Check connection or backend status.'}
+          <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '1rem', textAlign: 'center', maxWidth: '520px' }}>
+            {error || 'Could not load movie catalog.'}
           </p>
-          <button className="btn btn-primary" onClick={() => window.location.reload()}>Retry</button>
+          <button onClick={() => window.location.reload()} style={{
+            padding: '0.7rem 2rem', background: '#E50914', color: '#fff',
+            border: 'none', borderRadius: '4px', fontWeight: 700, cursor: 'pointer'
+          }}>Retry</button>
         </div>
       ) : (
         <>
-          {/* Hero Header */}
-          {featured && (
-            <div className="hero netflix-hero movie-hero" style={{ backgroundImage: `url(${featured.bannerImage || featured.coverImage})` }}>
-              <div className="hero-overlay" />
-              <div className="hero-scanline" />
-              <div className="container hero-shell">
-                <div className="hero-content">
-                  <div className="hero-eyebrow">
-                    <span className="hero-eyebrow-badge" style={{ background: '#e50914' }}>M</span>
-                    <span className="hero-eyebrow-text">Movie Spotlight</span>
-                    <span className="hero-eyebrow-dot">•</span>
-                    <span className="hero-live-tag" style={{ background: 'rgba(229, 9, 20, 0.15)', borderColor: 'rgba(229, 9, 20, 0.5)', color: '#ef4444' }}>FEATURED</span>
-                  </div>
+          {/* Billboard Hero only visible in 'All' mode */}
+          {activeCategory === 'All' && featured && (
+            <div style={{
+              width: '100%', height: '70vh', minHeight: '440px',
+              position: 'relative',
+              backgroundImage: `url(${featured.bannerImage || featured.coverImage || featured.thumbnail})`,
+              backgroundPosition: 'center top', backgroundSize: 'cover', backgroundRepeat: 'no-repeat',
+              transition: 'background-image 0.8s ease-in-out'
+            }}>
+              {/* Dual scrim gradient */}
+              <div style={{
+                position: 'absolute', inset: 0,
+                background: 'linear-gradient(to right, rgba(10,10,10,0.95) 0%, rgba(10,10,10,0.6) 45%, transparent 85%), linear-gradient(to top, #0a0a0a 0%, rgba(10,10,10,0.5) 50%, transparent 100%)'
+              }} />
 
-                  <h1 className="hero-title">{featured.title}</h1>
+              <div style={{
+                position: 'absolute', bottom: 0, left: 0, right: 0,
+                padding: '3rem clamp(1rem, 5vw, 4rem) 3.5rem',
+                maxWidth: '850px'
+              }}>
+                {/* Category tag */}
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.8rem' }}>
+                  <span style={{ background: '#E50914', color: '#fff', padding: '0.2rem 0.6rem', borderRadius: '3px', fontSize: '0.72rem', fontWeight: 800, letterSpacing: '1px', textTransform: 'uppercase' }}>Featured</span>
+                  {featured.releaseDate && <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.82rem', fontWeight: 600 }}>{String(featured.releaseDate).split('-')[0]}</span>}
+                </div>
 
-                  <div className="hero-meta">
-                    <span className="top-ten-badge" style={{ background: '#e50914' }}>BLOCKBUSTER</span>
-                    <span className="hero-rank">#1 Popular Cinema</span>
-                    {featured.rating && (
-                      <span className="hero-star">
-                        <Star size={14} fill="var(--accent-primary)" style={{ color: 'var(--accent-primary)' }} />
-                        {featured.rating}
-                      </span>
-                    )}
-                    {featured.releaseDate && (
-                      <span className="hero-meta-tag">{featured.releaseDate.split('-')[0]}</span>
-                    )}
-                  </div>
+                <h1 style={{
+                  margin: '0 0 0.8rem',
+                  fontSize: 'clamp(1.8rem, 5vw, 3.2rem)',
+                  fontWeight: 800, letterSpacing: '-0.5px',
+                  textShadow: '0 2px 20px rgba(0,0,0,0.9)',
+                  lineHeight: 1.15
+                }}>{featured.title}</h1>
 
-                  {featured.description && <p className="hero-desc">{featured.description}</p>}
+                {featured.description && (
+                  <p style={{
+                    color: 'rgba(255,255,255,0.8)', fontSize: '0.95rem',
+                    margin: '0 0 1.6rem', maxWidth: '540px', lineHeight: 1.55,
+                    textShadow: '0 1px 4px rgba(0,0,0,0.8)'
+                  }}>
+                    {featured.description.substring(0, 170)}{featured.description.length > 170 ? '…' : ''}
+                  </p>
+                )}
 
-                  <div className="btn-group">
-                    <button className="btn btn-primary hero-btn-play" onClick={() => onMovieClick(featured)}>
-                      <Play size={20} fill="currentColor" /> Watch Movie
-                    </button>
-                  </div>
+                <div style={{ display: 'flex', gap: '0.9rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => onMovieClick(featured)}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '0.6rem',
+                      background: '#E50914', color: '#fff',
+                      padding: '0.8rem 2.2rem', borderRadius: '6px',
+                      border: 'none', fontSize: '1.05rem', fontWeight: 700,
+                      cursor: 'pointer', transition: 'all 0.18s ease',
+                      boxShadow: '0 6px 20px rgba(229,9,20,0.45)'
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#F6121D'}
+                    onMouseLeave={e => e.currentTarget.style.background = '#E50914'}
+                  >
+                    ▶ Play
+                  </button>
+                  <button
+                    onClick={() => onMovieClick(featured)}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
+                      background: 'rgba(255,255,255,0.14)', color: '#fff',
+                      padding: '0.8rem 1.8rem', borderRadius: '6px',
+                      border: '1px solid rgba(255,255,255,0.2)', fontSize: '1rem', fontWeight: 600,
+                      cursor: 'pointer', backdropFilter: 'blur(8px)', transition: 'background 0.18s'
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.24)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.14)'}
+                  >
+                    <Info size={18} /> More Info
+                  </button>
                 </div>
               </div>
+
+              {/* Carousel Indicator Dots */}
+              {featuredPool.length > 1 && (
+                <div style={{
+                  position: 'absolute', bottom: '1.5rem', right: '3rem',
+                  display: 'flex', gap: '0.5rem', zIndex: 5
+                }}>
+                  {featuredPool.map((_, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setHeroIdx(idx)}
+                      style={{
+                        width: heroIdx === idx ? '24px' : '8px', height: '8px',
+                        borderRadius: '4px', border: 'none', cursor: 'pointer',
+                        background: heroIdx === idx ? '#E50914' : 'rgba(255,255,255,0.3)',
+                        transition: 'all 0.3s ease'
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
-          <div className="netflix-rows">
-            {/* Category Filter Pills */}
-            <div className="category-row netflix-category-row">
-              <div className="hv-section-header">
-                <h2 className="hv-section-title">
-                  <Compass className="hv-icon" size={20} style={{ color: '#a855f7' }} /> Cinema Categories
-                </h2>
-                <span className="hv-section-line" />
-              </div>
-              <div className="categories-container">
-                {categories.map((cat) => (
-                  <button
-                    key={cat}
-                    className={`category-pill ${activeCategory === cat ? 'active' : ''}`}
-                    onClick={() => setActiveCategory(cat)}
-                  >{cat}</button>
-                ))}
-              </div>
+          {/* Category Filter Pills Navbar */}
+          <div style={{ padding: '1.8rem clamp(1rem, 4vw, 3rem) 0' }}>
+            <div className="mp-scroll-row" style={{ gap: '0.6rem', paddingBottom: '0.4rem' }}>
+              {categories.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setActiveCategory(c)}
+                  style={{
+                    padding: '0.45rem 1.2rem', borderRadius: '20px', border: 'none',
+                    cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600,
+                    whiteSpace: 'nowrap', flexShrink: 0,
+                    background: activeCategory === c ? (c.includes('18+') ? '#dc2626' : '#E50914') : '#1e1e22',
+                    color: activeCategory === c ? '#fff' : '#b3b3b3',
+                    transition: 'all 0.18s ease',
+                    boxShadow: activeCategory === c ? '0 4px 14px rgba(229,9,20,0.35)' : 'none'
+                  }}
+                >{c}</button>
+              ))}
             </div>
-
-            {displayedBollywood.length > 0 && (
-              <MovieRow
-                title="Popular Bollywood Hits"
-                icon={<Flame className="hv-icon" size={20} style={{ color: '#f97316' }} />}
-                movies={displayedBollywood}
-                onMovieClick={onMovieClick}
-              />
-            )}
-
-            {displayedHollywood.length > 0 && (
-              <MovieRow
-                title="Hollywood Hindi Dubbed"
-                icon={<Tv className="hv-icon" size={20} style={{ color: '#3b82f6' }} />}
-                movies={displayedHollywood}
-                onMovieClick={onMovieClick}
-              />
-            )}
-
-            {displayedClassics.length > 0 && (
-              <MovieRow
-                title="Bollywood Classics & Niche Old"
-                icon={<Trophy className="hv-icon" size={20} style={{ color: 'var(--accent-primary)' }} />}
-                movies={displayedClassics}
-                onMovieClick={onMovieClick}
-              />
-            )}
           </div>
+
+          {/* MAIN CONTENT AREA */}
+          {activeCategory === 'All' ? (
+            /* ALL CATEGORIES HOME VIEW (Horizontal Scrolling Rows) */
+            <div style={{ padding: '0.5rem clamp(1rem, 4vw, 3rem) 4rem' }}>
+              {mpTrending.length > 0 && (
+                <MovieRow title="🔥 Trending" icon={<Flame size={20} style={{ color: '#ef4444' }} />} movies={mpTrending} onMovieClick={onMovieClick} />
+              )}
+              {mpHindiDub.length > 0 && (
+                <MovieRow title="🇮🇳 Hindi Dubbed" icon={<Globe size={20} style={{ color: '#06b900' }} />} movies={mpHindiDub} onMovieClick={onMovieClick} />
+              )}
+              {mpBollywood.length > 0 && (
+                <MovieRow title="🎬 Bollywood" icon={<Flame size={20} style={{ color: '#f97316' }} />} movies={mpBollywood} onMovieClick={onMovieClick} />
+              )}
+              {mpHollywood.length > 0 && (
+                <MovieRow title="🌐 Hollywood" icon={<Tv size={20} style={{ color: '#3b82f6' }} />} movies={mpHollywood} onMovieClick={onMovieClick} />
+              )}
+              {mpWebSeries.length > 0 && (
+                <MovieRow title="📺 Web Series" icon={<Tv size={20} style={{ color: '#8b5cf6' }} />} movies={mpWebSeries} onMovieClick={onMovieClick} />
+              )}
+              {mpAction.length > 0 && (
+                <MovieRow title="⚡ Action" icon={<Zap size={20} style={{ color: '#f97316' }} />} movies={mpAction} onMovieClick={onMovieClick} />
+              )}
+              {mpThriller.length > 0 && (
+                <MovieRow title="🔪 Thriller" icon={<Zap size={20} style={{ color: '#ef4444' }} />} movies={mpThriller} onMovieClick={onMovieClick} />
+              )}
+              {mpShortFilm.length > 0 && (
+                <MovieRow title="🎥 Short Films" icon={<Sparkles size={20} style={{ color: '#06b900' }} />} movies={mpShortFilm} onMovieClick={onMovieClick} />
+              )}
+              {mpRomance.length > 0 && (
+                <MovieRow title="💕 Romance" icon={<Star size={20} style={{ color: '#ec4899' }} />} movies={mpRomance} onMovieClick={onMovieClick} />
+              )}
+            </div>
+          ) : (
+            /* DEDICATED CATEGORY GRID VIEW (Full paginated catalog of 200+ movies) */
+            <div style={{ padding: '1.5rem clamp(1rem, 4vw, 3rem) 4rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+                <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0, color: '#fff' }}>
+                  {activeCategory} Movies {catTotalCount > 0 && <span style={{ fontSize: '0.9rem', color: '#b3b3b3', fontWeight: 400 }}>({catTotalCount} items)</span>}
+                </h2>
+                <button
+                  onClick={() => setActiveCategory('All')}
+                  style={{
+                    background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                    color: '#fff', padding: '0.4rem 1rem', borderRadius: '20px',
+                    fontSize: '0.8rem', cursor: 'pointer'
+                  }}
+                >← All Categories</button>
+              </div>
+
+              {catLoading ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '1rem' }}>
+                  {[1,2,3,4,5,6,7,8,9,10,11,12].map(i => (
+                    <div key={i} className="mp-skeleton-card" />
+                  ))}
+                </div>
+              ) : catMovies.length > 0 ? (
+                <>
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                    gap: '1.2rem 1rem'
+                  }}>
+                    {catMovies.map((m, idx) => (
+                      <MovieCard key={m.id + '-' + idx} movie={m} onClick={() => onMovieClick(m)} />
+                    ))}
+                  </div>
+
+                  {catPage < catTotalPages && (
+                    <div style={{ display: 'flex', justifyContent: 'center', marginTop: '3rem' }}>
+                      <button
+                        onClick={loadMoreCategoryMovies}
+                        disabled={loadingMore}
+                        style={{
+                          padding: '0.85rem 3rem', background: '#E50914', color: '#fff',
+                          border: 'none', borderRadius: '6px', fontSize: '0.95rem', fontWeight: 700,
+                          cursor: 'pointer', opacity: loadingMore ? 0.6 : 1,
+                          boxShadow: '0 4px 16px rgba(229,9,20,0.4)', transition: 'all 0.18s'
+                        }}
+                      >
+                        {loadingMore ? 'Loading More Movies...' : `Load More (${catTotalCount - catMovies.length} remaining)`}
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p style={{ color: 'rgba(255,255,255,0.4)', textAlign: 'center', padding: '4rem 0' }}>No movies found in this category.</p>
+              )}
+            </div>
+          )}
         </>
       )}
     </div>
   );
 }
 
+
+
+
+// Helper to clean raw WordPress titles for display (e.g. "Drishyam 3 (2026) Hindi Dubbed Movie Watch Online" -> "Drishyam 3")
+function cleanMovieDisplayTitle(raw) {
+  if (!raw) return 'Untitled Movie';
+  const cleaned = raw
+    .replace(/\bWatch\s+Online\b/gi, '')
+    .replace(/\bFull\s+Movie\b/gi, '')
+    .replace(/\bFull\s+Web\s+Series\b/gi, '')
+    .replace(/\bDownload\s+Now\b/gi, '')
+    .replace(/\(\d{4}\)/g, '').replace(/\b(19|20)\d{2}\b/g, '')
+    .replace(/\[.*?\]/g, '')
+    .replace(/E\d+[-T]\d+/gi, '').replace(/\bE\d+\b/gi, '').replace(/\bS\d+\b/gi, '')
+    .replace(/\bPart\s*\d+\b/gi, '').replace(/\bVolume\s*\d+\b/gi, '').replace(/\bVol\.?\s*\d+\b/gi, '')
+    .replace(/\bEpisode\s*\d+\b/gi, '').replace(/\bSeason\s*\d+\b/gi, '').replace(/\bComplete\b/gi, '')
+    .replace(/\b(Hindi Dubbed|Hindi Dub|Hindi|Bengali|Malayalam|Tamil|Telugu|Kannada|Marathi|Punjabi|Gujarati|English|Bangladeshi|South Indian|Korean|Japanese|Chinese|Thai)\b/gi, '')
+    .replace(/\b(HDRip|BluRay|WEB-DL|WEBRip|UNCUT|HDTS|HDTC|HDCam|HDCAM|CAMRip|CAM|DVDSCR|DVDScr|SCR|TS|DVDRIP|DVDRip|HD|4K|1080p|720p|480p|360p|Extended|Directors.?Cut)\b/gi, '')
+    .replace(/\b(Hollywood|Bollywood|Tollywood|Mollywood|Kollywood|Pollywood)\b/gi, '')
+    .replace(/\b(Short Film|App Video|Webseries|Web Series|OTT|Originals|Exclusive)\b/gi, '')
+    .replace(/\b(Sigmaseries|Sigma|Cukkuboo|Hulchul|HulChul|Hoichoi|Moodx|Kooku|Ullu|ALTBalaji|PrimeShots|Rabbit|RabbitMovies|Voovi|Chikooflix|Atrangii|NewSensations|LookEnt|Nuefliks|GupChup|Hotshots|Flizmovies|Mastram|DigiMoviePlex|Balloons|Besharams|Cinemadosti|Netflix|Amazon|Hotstar|SonyLiv|ZEE5|Voot|MXPlayer|JioCinema|Aha|Lionsgate|Disney)\b/gi, '')
+    .replace(/\bMovie\b/gi, '').replace(/\bSeries\b/gi, '').replace(/\bFilm\b/gi, '')
+    .replace(/[-_:]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned || raw;
+}
+
+// ── Netflix-Style Movie Detail View ──────────────────────────────────────────
 function MovieDetailView({ movie, isLoading, onBack, onWatch }) {
+  const [relatedMovies, setRelatedMovies] = React.useState([]);
+  const [relatedLoading, setRelatedLoading] = React.useState(false);
+  const [inWatchlist, setInWatchlist] = React.useState(false);
+
+  const displayTitle = cleanMovieDisplayTitle(movie.title);
+  const yearMatch = (movie.title || '').match(/\b(19|20)\d{2}\b/);
+  const releaseYear = movie.releaseDate ? String(movie.releaseDate).split('-')[0] : (yearMatch ? yearMatch[0] : '2024');
+  const heroImage = movie.bannerImage || movie.coverImage || movie.thumbnail || '';
+
+  // Fetch "More Like This" recommendations
+  React.useEffect(() => {
+    setRelatedLoading(true);
+    fetch('/api/movieplex/catalog?page=1&limit=12')
+      .then(r => r.json())
+      .then(res => {
+        const items = Array.isArray(res.movies) ? res.movies.filter(m => m.id !== movie.id) : [];
+        setRelatedMovies(items.slice(0, 10));
+        setRelatedLoading(false);
+      })
+      .catch(() => setRelatedLoading(false));
+  }, [movie.id]);
+
   return (
-    <div className="drama-detail movie-detail">
-      <div className="drama-detail-hero" style={{ backgroundImage: `url(${movie.bannerImage || movie.coverImage})` }}>
-        <div className="drama-hero-overlay" />
-        <div className="drama-detail-hero-content">
-          <button className="drama-back-btn" onClick={onBack}> Â Back</button>
-          <h1 className="drama-detail-title">{movie.title}</h1>
-          <span className="drama-detail-meta">
-            {movie.releaseDate ? movie.releaseDate.split('-')[0] : 'Movie'} · " {movie.rating || 'N/A'} {movie.runtime ? `· ${movie.runtime} mins` : ''}
-          </span>
-          <button className="btn btn-primary" onClick={onWatch}>
-            <Play size={20} fill="currentColor" /> Play Movie
-          </button>
+    <div style={{
+      minHeight: '100vh', background: '#0a0a0a', color: '#fff',
+      fontFamily: '"Inter","Roboto",sans-serif'
+    }}>
+      {/* Full-bleed 75vh Billboard Hero */}
+      <div style={{
+        position: 'relative', minHeight: '72vh', width: '100%',
+        backgroundImage: `url(${heroImage})`,
+        backgroundSize: 'cover', backgroundPosition: 'center top',
+        backgroundRepeat: 'no-repeat'
+      }}>
+        {/* Triple Netflix Scrim Gradient */}
+        <div style={{
+          position: 'absolute', inset: 0,
+          background: 'linear-gradient(to right, #0a0a0a 0%, rgba(10,10,10,0.8) 35%, rgba(10,10,10,0.2) 75%, transparent 100%), linear-gradient(to top, #0a0a0a 0%, rgba(10,10,10,0.6) 45%, transparent 100%)'
+        }} />
+
+        {/* Floating Back Button */}
+        <div style={{ position: 'absolute', top: '1.5rem', left: 'clamp(1rem, 4vw, 3rem)', zIndex: 10 }}>
+          <button onClick={onBack} style={{
+            background: 'rgba(20,20,20,0.8)', border: '1px solid rgba(255,255,255,0.2)',
+            color: '#fff', padding: '0.5rem 1.2rem', borderRadius: '30px',
+            cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600,
+            display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
+            backdropFilter: 'blur(10px)', boxShadow: '0 4px 16px rgba(0,0,0,0.6)'
+          }}>← Back to Movies</button>
+        </div>
+
+        {/* Hero Content */}
+        <div style={{
+          position: 'absolute', bottom: 0, left: 0, right: 0,
+          padding: '3rem clamp(1rem, 4vw, 3rem) 3rem',
+          maxWidth: '850px', zIndex: 5
+        }}>
+          {/* Netflix Quality & Language Badges */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.9rem', flexWrap: 'wrap' }}>
+            <span style={{ background: '#E50914', color: '#fff', padding: '0.2rem 0.6rem', borderRadius: '3px', fontSize: '0.72rem', fontWeight: 800, letterSpacing: '1px', textTransform: 'uppercase' }}>Movie</span>
+            <span style={{ color: '#46d369', fontWeight: 800, fontSize: '0.88rem' }}>98% Match</span>
+            <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.85rem', fontWeight: 600 }}>{releaseYear}</span>
+            <span style={{ border: '1px solid rgba(255,255,255,0.4)', padding: '1px 5px', borderRadius: '2px', fontSize: '0.7rem', color: 'rgba(255,255,255,0.8)', fontWeight: 700 }}>16+</span>
+            <span style={{ border: '1px solid rgba(255,255,255,0.4)', padding: '1px 5px', borderRadius: '2px', fontSize: '0.7rem', color: 'rgba(255,255,255,0.8)', fontWeight: 700 }}>4K Ultra HD</span>
+            <span style={{ background: 'rgba(255,255,255,0.15)', padding: '2px 7px', borderRadius: '3px', fontSize: '0.72rem', color: '#fff', fontWeight: 600 }}>Hindi Dubbed</span>
+            {movie.rating && <span style={{ color: '#facc15', fontWeight: 700, fontSize: '0.85rem' }}>★ {movie.rating}</span>}
+          </div>
+
+          <h1 style={{
+            fontSize: 'clamp(2rem, 5vw, 3.4rem)', margin: '0 0 1rem',
+            fontWeight: 800, letterSpacing: '-0.5px', lineHeight: 1.12,
+            textShadow: '0 2px 24px rgba(0,0,0,0.95)'
+          }}>{displayTitle}</h1>
+
+          {/* Action Buttons */}
+          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '1.8rem' }}>
+            <button
+              onClick={onWatch}
+              style={{
+                background: '#E50914', color: '#fff',
+                border: 'none', padding: '0.85rem 2.5rem',
+                borderRadius: '6px', fontSize: '1.05rem', fontWeight: 800,
+                cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.6rem',
+                transition: 'all 0.18s ease',
+                boxShadow: '0 6px 20px rgba(229,9,20,0.5)'
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = '#F6121D'}
+              onMouseLeave={e => e.currentTarget.style.background = '#E50914'}
+            >
+              ▶ Play Movie
+            </button>
+
+            <button
+              onClick={() => setInWatchlist(!inWatchlist)}
+              style={{
+                background: inWatchlist ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.12)',
+                color: '#fff', border: '1px solid rgba(255,255,255,0.25)',
+                padding: '0.85rem 1.8rem', borderRadius: '6px', fontSize: '0.95rem', fontWeight: 600,
+                cursor: 'pointer', backdropFilter: 'blur(8px)', transition: 'all 0.18s'
+              }}
+            >
+              {inWatchlist ? '✓ In My List' : '+ Add to My List'}
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="drama-detail-body container">
-        {movie.description && (
-          <div className="drama-detail-desc">
-            <h3>Synopsis</h3>
-            <p>{movie.description}</p>
+      {/* Netflix 2-Column Info & Overview Section */}
+      <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '2.5rem clamp(1rem, 4vw, 3rem) 4rem' }}>
+        <div style={{
+          display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+          gap: '2.5rem', marginBottom: '3.5rem'
+        }}>
+          {/* Left Column: Synopsis */}
+          <div>
+            <h3 style={{ margin: '0 0 0.8rem', color: '#fff', fontSize: '1.1rem', fontWeight: 700 }}>Storyline</h3>
+            <p style={{ margin: 0, color: 'rgba(255,255,255,0.78)', lineHeight: 1.7, fontSize: '0.95rem' }}>
+              {movie.description || `${displayTitle} is a gripping high-stakes cinematic release featuring high quality dual audio, intense drama, and suspenseful twists. Stream in full HD resolution with CORS-enabled fast playback on EetNet.`}
+            </p>
           </div>
-        )}
 
-        {movie.genres && movie.genres.length > 0 && (
-          <div className="bento-genres" style={{ marginTop: '1rem' }}>
-            {movie.genres.map(g => (
-              <span key={g} className="bento-genre-tag">{g}</span>
-            ))}
+          {/* Right Column: Metadata Sidebar */}
+          <div style={{
+            background: 'rgba(255,255,255,0.03)', borderRadius: '12px',
+            padding: '1.5rem', border: '1px solid rgba(255,255,255,0.08)'
+          }}>
+            <div style={{ marginBottom: '1rem' }}>
+              <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.8rem', display: 'block', marginBottom: '0.3rem' }}>Audio & Dubbing</span>
+              <span style={{ color: '#fff', fontSize: '0.9rem', fontWeight: 600 }}>Hindi Dubbed, Original Audio (Dual Audio)</span>
+            </div>
+
+            <div style={{ marginBottom: '1rem' }}>
+              <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.8rem', display: 'block', marginBottom: '0.3rem' }}>Genres</span>
+              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                {(movie.genres || ['Action', 'Thriller', 'Drama']).map(g => (
+                  <span key={g} style={{
+                    padding: '0.2rem 0.7rem', background: 'rgba(255,255,255,0.08)',
+                    borderRadius: '12px', fontSize: '0.78rem', color: 'rgba(255,255,255,0.85)'
+                  }}>{g}</span>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.8rem', display: 'block', marginBottom: '0.3rem' }}>Quality & Format</span>
+              <span style={{ color: '#fff', fontSize: '0.9rem', fontWeight: 600 }}>1080p Full HD (HLS CORS Stream)</span>
+            </div>
           </div>
-        )}
+        </div>
+
+        {/* "More Like This" Recommendation Grid */}
+        <div>
+          <h2 style={{ fontSize: '1.3rem', fontWeight: 800, margin: '0 0 1.2rem', color: '#fff' }}>
+            More Like This
+          </h2>
+
+          {relatedLoading ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '1rem' }}>
+              {[1,2,3,4,5,6].map(i => <div key={i} className="mp-skeleton-card" />)}
+            </div>
+          ) : (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+              gap: '1.2rem 1rem'
+            }}>
+              {relatedMovies.map((m, idx) => (
+                <MovieCard key={m.id + '-' + idx} movie={m} onClick={() => {
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                  onWatch(m);
+                }} />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-function MovieWatchView({ movie, onBack, onProgress }) {
-  const [movieData, setMovieData] = React.useState(movie);
-  const [activeServerId, setActiveServerId] = React.useState('vidsrc-me');
+// ── MoviePlex Cinema Player View ─────────────────────────────────────────────
+function MoviePlexPlayerView({ movie, onBack }) {
+  const [streamData, setStreamData] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState(null);
+  const [useFallback, setUseFallback] = React.useState(false);
+  const [postInfo, setPostInfo] = React.useState(null);
+  const [moreMovies, setMoreMovies] = React.useState([]);
 
-  // Dynamically resolve IMDb ID if not already present on the movie object
+  const slug = movie.movieplexSlug || movie.slug;
+  const displayTitle = cleanMovieDisplayTitle(movie.title || postInfo?.title || '');
+
   React.useEffect(() => {
-    if (!movie.imdbId && movie.id) {
-      fetch(`/api/movies/info/${movie.id}`)
+    if (!slug) return;
+    fetch(`/api/movieplex/post-info?slug=${encodeURIComponent(slug)}`)
+      .then(r => r.json())
+      .then(data => { setPostInfo(data); })
+      .catch(() => {});
+  }, [slug]);
+
+  React.useEffect(() => {
+    if (!slug) { setError('No slug provided'); setLoading(false); return; }
+    setLoading(true); setError(null); setUseFallback(false);
+    fetch(`/api/movieplex/stream?slug=${encodeURIComponent(slug)}`)
+      .then(r => r.json())
+      .then(data => {
+        setStreamData(data);
+        setLoading(false);
+        if (data.source === 'streamtape') setUseFallback(true);
+      })
+      .catch(err => { setError(err.message || 'Failed to load stream'); setLoading(false); });
+  }, [slug]);
+
+  // Fetch recommendations for below player
+  React.useEffect(() => {
+    fetch('/api/movieplex/catalog?page=1&limit=12')
+      .then(r => r.json())
+      .then(res => {
+        if (Array.isArray(res.movies)) setMoreMovies(res.movies.slice(0, 10));
+      })
+      .catch(() => {});
+  }, []);
+
+  const thumbnail = postInfo?.thumbnail || movie.thumbnail || movie.coverImage || '';
+  const isHLS = (streamData?.source === 'lulustream' || streamData?.directHls) && !!streamData?.streamUrl;
+  const extractionFailed = !loading && streamData && !streamData.source && !!streamData.error;
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#0a0a0a', color: '#fff', fontFamily: '"Inter","Roboto",sans-serif' }}>
+
+      {/* Top Navbar */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '1rem',
+        padding: '0.9rem clamp(1rem, 4vw, 2rem)',
+        background: 'rgba(10,10,10,0.96)', backdropFilter: 'blur(12px)',
+        position: 'sticky', top: 0, zIndex: 30,
+        borderBottom: '1px solid rgba(255,255,255,0.08)'
+      }}>
+        <button onClick={onBack} style={{
+          background: 'rgba(255,255,255,0.08)', border: 'none', color: '#fff',
+          padding: '0.4rem 1rem', borderRadius: '20px', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', gap: '0.4rem',
+          fontSize: '0.85rem', fontWeight: 600, flexShrink: 0
+        }} aria-label="Back">← Back</button>
+
+        <span style={{
+          fontWeight: 800, fontSize: '1.05rem', color: '#fff',
+          flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+        }}>{displayTitle}</span>
+
+        <span style={{
+          fontSize: '0.68rem', fontWeight: 800, letterSpacing: '1px',
+          color: '#e50914', border: '1px solid #e50914',
+          padding: '0.2rem 0.6rem', borderRadius: '3px', flexShrink: 0,
+          textTransform: 'uppercase'
+        }}>CINEMA 4K</span>
+      </div>
+
+      {/* Main Player Box with Ambient Shadow */}
+      <div style={{
+        width: '100%', maxWidth: '1200px', margin: '1.5rem auto 0',
+        padding: '0 clamp(1rem, 3vw, 2rem)'
+      }}>
+        <div style={{
+          width: '100%', aspectRatio: '16/9', position: 'relative',
+          background: '#000', borderRadius: '12px', overflow: 'hidden',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.9), 0 0 40px rgba(229,9,20,0.08)',
+          border: '1px solid rgba(255,255,255,0.1)'
+        }}>
+          {loading && (
+            <div style={{
+              position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', background: '#111', gap: '1.2rem'
+            }}>
+              {thumbnail && <img src={thumbnail} alt={displayTitle} style={{
+                position: 'absolute', inset: 0, width: '100%', height: '100%',
+                objectFit: 'cover', opacity: 0.3
+              }} />}
+              <div className="loading-spinner" style={{ width: '48px', height: '48px', borderWidth: '3px', zIndex: 2 }} />
+              <p style={{ color: '#fff', fontSize: '0.9rem', fontWeight: 600, zIndex: 2 }}>Preparing High-Speed HLS Stream…</p>
+            </div>
+          )}
+          {!loading && isHLS && !useFallback && (
+            <VideoPlayer
+              source={{ url: streamData.streamUrl, isM3U8: true }}
+              poster={thumbnail}
+              title={displayTitle}
+              className="movieplex-player"
+              onError={() => {
+                if (streamData?.fallbackIframe) setUseFallback(true);
+              }}
+            />
+          )}
+          {!loading && useFallback && streamData?.fallbackIframe && (
+            <iframe
+              src={streamData.fallbackIframe}
+              title={displayTitle}
+              style={{ width: '100%', height: '100%', border: 'none', position: 'absolute', inset: 0 }}
+              allowFullScreen
+              allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+            />
+          )}
+          {!loading && extractionFailed && !useFallback && (
+            <div style={{
+              position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', gap: '1rem', background: '#111'
+            }}>
+              {thumbnail && <img src={thumbnail} alt={displayTitle} style={{
+                position: 'absolute', inset: 0, width: '100%', height: '100%',
+                objectFit: 'cover', opacity: 0.12
+              }} />}
+              <div style={{ zIndex: 2, textAlign: 'center', padding: '0 2rem' }}>
+                <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>⚠️</div>
+                <p style={{ fontWeight: 700, fontSize: '1.1rem', margin: '0 0 0.4rem' }}>Stream Unavailable</p>
+                <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.85rem', margin: '0 0 1.2rem' }}>
+                  Could not extract a direct stream. Switch to external player below.
+                </p>
+                {streamData?.fallbackIframe && (
+                  <button onClick={() => setUseFallback(true)} style={{
+                    padding: '0.6rem 1.6rem', background: '#E50914',
+                    border: 'none', borderRadius: '6px',
+                    color: '#fff', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 700
+                  }}>🌐 Switch to External Player</button>
+                )}
+              </div>
+            </div>
+          )}
+          {!loading && error && !streamData && (
+            <div style={{
+              position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', gap: '1rem'
+            }}>
+              <p style={{ color: '#ef4444', fontSize: '0.9rem' }}>Could not load stream: {error}</p>
+              <button onClick={onBack} style={{
+                padding: '0.5rem 1.5rem', background: '#e50914',
+                border: 'none', borderRadius: '4px', color: '#fff', cursor: 'pointer'
+              }}>Go Back</button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Below Player Controls & Recommendations */}
+      {!loading && streamData && (
+        <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '1.5rem clamp(1rem, 3vw, 2rem) 4rem' }}>
+
+          {/* Player Switcher Bar */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '0.8rem',
+            padding: '0.8rem 1.2rem', background: 'rgba(255,255,255,0.03)',
+            borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)',
+            marginBottom: '2rem', flexWrap: 'wrap'
+          }}>
+            <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', fontWeight: 600, marginRight: '0.5rem' }}>Server Source:</span>
+            {isHLS && (
+              <button onClick={() => setUseFallback(false)} style={{
+                padding: '0.45rem 1.3rem', borderRadius: '20px', border: 'none', cursor: 'pointer',
+                fontSize: '0.85rem', fontWeight: 700,
+                background: !useFallback ? '#E50914' : 'rgba(255,255,255,0.08)',
+                color: '#fff', transition: 'all 0.18s'
+              }}>⚡ Our HLS Player (Ad-Free)</button>
+            )}
+            {streamData.fallbackIframe && (
+              <button onClick={() => setUseFallback(true)} style={{
+                padding: '0.45rem 1.3rem', borderRadius: '20px', border: 'none', cursor: 'pointer',
+                fontSize: '0.85rem', fontWeight: 700,
+                background: useFallback ? '#E50914' : 'rgba(255,255,255,0.08)',
+                color: '#fff', transition: 'all 0.18s'
+              }}>🌐 External Player</button>
+            )}
+          </div>
+
+          {/* Movie Recommendation Grid Below Player */}
+          {moreMovies.length > 0 && (
+            <div style={{ marginTop: '2rem' }}>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 1.2rem', color: '#fff' }}>
+                More Movies to Watch
+              </h3>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                gap: '1.2rem 1rem'
+              }}>
+                {moreMovies.map((m, idx) => (
+                  <MovieCard key={m.id + '-' + idx} movie={m} onClick={() => {
+                    window.location.href = `/movie/${m.movieplexSlug || m.slug || m.id}`;
+                  }} />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MovieWatchView({ movie, onBack, onProgress }) {
+  const isMoviePlex = !!(movie.movieplexSlug || movie.source === 'movieplex');
+
+  // All hooks must be declared unconditionally (Rules of Hooks)
+  const [movieData, setMovieData] = React.useState(movie);
+  const [activeServerId, setActiveServerId] = React.useState('vidlink-pro');
+  const [resolving, setResolving] = React.useState(false);
+
+  // If it's a MoviePlex movie, delegate to MoviePlexPlayerView.
+  // We still need the hooks above unconditionally but we short-circuit the render here.
+  if (isMoviePlex) {
+    return <MoviePlexPlayerView movie={movie} onBack={onBack} />;
+  }
+
+
+
+  // For NetMirror items: search TMDB by title to get a TMDB ID for embed servers
+  // For regular TMDB items: fetch full info to get imdbId
+  React.useEffect(() => {
+    if (movie.netmirrorId && movie.title) {
+      setResolving(true);
+      // Search TMDB for this title to get the TMDB numeric ID
+      fetch(`/api/movies/search?q=${encodeURIComponent(movie.title)}`)
         .then(r => r.json())
-        .then(data => {
-          if (data && data.imdbId) {
-            setMovieData(prev => ({ ...prev, imdbId: data.imdbId }));
+        .then(results => {
+          if (results?.length) {
+            const best = results.find(r => r.title?.toLowerCase() === movie.title?.toLowerCase()) || results[0];
+            setMovieData(prev => ({ ...prev, id: best.id, tmdbId: best.id, imdbId: best.imdbId }));
           }
         })
+        .catch(() => {})
+        .finally(() => setResolving(false));
+    } else if (!movie.imdbId && movie.id && !movie.netmirrorId) {
+      fetch(`/api/movies/info/${movie.id}`)
+        .then(r => r.json())
+        .then(data => { if (data?.imdbId) setMovieData(prev => ({ ...prev, imdbId: data.imdbId })); })
         .catch(() => {});
     }
-  }, [movie.id]);
+  }, [movie.id, movie.title]);
 
-  const tmdbId = movieData.id;
+  const tmdbId = movieData.tmdbId || movieData.id;
   const imdbId = movieData.imdbId;
   const activeId = imdbId || tmdbId;
 
-  // Verified high-availability movie embed providers (supporting IMDb & TMDB fallbacks)
-  const servers = [
-    {
-      id: 'vidsrc-me',
-      name: 'Server 1 (VidSrc Primary - HD)',
-      getUrl: () => imdbId ? `https://vidsrc.me/embed/movie?imdb=${imdbId}` : `https://vidsrc.me/embed/movie?tmdb=${tmdbId}`
-    },
-    {
-      id: 'vidlink-pro',
-      name: 'Server 2 (VidLink Pro)',
-      getUrl: () => `https://vidlink.pro/movie/${tmdbId}`
-    },
-    {
-      id: 'vidsrc-pm',
-      name: 'Server 3 (VidSrc PM)',
-      getUrl: () => `https://vidsrc.pm/embed/movie/${activeId}`
-    },
-    {
-      id: '2embed',
-      name: 'Server 4 (2Embed)',
-      getUrl: () => `https://www.2embed.cc/embed/${tmdbId}`
-    },
-    {
-      id: 'vidsrc-in',
-      name: 'Server 5 (VidSrc IN)',
-      getUrl: () => `https://vidsrc.in/embed/movie/${activeId}`
-    },
-    {
-      id: 'vidsrc-to',
-      name: 'Server 6 (VidSrc TO)',
-      getUrl: () => `https://vidsrc.to/embed/movie/${activeId}`
-    }
+  const iframeServers = [
+    { id: 'vidlink-pro', name: 'Server 1', tag: 'VidLink Pro', getUrl: () => `https://vidlink.pro/movie/${tmdbId}` },
+    { id: 'vidsrc-cc', name: 'Server 2', tag: 'VidSrc HD', getUrl: () => `https://vidsrc.cc/v2/embed/movie/${tmdbId}` },
+    { id: 'vidsrc-xyz', name: 'Server 3', tag: 'VidSrc XYZ', getUrl: () => `https://vidsrc.xyz/embed/movie/${activeId}` },
+    { id: '2embed', name: 'Server 4', tag: '2Embed', getUrl: () => `https://www.2embed.cc/embed/${tmdbId}` },
+    { id: 'smashy', name: 'Server 5', tag: 'SmashyStream', getUrl: () => `https://player.smashystream.com/movie/${tmdbId}` },
+    { id: 'multiembed', name: 'Server 6', tag: 'MultiEmbed', getUrl: () => `https://multiembed.mov/?video_id=${tmdbId}&tmdb=1` }
   ];
 
-  const currentServer = servers.find(s => s.id === activeServerId) || servers[0];
-  const iframeSrc = currentServer.getUrl();
-
-  // Track progress periodically
+  // Track progress
   React.useEffect(() => {
     const timer = setInterval(() => {
       if (onProgress) onProgress({ progress_seconds: 100, duration_seconds: 100 });
@@ -5245,37 +6069,159 @@ function MovieWatchView({ movie, onBack, onProgress }) {
     return () => clearInterval(timer);
   }, []);
 
+  const currentServer = iframeServers.find(s => s.id === activeServerId) || iframeServers[0];
+
   return (
-    <div className="drama-watch movie-watch">
-      <div className="drama-watch-header">
-        <button className="drama-back-btn" onClick={onBack}> Â {movie.title}</button>
-        <span className="drama-watch-ep-label">Full Movie</span>
+    <div className="nm-watch" style={{
+      minHeight: '100vh',
+      background: '#000',
+      color: '#fff',
+      fontFamily: '"Roboto","HelveticaNeue-Light",sans-serif'
+    }}>
+      {/* NetMirror-style top bar */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '1rem',
+        padding: '1rem 1.5rem',
+        background: 'linear-gradient(#000 20%, #0000001c 86%, #0000 94%)',
+        position: 'sticky',
+        top: 0,
+        zIndex: 10
+      }}>
+        <button
+          onClick={onBack}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: '#fff',
+            fontSize: '1.5rem',
+            cursor: 'pointer',
+            padding: '0.4rem',
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center'
+          }}
+          aria-label="Back"
+        >
+          ←
+        </button>
+        <span style={{ color: '#06b900', fontWeight: 700, fontSize: '1.3rem' }}>NET MIRROR</span>
       </div>
 
-      <div className="drama-player-wrap" style={{ aspectRatio: '16/9', background: '#000' }}>
+      {/* Player area — NetMirror style fullscreen black */}
+      <div style={{
+        position: 'relative',
+        width: '100%',
+        maxWidth: '900px',
+        margin: '0 auto',
+        aspectRatio: '16/9',
+        background: '#000',
+        boxShadow: '0 0 40px rgba(0,0,0,0.8)'
+      }}>
         <iframe
           key={activeServerId + '-' + (imdbId || 'noimdb')}
-          src={iframeSrc}
+          src={currentServer.getUrl()}
           title={movie.title}
           style={{ width: '100%', height: '100%', border: 'none' }}
           allowFullScreen
-          allow="autoplay; encrypted-media; picture-in-picture"
-          sandbox="allow-scripts allow-same-origin allow-forms"
+          allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
         />
       </div>
 
-      {/* Server selector */}
-      <div className="drama-sub-selector" style={{ marginTop: '1.5rem' }}>
-        <span className="drama-sub-label">Select Server / Source:</span>
-        {servers.map(s => (
-          <button
-            key={s.id}
-            className={`drama-sub-btn ${activeServerId === s.id ? 'active' : ''}`}
-            onClick={() => setActiveServerId(s.id)}
-          >
-            {s.name}
-          </button>
-        ))}
+      {/* Server selector — NetMirror pill style */}
+      <div style={{
+        maxWidth: '900px',
+        margin: '1.5rem auto',
+        padding: '0 1rem'
+      }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          marginBottom: '0.75rem',
+          flexWrap: 'wrap'
+        }}>
+          <span style={{
+            fontSize: '0.75rem',
+            color: 'rgba(255,255,255,0.5)',
+            textTransform: 'uppercase',
+            letterSpacing: '1px',
+            marginRight: '0.5rem'
+          }}>Servers</span>
+          {iframeServers.map(s => (
+            <button
+              key={s.id}
+              onClick={() => setActiveServerId(s.id)}
+              style={{
+                padding: '0.5rem 1rem',
+                borderRadius: '4px',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                transition: 'all 0.2s',
+                background: activeServerId === s.id ? '#06b900' : 'rgba(255,255,255,0.1)',
+                color: activeServerId === s.id ? '#000' : '#fff'
+              }}
+            >
+              {s.name}
+            </button>
+          ))}
+        </div>
+
+        {/* Movie info block — NetMirror style */}
+        <div style={{
+          marginTop: '1.5rem',
+          padding: '1.5rem',
+          background: 'rgba(255,255,255,0.05)',
+          borderRadius: '8px',
+          borderLeft: '3px solid #06b900'
+        }}>
+          <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.8rem', fontWeight: 700 }}>
+            {movie.title}
+          </h1>
+          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', fontSize: '0.9rem', color: 'rgba(255,255,255,0.7)', marginBottom: '1rem' }}>
+            {movie.releaseDate && <span>{String(movie.releaseDate).split('-')[0]}</span>}
+            {movie.rating && <span style={{ color: '#06b900' }}>★ {movie.rating}</span>}
+            {movie.runtime && <span>{movie.runtime} mins</span>}
+            <span style={{ color: '#06b900', fontWeight: 600 }}>HD Available</span>
+          </div>
+          {movie.description && (
+            <p style={{ margin: 0, color: 'rgba(255,255,255,0.6)', lineHeight: 1.6, fontSize: '0.9rem' }}>
+              {movie.description}
+            </p>
+          )}
+          {movie.genres && movie.genres.length > 0 && (
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '1rem' }}>
+              {movie.genres.map(g => (
+                <span key={g} style={{
+                  padding: '0.25rem 0.75rem',
+                  background: 'rgba(6,185,0,0.15)',
+                  border: '1px solid rgba(6,185,0,0.3)',
+                  borderRadius: '20px',
+                  fontSize: '0.75rem',
+                  color: '#06b900'
+                }}>{g}</span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Currently watching tag */}
+        <div style={{
+          marginTop: '1rem',
+          padding: '0.75rem 1rem',
+          background: 'rgba(6,185,0,0.08)',
+          borderRadius: '6px',
+          fontSize: '0.8rem',
+          color: 'rgba(255,255,255,0.5)',
+          textAlign: 'center'
+        }}>
+          You're watching <span style={{ color: '#06b900', fontWeight: 600 }}>{movie.title}</span> · Source: {currentServer.tag}
+          <br />
+          If the video doesn't load, try another server above.
+        </div>
       </div>
     </div>
   );
@@ -5359,7 +6305,7 @@ function MangaBentoGrid({ items, onMangaClick }) {
               <Trophy size={14} /> #1 TOP COMIC
             </div>
             <div className="bento-hero-content">
-              <span className="manga-hero-rating"> {heroItem.rating || '9.0'} • SPOTLIGHT
+              <span className="manga-hero-rating"> {heroItem.rating || '9.0'} â€¢ SPOTLIGHT
               </span>
               <h3 style={{ color: '#ffffff', fontSize: '1.6rem', fontWeight: 800, margin: '0.2rem 0' }}>
                 {heroItem.title}
@@ -5407,22 +6353,22 @@ function MangaCategoryCards({ onSelectCategory }) {
     {
       id: 'manga',
       title: 'Manga',
-      flag: '🇯🇵',
-      desc: 'Japanese Comics • Shonen, Seinen, Shojo & Romance',
+      flag: 'ðŸ‡¯ðŸ‡µ',
+      desc: 'Japanese Comics â€¢ Shonen, Seinen, Shojo & Romance',
       className: 'manga'
     },
     {
       id: 'manhwa',
       title: 'Manhwa',
       flag: '',
-      desc: 'Korean Webtoons • Solo Leveling, System, Reincarnation & Action',
+      desc: 'Korean Webtoons â€¢ Solo Leveling, System, Reincarnation & Action',
       className: 'manhwa'
     },
     {
       id: 'manhua',
       title: 'Manhua / Donghua Comic',
       flag: '',
-      desc: 'Chinese Webtoons • Martial Arts, Cultivation & Donghua Adaptations',
+      desc: 'Chinese Webtoons â€¢ Martial Arts, Cultivation & Donghua Adaptations',
       className: 'manhua'
     }
   ];
@@ -5487,7 +6433,7 @@ function MangaCategoryHub({ category, onBack, onMangaClick }) {
     <div className="container manga-subhub-header">
       {/* Breadcrumb Header */}
       <div className="manga-breadcrumb">
-        <span className="manga-breadcrumb-link" onClick={onBack}> Â Back to Manga Landing</span>
+        <span className="manga-breadcrumb-link" onClick={onBack}>Â Ã‚Â Back to Manga Landing</span>
         <span>/</span>
         <span style={{ color: '#ffffff', fontWeight: 600 }}>{categoryMeta.title}</span>
       </div>
@@ -6019,7 +6965,7 @@ function MangaDetailView({ manga, isLoading, onBack, onReadChapter }) {
       <div className="manga-detail-hero" style={{ backgroundImage: `url(${manga.banner || manga.cover})` }}>
         <div className="manga-detail-hero-overlay" />
         <div className="container manga-detail-hero-content">
-          <button className="drama-back-btn" onClick={onBack}> Â Back</button>
+          <button className="drama-back-btn" onClick={onBack}>Â Ã‚Â Back</button>
         </div>
       </div>
 
@@ -6070,7 +7016,7 @@ function MangaDetailView({ manga, isLoading, onBack, onReadChapter }) {
                   onClick={() => setSortDesc(p => !p)}
                   title="Toggle sort order"
                 >
-                  {sortDesc ? ' “ Newest' : ' ‘ Oldest'}
+                  {sortDesc ? ' â€œ Newest' : ' â€˜ Oldest'}
                 </button>
               </div>
             </div>
@@ -6277,10 +7223,10 @@ function MangaReaderView({ manga, chapter, pages, isLoading, onBack, onChapterSe
           <div className="manga-reader-page-mode">
             {pageImgError ? (
               <div className="manga-page-error" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '40px', color: '#999' }}>
-                <span>  Page {currentPage + 1} failed to load</span>
+                <span>Â  Page {currentPage + 1} failed to load</span>
                 <button onClick={e => { e.stopPropagation(); setPageImgKey(0); setPageImgError(false); }}
                   style={{ background: '#00e561', color: '#000', border: 'none', borderRadius: '4px', padding: '6px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-                   Âº Retry
+                  Â Ã‚Âº Retry
                 </button>
               </div>
             ) : (

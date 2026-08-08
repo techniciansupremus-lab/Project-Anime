@@ -3,13 +3,19 @@ import cors from 'cors';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import https from 'https';
+import crypto from 'crypto';
 import { ANIME, META, MANGA } from '@consumet/extensions';
+import vm from 'node:vm';
 
 const app = express();
 app.set('trust proxy', true);
 const PORT = process.env.PORT || 8080;
 const startedAt = new Date();
 
+const KISSKH_BASE = process.env.KISSKH_BASE || 'https://kisskh.co';
+const ENCDEC_BASE = process.env.ENCDEC_BASE || 'https://enc-dec.app';
+const HIVETOONS_BASE = process.env.HIVETOONS_BASE || 'https://hivetoons.com';
+const HT_HEADERS = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' };
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
 app.use(express.json());
 
@@ -63,21 +69,25 @@ function unwrapStreamIndiaRelayUrl(value) {
   }
 }
 
+const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
 function streamProxyHeaders(targetUrl, referer, extraHeaders = {}) {
   const isProtectedHls = targetUrl.includes('streamindia.co.in') || /https:\/\/as-cdn\d+\.top\//i.test(targetUrl);
   return {
-    ...AXIOS_OPTS.headers,
+    // Always send a real browser User-Agent — CDNs like tnmr.org (LuluStream)
+    // block Axios's default 'axios/x.x.x' user-agent with 403 Forbidden.
+    // Note: Do NOT send 'Accept-Language', as tnmr.org WAF blocks requests containing it with 403!
+    'User-Agent': BROWSER_UA,
+    'Accept': '*/*',
     ...extraHeaders,
-    // StreamIndia rejects the HTML-navigation Accept header used by AnimeKai.
+    // StreamIndia needs extra fetch headers
     ...(isProtectedHls ? {
-      'Accept': '*/*',
-      'Accept-Language': 'en-US,en;q=0.9',
       'Sec-Fetch-Dest': 'empty',
       'Sec-Fetch-Mode': 'cors',
       'Sec-Fetch-Site': 'cross-site',
     } : {}),
     'Referer': referer,
-    'Origin': new URL(referer).origin,
+    'Origin': safeOrigin(referer),
   };
 }
 
@@ -99,12 +109,28 @@ async function fetchStreamProxyTarget(targetUrl, primaryReferer, options = {}) {
   const { headers: extraHeaders = {}, ...axiosOptions } = options;
   let lastError;
 
+  let netmirrorHeaders = {};
+  if (targetUrl.includes('net52.cc') || targetUrl.includes('netmirror')) {
+    try {
+      const token = await getNetmirrorToken();
+      netmirrorHeaders = {
+        'Cookie': `t_hash_t=${token}; ott=nf; hd=on`,
+        'User-Agent': NETMIRROR_UA,
+        'X-Requested-With': 'XMLHttpRequest',
+      };
+    } catch (e) {
+      console.warn('[M3U8-PROXY] NetMirror token fetch skipped:', e.message);
+    }
+  }
+
   for (const referer of streamProxyReferers(targetUrl, primaryReferer)) {
     try {
       const response = await axios.get(targetUrl, {
-        ...AXIOS_OPTS,
         ...axiosOptions,
-        headers: streamProxyHeaders(targetUrl, referer, extraHeaders),
+        headers: {
+          ...streamProxyHeaders(targetUrl, referer, extraHeaders),
+          ...netmirrorHeaders,
+        },
       });
       if (referer !== primaryReferer) {
         console.log(`[M3U8-PROXY] Recovered ${new URL(targetUrl).hostname} with ${new URL(referer).hostname}`);
@@ -184,28 +210,28 @@ function safeOrigin(value) {
   }
 }
 
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 // Providers:
-//   PRIMARY:  HiAnime via META.Anilist (AniList ID → exact season/episode)
-//   SECONDARY: AnimeKai (anikai.cc) — title-search English subs
-//   FALLBACK: AnimeUnity (via Consumet) — last resort
-// ─────────────────────────────────────────────────────
+//   PRIMARY:  HiAnime via META.Anilist (AniList ID Ã¢â€ â€™ exact season/episode)
+//   SECONDARY: AnimeKai (anikai.cc) Ã¢â‚¬â€ title-search English subs
+//   FALLBACK: AnimeUnity (via Consumet) Ã¢â‚¬â€ last resort
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 const animeUnity = new ANIME.AnimeUnity();
 const anilistMeta = new META.Anilist(animeUnity);
 
-// HiAnime provider — maps AniList ID → HiAnime ID → correct season page
+// HiAnime provider Ã¢â‚¬â€ maps AniList ID Ã¢â€ â€™ HiAnime ID Ã¢â€ â€™ correct season page
 const hianime = new ANIME.Hianime();
 const anilistHianime = new META.Anilist(hianime);
 
-// HiAnime episode list cache: anilistId → { episodes, timestamp }
+// HiAnime episode list cache: anilistId Ã¢â€ â€™ { episodes, timestamp }
 const hiAnimeEpCache = new Map();
 const HIANIME_TTL = 30 * 60 * 1000; // 30 minutes
 
-// ─────────────────────────────────────────────────────
-// Subtitle VTT Proxy — GET /api/subtitle-proxy?url=<url>
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// Subtitle VTT Proxy Ã¢â‚¬â€ GET /api/subtitle-proxy?url=<url>
 // Proxies VTT subtitle files from external CDNs (cdn.anizara.store, etc.)
 // so that browser <track> elements can load them without CORS block.
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 app.get('/api/subtitle-proxy', async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).send('Missing url');
@@ -229,11 +255,11 @@ app.get('/api/subtitle-proxy', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 // HLS/M3U8 Referrer Bypass Proxy
 // Rewrites both sub-playlists AND .ts segment URLs so
 // the browser only ever talks to the backend's public URL.
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 app.get('/api/m3u8-proxy', async (req, res) => {
   const { url, referer } = req.query;
   if (!url) return res.status(400).send('Missing url');
@@ -252,8 +278,22 @@ app.get('/api/m3u8-proxy', async (req, res) => {
     // expects the playlist that referred to it, not the page referer used for
     // the first manifest request.
     const childReferer = new URL(decodedUrl).origin + '/';
-    const resolveManifestUrl = (value) =>
-      unwrapStreamIndiaRelayUrl(new URL(value, decodedUrl).toString());
+    const resolveManifestUrl = (value) => {
+      let v = String(value || '').trim();
+
+      // Fix NetMirror malformed triple-slash URIs (e.g. "https:///files/...")
+      if (v.startsWith('https:///') || v.startsWith('http:///')) {
+        v = new URL(decodedUrl).origin + '/' + v.replace(/^https?:\/\/\//, '');
+      } else if (v.startsWith('//')) {
+        const hostPart = v.slice(2).split('/')[0];
+        if (hostPart.includes('.')) {
+          v = 'https:' + v;
+        } else {
+          v = new URL(decodedUrl).origin + '/' + v.slice(2);
+        }
+      }
+      return unwrapStreamIndiaRelayUrl(new URL(v, decodedUrl).toString());
+    };
     const proxyManifestUrl = (value) =>
       `${host}/api/m3u8-proxy?url=${encodeURIComponent(resolveManifestUrl(value))}&referer=${encodeURIComponent(childReferer)}`;
     const proxySegmentUrl = (value) =>
@@ -269,6 +309,10 @@ app.get('/api/m3u8-proxy', async (req, res) => {
         if (trimmed.startsWith('#EXT-X-STREAM-INF') || trimmed.startsWith('#EXT-X-I-FRAME-STREAM-INF')) {
           isStreamInf = true;
         }
+        // If audio track URI is a malformed dummy path like "https:///files/...", strip it so HLS.js uses multiplexed audio
+        if (trimmed.startsWith('#EXT-X-MEDIA:TYPE=AUDIO') && (trimmed.includes('https:///') || trimmed.includes('http:///'))) {
+          return '';
+        }
         return line.replace(/(URI=)(["'])([^"']+)\2/gi, (match, prefix, quote, uri) => {
           if (!uri || uri.startsWith('data:')) return match;
           const isPlaylist = uri.includes('.m3u8') || trimmed.toUpperCase().startsWith('#EXT-X-MEDIA');
@@ -282,12 +326,12 @@ app.get('/api/m3u8-proxy', async (req, res) => {
       const isSubPlaylist = isStreamInf || abs.includes('.m3u8');
       isStreamInf = false;
 
-      // Sub-playlists (.m3u8 or variant stream after #EXT-X-STREAM-INF) → recurse through this same proxy
+      // Sub-playlists (.m3u8 or variant stream after #EXT-X-STREAM-INF) Ã¢â€ â€™ recurse through this same proxy
       if (isSubPlaylist) {
         return proxyManifestUrl(abs);
       }
 
-      // Video segments (.ts / .aac / .js / .css / .woff / etc.) → pipe through ts-proxy
+      // Video segments (.ts / .aac / .js / .css / .woff / etc.) Ã¢â€ â€™ pipe through ts-proxy
       return proxySegmentUrl(abs);
     }).join('\n');
 
@@ -300,13 +344,13 @@ app.get('/api/m3u8-proxy', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────
-// TS Segment Proxy — GET /api/ts-proxy?url=<url>&referer=<referer>
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// TS Segment Proxy Ã¢â‚¬â€ GET /api/ts-proxy?url=<url>&referer=<referer>
 // Pipes raw video/audio segments through our server.
 // CRITICAL: forwards the Range header so HLS.js byte-range
 // requests only fetch the specific bytes needed (not the whole
 // file), making startup near-instant.
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 app.get('/api/ts-proxy', async (req, res) => {
   const { url, referer } = req.query;
   if (!url) return res.status(400).send('Missing url');
@@ -315,7 +359,7 @@ app.get('/api/ts-proxy', async (req, res) => {
     const decodedUrl = decodeURIComponent(url);
     const decodedRef = referer ? decodeURIComponent(referer) : (new URL(decodedUrl).origin + '/');
 
-    // Forward Range header — HLS.js uses byte-range requests
+    // Forward Range header Ã¢â‚¬â€ HLS.js uses byte-range requests
     // for EXT-X-BYTERANGE manifests. Without this we download
     // the full multi-hundred-MB file for every tiny segment.
     const reqHeaders = streamProxyHeaders(decodedUrl, decodedRef);
@@ -349,9 +393,9 @@ app.get('/api/ts-proxy', async (req, res) => {
 });
 
 
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 // AnimeKai scraper helpers
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 const ANIMEKAI_BASE = 'https://anikai.cc';
 
 const AXIOS_OPTS = {
@@ -366,17 +410,17 @@ const AXIOS_OPTS = {
   }
 };
 
-// Cache: title::sN → { slug, timestamp }
+// Cache: title::sN Ã¢â€ â€™ { slug, timestamp }
 const animeCache = new Map();
 const CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
-// Stream URL cache: "slug::epN" → { streamData, timestamp }
+// Stream URL cache: "slug::epN" Ã¢â€ â€™ { streamData, timestamp }
 const streamCache = new Map();
 const STREAM_CACHE_TTL = 20 * 60 * 1000; // 20 minutes
 
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 // Jikan episode cache: "malId:page" -> { data, timestamp }
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 const jikanCache = new Map();
 const JIKAN_TTL = 60 * 60 * 1000; // 1 hour
 
@@ -409,7 +453,7 @@ async function extractDirectStream(embedUrl) {
     const url = new URL(embedUrl);
     const subtitleUrl = url.searchParams.get('sub') || null;
 
-    console.log(`[EXTRACT] ✅ Direct stream: ${streamUrl}`);
+    console.log(`[EXTRACT] Ã¢Å“â€¦ Direct stream: ${streamUrl}`);
     if (subtitleUrl) console.log(`[EXTRACT]    Subtitle: ${subtitleUrl}`);
 
     return {
@@ -423,7 +467,7 @@ async function extractDirectStream(embedUrl) {
   }
 }
 
-/* ── Extract clean title without (TV), (Sub), (Dub), etc. ── */
+/* Ã¢â€â‚¬Ã¢â€â‚¬ Extract clean title without (TV), (Sub), (Dub), etc. Ã¢â€â‚¬Ã¢â€â‚¬ */
 function cleanAnimeTitle(t) {
   return t.toLowerCase()
     .replace(/\s*\((tv|sub|dub|uncensored|media)\)/gi, '')
@@ -453,7 +497,7 @@ function titleMatchScore(resultName, targetTitle) {
   // 3. Target query detection: does the search query specify a season/sequel?
   const targetHasSequel = /\b(season\s*\d|\d+(st|nd|rd|th)\s+season|part\s*\d)\b/i.test(t);
 
-  // If result has sequel keywords but target query DOES NOT specify a sequel → heavy penalty!
+  // If result has sequel keywords but target query DOES NOT specify a sequel Ã¢â€ â€™ heavy penalty!
   // (Prevents "Jujutsu Kaisen 3rd Season" from winning when searching "Jujutsu Kaisen")
   let score = 50;
   if (rClean.startsWith(tClean)) {
@@ -540,7 +584,7 @@ async function animeKaiSearch(title, seasonNum = null) {
     }
   }
 
-  // Try 2: Original title — pick best match
+  // Try 2: Original title Ã¢â‚¬â€ pick best match
   let results = await performSearch(title);
   {
     const best = pickBest(results, title);
@@ -582,7 +626,7 @@ async function animeKaiSearch(title, seasonNum = null) {
 }
 
 /**
- * Given an AnimeKai slug + episode number → returns embed URLs for sub/dub
+ * Given an AnimeKai slug + episode number Ã¢â€ â€™ returns embed URLs for sub/dub
  */
 async function animeKaiGetEpisodeEmbeds(slug, episodeNum) {
   const url = `${ANIMEKAI_BASE}/watch/${slug}/ep-${episodeNum}`;
@@ -607,14 +651,14 @@ async function animeKaiGetEpisodeEmbeds(slug, episodeNum) {
     });
   });
 
-  console.log(`[ANIMEKAI] Episode ${episodeNum} — sub: ${servers.sub?.length || 0}, dub: ${servers.dub?.length || 0}, hsub: ${servers.hsub?.length || 0} servers`);
+  console.log(`[ANIMEKAI] Episode ${episodeNum} Ã¢â‚¬â€ sub: ${servers.sub?.length || 0}, dub: ${servers.dub?.length || 0}, hsub: ${servers.hsub?.length || 0} servers`);
   return servers;
 }
 
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 // Jikan (MyAnimeList) Episode Metadata Proxy
 // Fetches episode titles, air dates, filler/recap flags
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 app.get('/api/episodes/mal/:malId', async (req, res) => {
   const { malId } = req.params;
   const page = parseInt(req.query.page) || 1;
@@ -665,9 +709,9 @@ app.get('/api/episodes/mal/:malId', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 // Health check
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -690,17 +734,17 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// ─────────────────────────────────────────────────────
-// HiAnime watch — PRIMARY stream provider
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// HiAnime watch Ã¢â‚¬â€ PRIMARY stream provider
 // Uses AniList ID for deterministic season-correct lookup.
 // No title search = no season ambiguity.
 // GET /api/hianime/watch?anilistId=N&episode=N[&dub=eng|hindi]
-// ─────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────
-// AnimeRulz — Hindi/Indian language anime stream provider
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// AnimeRulz Ã¢â‚¬â€ Hindi/Indian language anime stream provider
 // Uses AniList IDs + fallback.streamindia.co.in API + animelok for Indian dubs.
 // GET /api/animerulz/watch?anilistId=N&episode=N[&lang=hin|tam|tel|eng|jpn]
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 const ANIMERULZ_FALLBACK = process.env.ANIMERULZ_FALLBACK || 'https://fallback.streamindia.co.in';
 const ANIMERULZ_DATA    = process.env.ANIMERULZ_DATA    || 'https://data.streamindia.co.in';
 const ANIMERULZ_ANIMELOK = process.env.ANIMERULZ_ANIMELOK || 'https://animelok.streamindia.co.in';
@@ -834,7 +878,7 @@ async function checkAnimerulzAvailability(anilistId) {
 /**
  * Resolve a stream for a specific episode via AnimeRulz.
  * Strategy:
- *  1. Check if anime has Indian languages → use animelok + extract for the requested language
+ *  1. Check if anime has Indian languages Ã¢â€ â€™ use animelok + extract for the requested language
  *  2. Fallback to fallback.streamindia.co.in sources (sub/dub) via kiwi provider
  *
  * Returns { type, streamUrl, sources, subtitles, headers, provider, language, audioMode }
@@ -862,7 +906,7 @@ async function resolveAnimerulzStream(anilistId, episodeNum, lang = 'hin') {
   if (avail?.animelok_id && avail.languages) {
 
     // Parse animelok_id: can be string ("one-piece-1x1") or array (["naruto-1x1","naruto-2x58",...])
-    // Format: "showSlug-<season>x<absoluteStartEp>" — episodes are RELATIVE per season
+    // Format: "showSlug-<season>x<absoluteStartEp>" Ã¢â‚¬â€ episodes are RELATIVE per season
     const rawIds = Array.isArray(avail.animelok_id) ? avail.animelok_id : [avail.animelok_id];
 
     // Pick the season slug whose absolute range covers this episode.
@@ -923,7 +967,7 @@ async function resolveAnimerulzStream(anilistId, episodeNum, lang = 'hin') {
               audioMode: 'hindi',
               availableLanguages: extRes.data.available_categories || [],
             };
-            console.log(`[ANIMERULZ] ✅ ${anilistId} E${episodeNum} ${langCode} -> ${m3u8Url.slice(0, 80)}...`);
+            console.log(`[ANIMERULZ] Ã¢Å“â€¦ ${anilistId} E${episodeNum} ${langCode} -> ${m3u8Url.slice(0, 80)}...`);
           }
         }
       } catch (err) {
@@ -978,7 +1022,7 @@ async function resolveAnimerulzStream(anilistId, episodeNum, lang = 'hin') {
               language: lang,
               audioMode: 'hindi',
             };
-            console.log(`[ANIMERULZ] ✅ Fallback ${anilistId} E${episodeNum} ${provider}/${category} -> ${sources[0].url?.slice(0, 80)}...`);
+            console.log(`[ANIMERULZ] Ã¢Å“â€¦ Fallback ${anilistId} E${episodeNum} ${provider}/${category} -> ${sources[0].url?.slice(0, 80)}...`);
             break;
           }
         } catch (e) {
@@ -996,11 +1040,11 @@ async function resolveAnimerulzStream(anilistId, episodeNum, lang = 'hin') {
   return result;
 }
 
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 // GET /api/animerulz/watch
 // Params: anilistId (required), episode (required), lang (hin|tam|tel|eng|jpn, default=hin)
 // Returns: { type, streamUrl, sources, subtitles, headers, provider, audioMode }
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 app.get('/api/animerulz/watch', async (req, res) => {
   const { anilistId, episode, lang } = req.query;
   const ep = parseInt(episode) || 1;
@@ -1044,11 +1088,11 @@ app.get('/api/animerulz/watch', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 // GET /api/animerulz/episodes
 // Params: anilistId (required)
 // Returns: { total, episodes: [ { number, title, description, img, hasDub, hasSub }, ... ] }
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 app.get('/api/animerulz/episodes', async (req, res) => {
   const { anilistId } = req.query;
   if (!anilistId) return res.status(400).json({ error: 'Missing anilistId parameter' });
@@ -1062,11 +1106,11 @@ app.get('/api/animerulz/episodes', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 // GET /api/animerulz/availability
 // Params: anilistId (required)
 // Returns: { available, languages, animerulz_id } or { available: false }
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 app.get('/api/animerulz/availability', async (req, res) => {
   const { anilistId } = req.query;
   if (!anilistId) return res.status(400).json({ error: 'Missing anilistId parameter' });
@@ -1110,10 +1154,10 @@ app.get('/api/animerulz/catalog', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 // POST /api/anilist
 // Server-side cached & rate-limit-aware proxy for AniList GraphQL
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 const aniListServerCache = new Map();
 const ANILIST_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
@@ -1173,7 +1217,7 @@ app.get('/api/hianime/watch', async (req, res) => {
     return res.status(400).json({ error: 'Missing anilistId parameter' });
   }
 
-  console.log(`\n[HIANIME] Request: AniList ID ${anilistId} → Episode ${episodeNum} [${subOrDub}]`);
+  console.log(`\n[HIANIME] Request: AniList ID ${anilistId} Ã¢â€ â€™ Episode ${episodeNum} [${subOrDub}]`);
 
   try {
     // Cache keyed by anilistId+subOrDub so sub/dub episode lists stay separate
@@ -1188,7 +1232,7 @@ app.get('/api/hianime/watch', async (req, res) => {
       const fetchWithTimeout = Promise.race([
         anilistHianime.fetchAnimeInfo(anilistId, true),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('HiAnime timeout (3s) — falling back to AnimeKai')), 3000)
+          setTimeout(() => reject(new Error('HiAnime timeout (3s) Ã¢â‚¬â€ falling back to AnimeKai')), 3000)
         )
       ]);
       const info = await fetchWithTimeout;
@@ -1216,7 +1260,7 @@ app.get('/api/hianime/watch', async (req, res) => {
       return res.status(404).json({ error: `No stream sources found for this episode` });
     }
 
-    console.log(`[HIANIME] ✅ Episode ${episodeNum} (${subOrDub}) — ${sources.sources.length} source(s) found`);
+    console.log(`[HIANIME] Ã¢Å“â€¦ Episode ${episodeNum} (${subOrDub}) Ã¢â‚¬â€ ${sources.sources.length} source(s) found`);
     return res.json({
       provider: 'hianime',
       type: 'hls',
@@ -1291,17 +1335,17 @@ app.get('/api/status', async (req, res) => {
   });
 });
 
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 // ANIME INFO + EPISODE LIST
 // Uses META.Anilist + AnimeUnity for episode metadata
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 app.get('/api/info/:anilistId', async (req, res) => {
   const { anilistId } = req.params;
   console.log(`\n[INFO] Fetching info for AniList ID: ${anilistId}`);
 
   try {
     const info = await anilistMeta.fetchAnimeInfo(anilistId);
-    console.log(`[INFO] "${info.title?.english || info.title?.romaji}" — ${info.episodes?.length || 0} episodes`);
+    console.log(`[INFO] "${info.title?.english || info.title?.romaji}" Ã¢â‚¬â€ ${info.episodes?.length || 0} episodes`);
 
     res.json({
       id: info.id,
@@ -1331,10 +1375,10 @@ app.get('/api/info/:anilistId', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 // PRIMARY: AnimeKai stream (fast HTTP scraper, English subs)
 // Returns embed URLs from third-party players (no domain whitelisting)
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 app.get('/api/gogoanime/watch', async (req, res) => {
   const { title, episode, season, dub } = req.query;
   const episodeNum = parseInt(episode) || 1;
@@ -1363,9 +1407,9 @@ app.get('/api/gogoanime/watch', async (req, res) => {
       }
       cached = { slug, timestamp: now };
       animeCache.set(cacheKey, cached);
-      console.log(`[ANIMEKAI] Cached [${cacheKey}] → ${slug}`);
+      console.log(`[ANIMEKAI] Cached [${cacheKey}] Ã¢â€ â€™ ${slug}`);
     } else {
-      console.log(`[ANIMEKAI] Cache hit [${cacheKey}] → ${cached.slug}`);
+      console.log(`[ANIMEKAI] Cache hit [${cacheKey}] Ã¢â€ â€™ ${cached.slug}`);
     }
 
     const servers = await animeKaiGetEpisodeEmbeds(cached.slug, episodeNum);
@@ -1417,11 +1461,11 @@ app.get('/api/gogoanime/watch', async (req, res) => {
       return res.status(404).json({ error: `No streams found for episode ${episodeNum}` });
     }
 
-    // Check stream cache first — avoid re-extracting the HLS URL on repeat clicks
+    // Check stream cache first Ã¢â‚¬â€ avoid re-extracting the HLS URL on repeat clicks
     const streamCacheKey = `${cached.slug}::ep${episodeNum}::${dub || 'sub'}`;
     const cachedStream = streamCache.get(streamCacheKey);
     if (cachedStream && Date.now() - cachedStream.timestamp < STREAM_CACHE_TTL) {
-      console.log(`[ANIMEKAI] ⚡ Stream cache hit for ${streamCacheKey}`);
+      console.log(`[ANIMEKAI] Ã¢Å¡Â¡ Stream cache hit for ${streamCacheKey}`);
       const s = cachedStream.data;
       return res.json({
         provider: 'animekai',
@@ -1436,7 +1480,7 @@ app.get('/api/gogoanime/watch', async (req, res) => {
       });
     }
 
-    // Try top-3 sub servers in PARALLEL — take whichever resolves first
+    // Try top-3 sub servers in PARALLEL Ã¢â‚¬â€ take whichever resolves first
     let directStream = null;
     let chosenLanguage = 'English Sub';
     let chosenServer = 'unknown';
@@ -1453,9 +1497,9 @@ app.get('/api/gogoanime/watch', async (req, res) => {
       directStream = result.extracted;
       chosenLanguage = result.language;
       chosenServer = result.server;
-      console.log(`[ANIMEKAI] ⚡ Parallel winner: ${chosenServer}`);
+      console.log(`[ANIMEKAI] Ã¢Å¡Â¡ Parallel winner: ${chosenServer}`);
     } catch {
-      // All top-3 parallel attempts failed — try remaining candidates sequentially
+      // All top-3 parallel attempts failed Ã¢â‚¬â€ try remaining candidates sequentially
       console.warn(`[ANIMEKAI] Parallel top-3 failed, trying remaining candidates...`);
       for (const candidate of candidates.slice(3)) {
         console.log(`[ANIMEKAI] Trying fallback server: ${candidate.server}`);
@@ -1470,7 +1514,7 @@ app.get('/api/gogoanime/watch', async (req, res) => {
     }
 
     if (!directStream) {
-      // All extractions failed — return the iframe as last resort (might still work in some browsers)
+      // All extractions failed Ã¢â‚¬â€ return the iframe as last resort (might still work in some browsers)
       const fallback = candidates[0];
       console.warn(`[ANIMEKAI] Direct extraction failed for all servers. Using iframe fallback.`);
       return res.json({
@@ -1483,7 +1527,7 @@ app.get('/api/gogoanime/watch', async (req, res) => {
       });
     }
 
-    console.log(`[ANIMEKAI] ✅ Episode ${episodeNum} direct HLS stream ready — ${chosenLanguage} via ${chosenServer}`);
+    console.log(`[ANIMEKAI] Ã¢Å“â€¦ Episode ${episodeNum} direct HLS stream ready Ã¢â‚¬â€ ${chosenLanguage} via ${chosenServer}`);
 
     // Cache the stream URL for 20 minutes so repeat clicks are instant
     streamCache.set(streamCacheKey, {
@@ -1514,9 +1558,9 @@ app.get('/api/gogoanime/watch', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────
-// FALLBACK: AnimeUnity stream via Consumet (Italian subs — last resort)
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// FALLBACK: AnimeUnity stream via Consumet (Italian subs Ã¢â‚¬â€ last resort)
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 app.get('/api/watch/:episodeId', async (req, res) => {
   const episodeId = req.params.episodeId;
   console.log(`\n[WATCH] Fetching AnimeUnity sources for: ${episodeId}`);
@@ -1556,9 +1600,9 @@ app.get('/api/watch/:episodeId', async (req, res) => {
   res.status(404).json({ error: 'Could not find streaming sources for this episode' });
 });
 
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 // SEARCH (via AnimeKai directly)
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 app.get('/api/search', async (req, res) => {
   const query = req.query.q;
   if (!query) return res.status(400).json({ error: 'Missing q parameter' });
@@ -1572,23 +1616,21 @@ app.get('/api/search', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────
-// KISSKH DRAMA — Config, Headers & Caches
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// KISSKH DRAMA Ã¢â‚¬â€ Config, Headers & Caches
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 // KISSKH (and enc-dec) reject requests from cloud/datacenter IPs (e.g. Vercel's servers)
 // due to Cloudflare. Locally we hit kisskh.co directly; on hosted deployments
 // set KISSKH_BASE (and optionally ENCDEC_BASE) to a relay on a trusted IP
-// — e.g. a 24/7 phone (Termux) Cloudflare tunnel — so the calls originate
+// Ã¢â‚¬â€ e.g. a 24/7 phone (Termux) Cloudflare tunnel Ã¢â‚¬â€ so the calls originate
 // from an IP KissKH doesn't block.
-const KISSKH_BASE = process.env.KISSKH_BASE || 'https://kisskh.co';
-const ENCDEC_BASE = process.env.ENCDEC_BASE || 'https://enc-dec.app';
 
-const DRAMA_LIST_TTL  = 30 * 60 * 1000; // 30 min  — drama catalog changes rarely
-const STREAM_TTL      =  2 * 60 * 60 * 1000; // 2 hours — kkey tokens last hours
+const DRAMA_LIST_TTL  = 30 * 60 * 1000; // 30 min  Ã¢â‚¬â€ drama catalog changes rarely
+const STREAM_TTL      =  2 * 60 * 60 * 1000; // 2 hours Ã¢â‚¬â€ kkey tokens last hours
 
-const dramaListCache   = new Map(); // key: "type:page"  → { data, timestamp }
-const dramaInfoCache   = new Map(); // key: dramaId      → { data, timestamp }
-const dramaStreamCache = new Map(); // key: episodeId    → { data, timestamp }
+const dramaListCache   = new Map(); // key: "type:page"  Ã¢â€ â€™ { data, timestamp }
+const dramaInfoCache   = new Map(); // key: dramaId      Ã¢â€ â€™ { data, timestamp }
+const dramaStreamCache = new Map(); // key: episodeId    Ã¢â€ â€™ { data, timestamp }
 
 // Helper: GET a KissKH URL
 async function kissKhGet(url) {
@@ -1609,459 +1651,16 @@ async function kissKhGet(url) {
   return res;
 }
 
-// ─────────────────────────────────────────────────────
-// DRAMA: Home Feed — GET /api/drama/home
-//   Returns the full home page data:
-//   { show: [...], korean: [...], chinese: [...], topRating: [...] }
-// ─────────────────────────────────────────────────────
-const dramaHomeCache = new Map();
-app.get('/api/drama/home', async (req, res) => {
-  const cacheKey = 'home';
-  const cached = dramaHomeCache.get(cacheKey);
-  if (cached && Date.now() - cached.timestamp < DRAMA_LIST_TTL) {
-    console.log('[DRAMA HOME] Cache hit');
-    return res.json(cached.data);
-  }
 
-  try {
-    console.log('\n[DRAMA HOME] Fetching home data...');
-    const [showRes, koreanRes, chineseRes, topRatingRes, lastUpdateRes] = await Promise.all([
-      kissKhGet(`${KISSKH_BASE}/api/DramaList/Show`),
-      kissKhGet(`${KISSKH_BASE}/api/DramaList/MostView?ispc=false&c=2`),    // Korean
-      kissKhGet(`${KISSKH_BASE}/api/DramaList/MostView?ispc=false&c=1`),    // Chinese
-      kissKhGet(`${KISSKH_BASE}/api/DramaList/TopRating?ispc=false`),
-      kissKhGet(`${KISSKH_BASE}/api/DramaList/LastUpdate?ispc=false`),
-    ]);
-    const data = {
-      show:      Array.isArray(showRes.data)      ? showRes.data      : [],
-      korean:    Array.isArray(koreanRes.data)    ? koreanRes.data    : [],
-      chinese:   Array.isArray(chineseRes.data)   ? chineseRes.data   : [],
-      topRating: Array.isArray(topRatingRes.data) ? topRatingRes.data : [],
-      lastUpdate:Array.isArray(lastUpdateRes.data)? lastUpdateRes.data: [],
-    };
-    dramaHomeCache.set(cacheKey, { data, timestamp: Date.now() });
-    console.log(`[DRAMA HOME] ✅ show=${data.show.length} korean=${data.korean.length} chinese=${data.chinese.length}`);
-    res.json(data);
-  } catch (err) {
-    console.error('[DRAMA HOME] Error:', err.message);
-    res.status(502).json({ error: 'KissKH home fetch failed', message: err.message });
-  }
-});
-
-// ─────────────────────────────────────────────────────
-// DRAMA: Browse — GET /api/drama/list?type=1&page=1
-//   type: 0=All 1=Korean 2=Chinese 3=Thai 4=Japanese (KissKH Search types)
-// ─────────────────────────────────────────────────────
-app.get('/api/drama/list', async (req, res) => {
-  const type = req.query.type || 0;
-  const q    = req.query.q    || '';
-  const cacheKey = `list:${type}:${q}`;
-
-  const cached = dramaListCache.get(cacheKey);
-  if (cached && Date.now() - cached.timestamp < DRAMA_LIST_TTL) {
-    console.log(`[DRAMA LIST] Cache hit: type=${type}`);
-    return res.json(cached.data);
-  }
-
-  try {
-    const url = `${KISSKH_BASE}/api/DramaList/Search?q=${encodeURIComponent(q)}&type=${type}`;
-    console.log(`\n[DRAMA LIST] Fetching type=${type} q="${q}"`);
-    const { data } = await kissKhGet(url);
-    dramaListCache.set(cacheKey, { data, timestamp: Date.now() });
-    console.log(`[DRAMA LIST] Got ${Array.isArray(data) ? data.length : 0} dramas`);
-    res.json(data);
-  } catch (err) {
-    console.error('[DRAMA LIST] Error:', err.message);
-    res.status(502).json({ error: 'KissKH drama list failed', message: err.message });
-  }
-});
-
-// ─────────────────────────────────────────────────────
-// DRAMA: Search — GET /api/drama/search?q=<query>
-// ─────────────────────────────────────────────────────
-app.get('/api/drama/search', async (req, res) => {
-  const q = req.query.q;
-  if (!q) return res.status(400).json({ error: 'Missing q parameter' });
-
-  try {
-    const url = `${KISSKH_BASE}/api/DramaList/Search?q=${encodeURIComponent(q)}&type=0`;
-    console.log(`\n[DRAMA SEARCH] Searching: "${q}"`);
-    const { data } = await kissKhGet(url);
-    console.log(`[DRAMA SEARCH] Got ${Array.isArray(data) ? data.length : 0} results`);
-    res.json(data);
-  } catch (err) {
-    console.error('[DRAMA SEARCH] Error:', err.message);
-    res.status(502).json({ error: 'KissKH search failed', message: err.message });
-  }
-});
-
-// ─────────────────────────────────────────────────────
-// DRAMA: Episode List — GET /api/drama/info/:dramaId
-//   Returns the list of episodes for a drama.
-//   Each episode object has { id, number, title, sub, ... }
-//   The episode `id` is used later to fetch the stream.
-// ─────────────────────────────────────────────────────
-app.get('/api/drama/info/:dramaId', async (req, res) => {
-  const { dramaId } = req.params;
-
-  const cached = dramaInfoCache.get(dramaId);
-  if (cached && Date.now() - cached.timestamp < DRAMA_LIST_TTL) {
-    console.log(`[DRAMA INFO] Cache hit: ${dramaId}`);
-    return res.json(cached.data);
-  }
-
-  try {
-    // Fetch both drama metadata and episode list in parallel
-    const url = `${KISSKH_BASE}/api/DramaList/Drama/${dramaId}?isq=false`;
-    console.log(`\n[DRAMA INFO] Fetching drama detail for ID: ${dramaId}`);
-    const { data } = await kissKhGet(url);
-    const episodeCount = Array.isArray(data.episodes) ? data.episodes.length : '?';
-    console.log(`[DRAMA INFO] Got ${episodeCount} episodes`);
-    dramaInfoCache.set(dramaId, { data, timestamp: Date.now() });
-    res.json(data);
-  } catch (err) {
-    console.error('[DRAMA INFO] Error:', err.message);
-    res.status(502).json({ error: 'KissKH episode list failed', message: err.message });
-  }
-});
-
-// ─────────────────────────────────────────────────────
-// DRAMA: Stream — GET /api/drama/stream/:episodeId
-//   Full flow:
-//   1. enc-dec.app/enc-kisskh?type=vid  → video kkey token
-//   2. kisskh.co/api/DramaList/Episode/<id>?kkey=<token> → Video URL
-//   3. enc-dec.app/enc-kisskh?type=sub  → subtitle kkey
-//   4. kisskh.co/api/Sub/<id>?kkey=<sub_kkey>           → subtitle list
-//   Returns: { streamUrl (proxied), subtitles: [{ label, file }] }
-// ─────────────────────────────────────────────────────
-app.get('/api/drama/stream/:episodeId', async (req, res) => {
-  const { episodeId } = req.params;
-  const host = publicHost(req);
-
-  const cached = dramaStreamCache.get(episodeId);
-  if (cached && Date.now() - cached.timestamp < STREAM_TTL) {
-    console.log(`[DRAMA STREAM] Cache hit: episode ${episodeId}`);
-    return res.json(cached.data);
-  }
-
-  try {
-    console.log(`\n[DRAMA STREAM] Fetching stream for episode ID: ${episodeId}`);
-
-    // ── Step 1: Get video kkey from enc-dec.app ──
-    console.log('[DRAMA STREAM] Step 1: Getting video kkey...');
-    const vidKeyRes = await axios.get(
-      `${ENCDEC_BASE}/api/enc-kisskh?text=${episodeId}&type=vid`,
-      { timeout: 10000 }
-    );
-    const vidKkey = vidKeyRes.data?.result;
-    if (!vidKkey) {
-      console.error('[DRAMA STREAM] No video kkey returned from enc-dec.app');
-      return res.status(502).json({ error: 'enc-dec.app returned no video kkey' });
-    }
-    console.log('[DRAMA STREAM] Video kkey obtained ✅');
-
-    // ── Step 2: Get the video stream URL from KissKH ──
-    console.log('[DRAMA STREAM] Step 2: Fetching video URL from KissKH...');
-    const streamRes = await kissKhGet(
-      `${KISSKH_BASE}/api/DramaList/Episode/${episodeId}.png?err=false&ts=&time=&kkey=${vidKkey}`
-    );
-    const videoUrl = streamRes.data?.Video;
-    if (!videoUrl) {
-      console.error('[DRAMA STREAM] No Video URL in KissKH response:', JSON.stringify(streamRes.data));
-      return res.status(404).json({ error: 'No stream URL found for this episode' });
-    }
-    if (videoUrl.includes('tickcounter.com') || videoUrl.includes('countdown')) {
-      console.warn('[DRAMA STREAM] Episode not yet released (countdown active):', videoUrl);
-      return res.status(403).json({ error: 'This episode has not aired yet (countdown timer is active).' });
-    }
-    console.log(`[DRAMA STREAM] Stream URL obtained: ${videoUrl.substring(0, 60)}...`);
-
-    // ── Step 3: Get subtitle kkey ──
-    console.log('[DRAMA STREAM] Step 3: Getting subtitle kkey...');
-    let subtitles = [];
-    try {
-      const subKeyRes = await axios.get(
-        `${ENCDEC_BASE}/api/enc-kisskh?text=${episodeId}&type=sub`,
-        { timeout: 8000 }
-      );
-      const subKkey = subKeyRes.data?.result;
-
-      // ── Step 4: Get subtitle list ──
-      if (subKkey) {
-        console.log('[DRAMA STREAM] Step 4: Fetching subtitle list from KissKH...');
-        const subListRes = await kissKhGet(
-          `${KISSKH_BASE}/api/Sub/${episodeId}?kkey=${subKkey}`
-        );
-        const rawSubs = subListRes.data;
-
-        // KissKH returns an array of subtitle objects: { label, file, ... }
-        if (Array.isArray(rawSubs)) {
-          subtitles = rawSubs.map(s => ({
-            label: s.label || s.language || 'English',
-            file: `${host}/api/drama/subtitle?url=${encodeURIComponent(s.src)}`,
-            rawFile: s.src,
-            default: (s.label || s.language || '').toLowerCase().includes('en'),
-          }));
-          console.log(`[DRAMA STREAM] Got ${subtitles.length} subtitle tracks`);
-        }
-      }
-    } catch (subErr) {
-      // Subtitle failure is non-fatal — stream still works
-      console.warn('[DRAMA STREAM] Subtitle fetch failed (non-fatal):', subErr.message);
-    }
-
-    // ── Build the proxied stream URL ──
-    const isM3U8 = videoUrl.includes('.m3u8');
-    const proxiedStream = isM3U8
-      // Referer sent to the video CDN must be the real KissKH origin (not the
-      // relay URL) so the CDN accepts the request.
-      ? `${host}/api/m3u8-proxy?url=${encodeURIComponent(videoUrl)}&referer=${encodeURIComponent('https://kisskh.co/')}`
-      : videoUrl; // MP4: browser can play directly if CORS allows, or proxy if needed
-
-    const result = {
-      episodeId,
-      type: isM3U8 ? 'hls' : 'mp4',
-      streamUrl: proxiedStream,
-      subtitles,
-    };
-
-    dramaStreamCache.set(episodeId, { data: result, timestamp: Date.now() });
-    console.log(`[DRAMA STREAM] ✅ Episode ${episodeId} ready — ${result.type}, ${subtitles.length} sub tracks`);
-    res.json(result);
-
-  } catch (err) {
-    console.error('[DRAMA STREAM] Fatal error:', err.message);
-    res.status(502).json({ error: 'Drama stream fetch failed', message: err.message });
-  }
-});
-
-// ─────────────────────────────────────────────────────
-// DRAMA: Subtitle Decode & Proxy — GET /api/drama/subtitle?url=<url>
-//   Fetches plain text SRT from KissKH subtitle server, converts it
-//   to WebVTT format on the fly, and serves it to the browser.
-// ─────────────────────────────────────────────────────
-app.get('/api/drama/subtitle', async (req, res) => {
-  const { url } = req.query;
-  if (!url) return res.status(400).json({ error: 'Missing url parameter' });
-
-  try {
-    console.log(`[DRAMA SUB] Fetching subtitle: ${url.substring(0, 60)}...`);
-    const subRes = await axios.get(url, { timeout: 10000, responseType: 'text' });
-    let content = subRes.data;
-
-    if (typeof content !== 'string') {
-      content = String(content);
-    }
-
-    // If it's not already VTT, convert SRT to VTT
-    if (!content.trimStart().startsWith('WEBVTT')) {
-      // Convert SRT style timestamps (00:00:00,000) to VTT style (00:00:00.000)
-      content = 'WEBVTT\n\n' + content.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
-    }
-
-    res.setHeader('Content-Type', 'text/vtt; charset=utf-8');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.send(content);
-  } catch (err) {
-    console.error('[DRAMA SUB] Error:', err.message);
-    res.status(502).json({ error: 'Subtitle retrieval failed', message: err.message });
-  }
-});
-
-
-
-// ═════════════════════════════════════════════════════
-// HIVETOONS MANHWA — Scraper
-// Source: https://hivetoons.org
-// No Cloudflare, no tokens, images are open CDN links
-// ═════════════════════════════════════════════════════
-const HIVETOONS_BASE = 'https://hivetoons.org';
-const HT_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-  'Accept-Language': 'en-US,en;q=0.9',
-};
-
-const htHomeCache    = new Map();
-const htSeriesCache  = new Map();
+// Hivetoons helper (manga chapter scraping)
 const htChapterCache = new Map();
-const htSearchCache  = new Map();
-const HT_CACHE_TTL   = 30 * 60 * 1000; // 30 min
-// Helper: fetch Hivetoons page HTML
 async function htGet(url) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
-  try {
-    const res = await fetch(url, { headers: HT_HEADERS, signal: controller.signal });
-    clearTimeout(timeoutId);
-    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-    const text = await res.text();
-    return cheerio.load(text);
-  } catch (err) {
-    clearTimeout(timeoutId);
-    throw err;
-  }
+  const res = await axios.get(url, { headers: HT_HEADERS, timeout: 15000 });
+  return cheerio.load(res.data);
 }
 
-// Helper: extract series cards from a cheerio-loaded page
-function extractSeriesCards($) {
-  const cards = [];
-  // Series cards have an <a href="/series/slug"> with an img inside
-  $('a[href^="/series/"]').each((_, el) => {
-    const href = $(el).attr('href');
-    const slug = href.replace('/series/', '').replace(/\/$/, '');
-    if (!slug || slug.includes('/') || slug.includes('?')) return;
-    const img = $(el).find('img').first();
-    const title = img.attr('alt') || $(el).find('[class*="title"]').text().trim() || '';
-    const cover = img.attr('src') || '';
-    if (title && cover && cover.startsWith('http')) {
-      cards.push({ slug, title, cover });
-    }
-  });
-  // Dedupe by slug
-  const seen = new Set();
-  return cards.filter(c => { if (seen.has(c.slug)) return false; seen.add(c.slug); return true; });
-}
-
-// ─────────────────────────────────────────────────────
-// MANHWA: Home Feed — GET /api/manhwa/home
-// ─────────────────────────────────────────────────────
-app.get('/api/manhwa/home', async (req, res) => {
-  const cached = htHomeCache.get('home');
-  if (cached && Date.now() - cached.timestamp < HT_CACHE_TTL) {
-    return res.json(cached.data);
-  }
-
-  try {
-    console.log('\n[MANHWA HOME] Fetching...');
-    const [home$, latest$] = await Promise.all([
-      htGet(`${HIVETOONS_BASE}/`),
-      htGet(`${HIVETOONS_BASE}/latest-updates/`),
-    ]);
-
-    const popular  = extractSeriesCards(home$).slice(0, 20);
-    const latest   = extractSeriesCards(latest$).slice(0, 20);
-
-    // Merge unique slugs for a combined "all" list
-    const seen = new Set(popular.map(c => c.slug));
-    const combined = [...popular, ...latest.filter(c => !seen.has(c.slug))];
-
-    const data = { popular, latest, combined };
-    htHomeCache.set('home', { data, timestamp: Date.now() });
-    console.log(`[MANHWA HOME] ✅ popular=${popular.length} latest=${latest.length}`);
-    res.json(data);
-  } catch (err) {
-    console.error('[MANHWA HOME] Error:', err.message);
-    res.status(502).json({ error: 'Hivetoons home fetch failed', message: err.message });
-  }
-});
-
-// ─────────────────────────────────────────────────────
-// MANHWA: Search — GET /api/manhwa/search?q=<query>
-// ─────────────────────────────────────────────────────
-app.get('/api/manhwa/search', async (req, res) => {
-  const q = req.query.q;
-  if (!q) return res.status(400).json({ error: 'Missing q parameter' });
-
-  const cacheKey = `search:${q.toLowerCase()}`;
-  const cached = htSearchCache.get(cacheKey);
-  if (cached && Date.now() - cached.timestamp < HT_CACHE_TTL) {
-    return res.json(cached.data);
-  }
-
-  try {
-    console.log(`\n[MANHWA SEARCH] Searching: "${q}"`);
-    const $ = await htGet(`${HIVETOONS_BASE}/series/?searchTerm=${encodeURIComponent(q)}`);
-    const results = extractSeriesCards($);
-    htSearchCache.set(cacheKey, { data: results, timestamp: Date.now() });
-    console.log(`[MANHWA SEARCH] Got ${results.length} results`);
-    res.json(results);
-  } catch (err) {
-    console.error('[MANHWA SEARCH] Error:', err.message);
-    res.status(502).json({ error: 'Hivetoons search failed', message: err.message });
-  }
-});
-
-// ─────────────────────────────────────────────────────
-// MANHWA: Series Detail — GET /api/manhwa/series/:slug
-// Returns: { slug, title, cover, description, genres, status, chapters[] }
-// ─────────────────────────────────────────────────────
-app.get('/api/manhwa/series/:slug', async (req, res) => {
-  const { slug } = req.params;
-  const cached = htSeriesCache.get(slug);
-  if (cached && Date.now() - cached.timestamp < HT_CACHE_TTL) {
-    return res.json(cached.data);
-  }
-
-  try {
-    console.log(`\n[MANHWA SERIES] Fetching: ${slug}`);
-    const $ = await htGet(`${HIVETOONS_BASE}/series/${slug}`);
-
-    const title       = $('meta[property="og:title"]').attr('content') || slug;
-    const cover       = $('meta[property="og:image"]').attr('content') || '';
-    const description = $('meta[property="og:description"]').attr('content') || '';
-
-    // Genres from links
-    const genres = [];
-    $('a[href*="genre="]').each((_, el) => {
-      const g = $(el).text().trim();
-      if (g) genres.push(g);
-    });
-
-    const chapSet = new Set();
-    const chapters = [];
-    $(`a[href^="/series/${slug}/chapter-"]`).each((_, el) => {
-      const href = $(el).attr('href');
-      const match = href.match(/chapter-([0-9.]+)$/);
-      if (match && !chapSet.has(match[1])) {
-        chapSet.add(match[1]);
-
-        // Thumbnail image URL inside the chapter link image
-        const thumbnail = $(el).find('img').attr('src') || '';
-
-        // Subtitle or description of chapter
-        const title = $(el).find('.text-xs.text-gray-600, .dark\\:text-gray-400').first().text().trim() || '';
-
-        // Relative release date
-        const dateText = $(el).find('time').text().trim() || '';
-        const date = dateText ? (dateText.includes('ago') ? dateText : `${dateText} ago`) : '';
-
-        chapters.push({
-          number: parseFloat(match[1]),
-          slug: `chapter-${match[1]}`,
-          url: href,
-          thumbnail,
-          title,
-          date
-        });
-      }
-    });
-
-    // Sort chapters ascending
-    chapters.sort((a, b) => a.number - b.number);
-
-    const data = { slug, title, cover, description, genres, chapters };
-    htSeriesCache.set(slug, { data, timestamp: Date.now() });
-    console.log(`[MANHWA SERIES] ✅ ${title} — ${chapters.length} chapters`);
-    res.json(data);
-  } catch (err) {
-    console.error('[MANHWA SERIES] Error:', err.message);
-    res.status(502).json({ error: 'Hivetoons series fetch failed', message: err.message });
-  }
-});
-
-// ─────────────────────────────────────────────────────
-// MANHWA: Chapter Images — GET /api/manhwa/chapter/:slug/:chapter
-// Returns: { slug, chapter, images: [url, ...] }
-// ─────────────────────────────────────────────────────
 app.get('/api/manhwa/chapter/:slug/:chapter', async (req, res) => {
   const { slug, chapter } = req.params;
-  const cacheKey = `${slug}:${chapter}`;
-  const cached = htChapterCache.get(cacheKey);
-  if (cached && Date.now() - cached.timestamp < HT_CACHE_TTL) {
-    return res.json(cached.data);
-  }
-
   try {
     console.log(`\n[MANHWA CHAPTER] Fetching: ${slug}/${chapter}`);
     const $ = await htGet(`${HIVETOONS_BASE}/series/${slug}/${chapter}`);
@@ -2079,7 +1678,7 @@ app.get('/api/manhwa/chapter/:slug/:chapter', async (req, res) => {
 
     const data = { slug, chapter, images };
     htChapterCache.set(cacheKey, { data, timestamp: Date.now() });
-    console.log(`[MANHWA CHAPTER] ✅ ${slug}/${chapter} — ${images.length} pages`);
+    console.log(`[MANHWA CHAPTER] âœ… ${slug}/${chapter} â€” ${images.length} pages`);
     res.json(data);
   } catch (err) {
     console.error('[MANHWA CHAPTER] Error:', err.message);
@@ -2087,146 +1686,325 @@ app.get('/api/manhwa/chapter/:slug/:chapter', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────
-// MOVIES SECTION (TMDB API + Embed providers)
-// ─────────────────────────────────────────────────────
-const TMDB_API_KEY = '4e44d9029b1270a757cddc766a1bcb63';
-const TMDB_BASE = 'https://api.themoviedb.org/3';
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// MOVIES & NETMIRROR SECTION (ARCHIVED & REMOVED)
+// All workloads stored in archive_movies_netmirror/
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-const tmdbAxios = axios.create({
-  headers: {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-    'Accept': 'application/json'
-  }
-});
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// NETMIRROR API ENDPOINTS (net52.cc Ã¢â‚¬â€ Movies/Dramas OTT Aggregator)
+// Auth: POST /verify.php with random UUID Ã¢â€ â€™ t_hash_t cookie (0.25s, no captcha)
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
-const TMDB_GENRES = {
-  28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy", 80: "Crime",
-  99: "Documentary", 18: "Drama", 10751: "Family", 14: "Fantasy", 36: "History",
-  27: "Horror", 10402: "Music", 9648: "Mystery", 10749: "Romance", 878: "Sci-Fi",
-  10770: "TV Movie", 53: "Thriller", 10752: "War", 37: "Western"
-};
+const NETMIRROR_BASE = process.env.NETMIRROR_BASE || 'https://net52.cc';
+const NETMIRROR_UA = 'Mozilla/5.0 (Linux; Android 13; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Mobile Safari/537.36 /OS.Gatu v3.0';
+let netmirrorToken = null;
+let netmirrorTokenExpiry = 0;
 
-function getTmdbUrl(path, params = {}) {
-  const urlParams = new URLSearchParams({
-    api_key: TMDB_API_KEY,
-    ...params
-  });
-  return `${TMDB_BASE}${path}?${urlParams.toString()}`;
-}
+async function getNetmirrorToken() {
+  const now = Date.now();
+  if (netmirrorToken && now < netmirrorTokenExpiry) return netmirrorToken;
 
-function mapTmdbMovie(m) {
-  if (!m) return null;
-  return {
-    id: m.id,
-    title: m.title || m.original_title,
-    coverImage: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : null,
-    bannerImage: m.backdrop_path ? `https://image.tmdb.org/t/p/w1280${m.backdrop_path}` : (m.poster_path ? `https://image.tmdb.org/t/p/w1280${m.poster_path}` : null),
-    rating: typeof m.vote_average === 'number' ? m.vote_average.toFixed(1) : 'N/A',
-    type: 'movie',
-    releaseDate: m.release_date,
-    description: m.overview || '',
-    genres: (m.genre_ids || []).map(id => TMDB_GENRES[id]).filter(Boolean)
-  };
-}
-
-function mapTmdbMovieDetail(m) {
-  if (!m) return null;
-  return {
-    id: m.id,
-    title: m.title || m.original_title,
-    imdbId: m.imdb_id,
-    coverImage: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : null,
-    bannerImage: m.backdrop_path ? `https://image.tmdb.org/t/p/w1280${m.backdrop_path}` : (m.poster_path ? `https://image.tmdb.org/t/p/w1280${m.poster_path}` : null),
-    rating: typeof m.vote_average === 'number' ? m.vote_average.toFixed(1) : 'N/A',
-    type: 'movie',
-    releaseDate: m.release_date,
-    description: m.overview || '',
-    runtime: m.runtime || 0,
-    genres: (m.genres || []).map(g => g.name),
-    status: m.status || 'Released'
-  };
-}
-
-// GET /api/movies/home
-app.get('/api/movies/home', async (req, res) => {
+  // THE BYPASS: random UUID as g-recaptcha-response (server never validates it)
+  const fakeCaptcha = crypto.randomUUID();
   try {
-    // 1. Fetch Bollywood Hits (Hindi language)
-    const bollywoodRes = await fetch(getTmdbUrl('/discover/movie', {
-      with_original_language: 'hi',
-      sort_by: 'popularity.desc',
-      page: 1
-    })).then(r => r.json());
+    const res = await axios.post(`${NETMIRROR_BASE}/verify.php`,
+      new URLSearchParams({ 'g-recaptcha-response': fakeCaptcha }).toString(),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Origin': NETMIRROR_BASE,
+          'Referer': `${NETMIRROR_BASE}/verify2`,
+          'User-Agent': NETMIRROR_UA,
+        },
+        maxRedirects: 0,
+        validateStatus: () => true,
+        timeout: 10000,
+      }
+    );
 
-    // 2. Fetch Hollywood Hits (English language popular movies)
-    const hollywoodRes = await fetch(getTmdbUrl('/discover/movie', {
-      with_original_language: 'en',
-      sort_by: 'popularity.desc',
-      'vote_count.gte': 100,
-      page: 1
-    })).then(r => r.json());
+    // Extract t_hash_t from Set-Cookie header
+    const setCookies = res.headers['set-cookie'];
+    const cookieStr = Array.isArray(setCookies) ? setCookies.join('; ') : (setCookies || '');
+    const match = cookieStr.match(/t_hash_t=([^;]+)/);
+    if (!match) throw new Error('No t_hash_t in verify response');
 
-    // 3. Fetch Bollywood Classics (Hindi language movies released before 2010)
-    const classicsRes = await fetch(getTmdbUrl('/discover/movie', {
-      with_original_language: 'hi',
-      sort_by: 'popularity.desc',
-      'primary_release_date.lte': '2010-01-01',
-      'vote_count.gte': 30,
-      page: 1
-    })).then(r => r.json());
-
-    const bollywood = (bollywoodRes?.results || []).map(mapTmdbMovie).filter(Boolean);
-    const hollywood = (hollywoodRes?.results || []).map(mapTmdbMovie).filter(Boolean);
-    const classics = (classicsRes?.results || []).map(mapTmdbMovie).filter(Boolean);
-
-    // Construct featured movie (top trending or most popular Bollywood movie)
-    const featured = bollywood[0] || hollywood[0];
-
-    res.json({
-      featured,
-      bollywood,
-      hollywood,
-      classics
-    });
+    netmirrorToken = decodeURIComponent(match[1]);
+    // Server grants Max-Age=259200 (72h), we refresh at 15h for safety
+    netmirrorTokenExpiry = now + (15 * 60 * 60 * 1000);
+    console.log('[NetMirror] Token obtained, valid ~72h');
+    return netmirrorToken;
   } catch (err) {
-    console.error('[MOVIES HOME] Error:', err.message);
-    res.status(502).json({ error: 'TMDB fetch failed', message: err.message });
+    console.error('[NetMirror] Token fetch failed:', err.message);
+    throw err;
   }
-});
+}
 
-// GET /api/movies/search?q=<query>
-app.get('/api/movies/search', async (req, res) => {
+async function netmirrorApi(path, { ott = 'nf', params = {}, expectJson = true } = {}) {
+  const token = await getNetmirrorToken();
+  const cookie = `t_hash_t=${token}; ott=${ott}; hd=on`;
+  const fullParams = { t: Math.floor(Date.now() / 1000), ...params };
+
+  try {
+    const res = await axios.get(`${NETMIRROR_BASE}/mobile/${path}`, {
+      params: fullParams,
+      headers: {
+        'Cookie': cookie,
+        'User-Agent': NETMIRROR_UA,
+        'X-Requested-With': 'XMLHttpRequest',
+        'Referer': `${NETMIRROR_BASE}/home`,
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      timeout: 15000,
+    });
+
+    const data = res.data;
+
+    // Token expired: JSON has status:"n" or response is HTML challenge page
+    if (expectJson && data && data.status === 'n') {
+      console.log('[NetMirror] Token expired (status:n), refreshing...');
+      netmirrorToken = null;
+      netmirrorTokenExpiry = 0;
+      return netmirrorApi(path, { ott, params, expectJson }); // retry once
+    }
+
+    return data;
+  } catch (err) {
+    console.error(`[NetMirror] API call failed (${path}):`, err.message);
+    throw err;
+  }
+}
+
+// Search NetMirror for a movie/show by title
+// GET /api/netmirror/search?q=<query>
+app.get('/api/netmirror/search', async (req, res) => {
   const { q } = req.query;
   if (!q) return res.status(400).json({ error: 'Missing query param q' });
 
   try {
-    const data = await fetch(getTmdbUrl('/search/movie', {
-      query: q,
-      page: 1
-    })).then(r => r.json());
-    const mapped = (data?.results || []).map(mapTmdbMovie).filter(Boolean);
-    res.json(mapped);
+    const data = await netmirrorApi('search.php', { params: { s: q } });
+    const results = (data?.searchResult || []).slice(0, 10).map(item => ({
+      id: item.id,
+      title: item.t,
+      year: item.y || '',
+      rating: item.r || '',
+      type: 'movie',
+    }));
+    res.json(results);
   } catch (err) {
-    console.error('[MOVIES SEARCH] Error:', err.message);
-    res.status(502).json({ error: 'TMDB search failed', message: err.message });
+    res.status(502).json({ error: 'NetMirror search failed', message: err.message });
   }
 });
 
-// GET /api/movies/info/:id
-app.get('/api/movies/info/:id', async (req, res) => {
+// Get details + episodes for a NetMirror title
+// GET /api/netmirror/post/:id
+app.get('/api/netmirror/post/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    const data = await fetch(getTmdbUrl(`/movie/${id}`)).then(r => r.json());
-    res.json(mapTmdbMovieDetail(data));
+    const data = await netmirrorApi('post.php', { params: { id } });
+    res.json(data);
   } catch (err) {
-    console.error('[MOVIES INFO] Error:', err.message);
-    res.status(502).json({ error: 'TMDB movie info failed', message: err.message });
+    res.status(502).json({ error: 'NetMirror post fetch failed', message: err.message });
   }
 });
 
-// ─────────────────────────────────────────────────────
+// Get HLS stream sources for a NetMirror title
+// GET /api/netmirror/playlist/:id
+app.get('/api/netmirror/playlist/:id', async (req, res) => {
+  const { id } = req.params;
+  const host = publicHost(req);
+  try {
+    const data = await netmirrorApi('playlist.php', { params: { id } });
+
+    // data is an array Ã¢â‚¬â€ take first entry
+    const entry = Array.isArray(data) ? data[0] : data;
+    if (!entry || !entry.sources) {
+      return res.status(404).json({ error: 'No sources found' });
+    }
+
+    // Rewrite HLS URLs through our m3u8-proxy with correct Referer
+    const sources = (entry.sources || []).map(src => {
+      if (!src.file) return null;
+      const proxied = `${host}/api/m3u8-proxy?url=${encodeURIComponent(src.file)}&referer=${encodeURIComponent(NETMIRROR_BASE)}`;
+      return {
+        quality: src.label || 'Unknown',
+        type: src.type || 'hls',
+        url: proxied,
+        originalUrl: src.file,
+      };
+    }).filter(Boolean);
+
+    // Rewrite subtitle tracks
+    const tracks = (entry.tracks || []).map(tr => {
+      if (!tr.file) return null;
+      return {
+        ...tr,
+        url: `${host}/api/drama/subtitle?url=${encodeURIComponent(tr.file)}`,
+      };
+    }).filter(Boolean);
+
+    res.json({ sources, tracks });
+  } catch (err) {
+    res.status(502).json({ error: 'NetMirror playlist fetch failed', message: err.message });
+  }
+});
+
+// Get NetMirror trending/home catalog (HTML parsing with cheerio)
+// GET /api/netmirror/trending
+app.get('/api/netmirror/trending', async (req, res) => {
+  const host = publicHost(req);
+  try {
+    const html = await netmirrorApi('home?app=1', { expectJson: false });
+    const $ = cheerio.load(html);
+
+    const movies = [];
+    const seen = new Set();
+    // NetMirror home has tray containers with data-post attributes
+    $('[data-post]').each((i, element) => {
+      const id = $(element).attr('data-post');
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      const poster = $(element).find('img').attr('data-src') || $(element).find('img').attr('src') || '';
+      if (!poster || !poster.startsWith('http')) return;
+      const proxiedPoster = `${host}/api/img-proxy?url=${encodeURIComponent(poster)}`;
+      movies.push({
+        id: String(id),
+        title: '',           // will be filled by post.php batch below
+        year: '',
+        coverImage: proxiedPoster,
+        bannerImage: proxiedPoster,
+        type: 'movie',
+        netmirrorId: true,
+      });
+    });
+
+    // Batch-fetch real titles for the first 60 items from post.php
+    const token = await getNetmirrorToken();
+    const postHeaders = {
+      'Cookie': `t_hash_t=${token}; ott=nf; hd=on`,
+      'User-Agent': NETMIRROR_UA,
+      'X-Requested-With': 'XMLHttpRequest',
+      'Referer': `${NETMIRROR_BASE}/home`,
+    };
+    await Promise.all(movies.slice(0, 60).map(async (m) => {
+      try {
+        const r = await axios.get(`${NETMIRROR_BASE}/mobile/post.php`, {
+          params: { id: m.id },
+          headers: postHeaders,
+          timeout: 8000,
+        });
+        const d = r.data;
+        if (d && d.title) {
+          m.title = d.title;
+          m.year  = String(d.year || '');
+        } else {
+          m.title = `NetMirror #${m.id}`;
+        }
+      } catch (_) {
+        m.title = `NetMirror #${m.id}`;
+      }
+    }));
+    // Items beyond 60 get a fallback title
+    movies.slice(60).forEach(m => { if (!m.title) m.title = `NetMirror #${m.id}`; });
+
+    const unique = movies.slice(0, 120);
+    res.json(unique);
+  } catch (err) {
+    console.error('[NetMirror] Trending fetch failed:', err.message);
+    res.status(502).json({ error: 'NetMirror trending failed', message: err.message });
+  }
+});
+
+
+// GET /api/netmirror/stream-resolve?id=<id>&title=<title>&year=<year>&type=<movie|tv>&season=<s>&episode=<e>&ott=<nf|pv|hs>
+// Searches NetMirror by ID or title, resolves episode ID for series, returns proxied HLS sources
+app.get('/api/netmirror/stream-resolve', async (req, res) => {
+  const { id, title, year, type = 'movie', season = 1, episode = 1, ott = 'nf' } = req.query;
+  if (!id && !title) return res.status(400).json({ error: 'Missing id or title param' });
+  const host = req.protocol + '://' + req.get('host');
+
+  try {
+    let targetId = id;
+    let targetTitle = title || 'Media';
+    let targetYear = year || '';
+
+    // If no direct ID was provided, search NetMirror by title
+    if (!targetId) {
+      let searchData = await netmirrorApi('search.php', { ott, params: { s: title } });
+      let results = searchData?.searchResult || [];
+
+      if (!results.length) {
+        const words = title.split(/\s+/).filter(w => w.length > 2);
+        if (words.length > 0) {
+          searchData = await netmirrorApi('search.php', { ott, params: { s: words[words.length - 1] } });
+          results = searchData?.searchResult || [];
+        }
+      }
+
+      if (!results.length) return res.status(404).json({ error: 'No NetMirror results for: ' + title });
+      let best = results[0];
+      if (year) {
+        const exact = results.find(r => r.t && r.t.toLowerCase().includes(title.toLowerCase().slice(0, 12)) && String(r.y) === String(year));
+        if (exact) best = exact;
+      }
+      targetId = best.id;
+      targetTitle = best.t;
+      targetYear = best.y || year;
+    }
+
+    // Inspect post.php to check if item is a series container and extract episode ID
+    let playlistId = targetId;
+    try {
+      const postData = await netmirrorApi('post.php', { ott, params: { id: targetId } });
+      const episodes = (postData && Array.isArray(postData.episodes)) ? postData.episodes : [];
+      if (episodes.length > 0) {
+        const epIdx = Math.max(0, parseInt(episode) - 1);
+        const selectedEp = episodes[epIdx] || episodes[0];
+        if (selectedEp?.id) playlistId = selectedEp.id;
+      }
+      if (postData && postData.title) targetTitle = postData.title;
+      if (postData && postData.year) targetYear = postData.year;
+    } catch (e) {
+      console.warn('[NetMirror] post info fetch skipped:', e.message);
+    }
+
+    // CRITICAL: pass t=<title>&tm=<timestamp> to playlist.php so the server generates a
+    // real per-session in= hash. Without them the server returns in=unknown::pn which makes
+    // the CDN serve files/220884 â€” the 9-min anti-abuse warning video instead of the movie.
+    const playlistData = await netmirrorApi('playlist.php', {
+      ott,
+      params: { id: playlistId, t: targetTitle, tm: Math.floor(Date.now() / 1000) },
+    });
+    const entry = Array.isArray(playlistData) ? playlistData[0] : playlistData;
+    if (!entry?.sources?.length) return res.status(404).json({ error: 'No HLS sources for: ' + targetTitle });
+
+    const normalizeNmUrl = (u) => {
+      if (!u) return '';
+      let s = String(u).trim();
+      if (s.startsWith('//')) return 'https:' + s;
+      if (s.startsWith('/')) return NETMIRROR_BASE + s;
+      return s;
+    };
+    const sources = (entry.sources || []).map(src => {
+      if (!src.file) return null;
+      const fullUrl = normalizeNmUrl(src.file);
+      return { quality: src.label || 'Unknown', type: src.type || 'hls', url: host + '/api/m3u8-proxy?url=' + encodeURIComponent(fullUrl) + '&referer=' + encodeURIComponent(NETMIRROR_BASE), originalUrl: fullUrl };
+    }).filter(Boolean);
+    const tracks = (entry.tracks || []).map(tr => {
+      if (!tr?.file) return null;
+      const fullSub = normalizeNmUrl(tr.file);
+      return { ...tr, url: host + '/api/drama/subtitle?url=' + encodeURIComponent(fullSub) };
+    }).filter(Boolean);
+    res.json({ netmirrorId: targetId, title: targetTitle, year: targetYear, sources, tracks });
+  } catch (err) {
+    console.error('[NetMirror] stream-resolve failed:', err.message);
+    res.status(502).json({ error: 'NetMirror stream-resolve failed', message: err.message });
+  }
+});
+
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 // MANGA API ENDPOINTS (ComicKz / comickz.co.uk Engine)
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 const COMICKZ_BASE = 'https://comickz.co.uk';
 
@@ -2346,7 +2124,7 @@ async function getComicKGenreCatalog(countryCode, genre, requiredCount) {
   return cache;
 }
 
-// GET /api/manga/home — Main Manga Landing Data (Bento Top 10 + Category Previews)
+// GET /api/manga/home Ã¢â‚¬â€ Main Manga Landing Data (Bento Top 10 + Category Previews)
 app.get('/api/manga/home', async (req, res) => {
   const host = publicHost(req);
   try {
@@ -2493,10 +2271,10 @@ app.get('/api/manga/category/:type', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 // HYBRID WEBTOON MIDDLEWARE ENGINE
 // AniList Curated Metadata + ComicK Chapter Engine
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 const comickSlugMap = new Map();
 
 async function resolveComicKSlug(title, host) {
@@ -2636,7 +2414,7 @@ async function fetchAniListWebtoons(host) {
   }
 }
 
-// GET /api/webtoon/home — Curated Webtoon Landing Data
+// GET /api/webtoon/home Ã¢â‚¬â€ Curated Webtoon Landing Data
 app.get('/api/webtoon/home', async (req, res) => {
   const host = publicHost(req);
   try {
@@ -2807,7 +2585,7 @@ app.get('/api/manga/info/:id', async (req, res) => {
     }
 
     const cover = proxyCoverUrl(host, rawCover);
-    console.log(`[MANGA INFO] OK — ${chapters.length} unique chapters found across ${page} page(s) for ${slug}`);
+    console.log(`[MANGA INFO] OK Ã¢â‚¬â€ ${chapters.length} unique chapters found across ${page} page(s) for ${slug}`);
 
     return res.json({
       id: slug,
@@ -2846,7 +2624,7 @@ app.get('/api/manga/read/:chapterId', async (req, res) => {
       chPath = chapterId;
     }
 
-    // ⚠️ CRITICAL: Do NOT encodeURIComponent slug/chPath — ComicKz uses plain dashes in URLs
+    // Ã¢Å¡Â Ã¯Â¸Â CRITICAL: Do NOT encodeURIComponent slug/chPath Ã¢â‚¬â€ ComicKz uses plain dashes in URLs
     const chUrl = `${COMICKZ_BASE}/comic/${slug}/${chPath}`;
     console.log(`[MANGA READ] Scraping chapter page: ${chUrl}`);
 
@@ -2889,13 +2667,13 @@ app.get('/api/manga/read/:chapterId', async (req, res) => {
             };
           });
 
-          console.log(`[MANGA READ] ✅ ComicKz OK — ${pages.length} pages for ${chapterId}`);
+          console.log(`[MANGA READ] Ã¢Å“â€¦ ComicKz OK Ã¢â‚¬â€ ${pages.length} pages for ${chapterId}`);
           return res.json({ chapterId, pageCount: pages.length, pages });
         }
       }
     }
 
-    console.error(`[MANGA READ] sv-data or images missing for ${chapterId} — HTML length: ${html.length}`);
+    console.error(`[MANGA READ] sv-data or images missing for ${chapterId} Ã¢â‚¬â€ HTML length: ${html.length}`);
     return res.json({ chapterId, pageCount: 0, pages: [] });
 
   } catch (err) {
@@ -2904,7 +2682,7 @@ app.get('/api/manga/read/:chapterId', async (req, res) => {
   }
 });
 
-// GET /api/manga/image-proxy?url=<url> — proxy with Referer + exponential backoff retry on 429
+// GET /api/manga/image-proxy?url=<url> Ã¢â‚¬â€ proxy with Referer + exponential backoff retry on 429
 app.get('/api/manga/image-proxy', async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).send('Missing url parameter');
@@ -2945,7 +2723,7 @@ app.get('/api/manga/image-proxy', async (req, res) => {
         continue;
       }
       if (status === 403 && attempt < maxRetries) {
-        // 403 = wrong/missing referer — retry once just in case
+        // 403 = wrong/missing referer Ã¢â‚¬â€ retry once just in case
         await new Promise(r => setTimeout(r, 200));
         continue;
       }
@@ -2958,28 +2736,680 @@ app.get('/api/manga/image-proxy', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 // Start server
 
-// ─────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+
+// ============================================================================
+// MOVIEPLEX INTEGRATION
+// Source: movieplex.co.in (WordPress + PsyPlay theme)
+// WP REST API is fully open (no auth). Streams extracted via LuluStream/StreamTape
+// ============================================================================
+
+const MOVIEPLEX_BASE = 'https://movieplex.co.in';
+const MOVIEPLEX_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+const MP_CATS = {
+  hindi_dubbed: 17, hot: 21, romance: 24, web_series: 33,
+  drama: 14, short_film: 26, trending: 29, action: 6,
+  bollywood: 10, hollywood: 19, thriller: 28, comedy: 11,
+  horror: 20, bengali: 9, south_indian: 27,
+};
+
+const mpCache = { posts: [], byCategory: {}, categoryMap: {}, lastBuilt: 0, building: false };
+const MP_TTL = 24 * 60 * 60 * 1000;
+
+function mpDecodeTitle(raw) {
+  return (raw || '')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n)))
+    .replace(/&amp;/g, '&').replace(/&quot;/g, '"')
+    .replace(/&#8217;/g, "'").replace(/&#8220;/g, '"').replace(/&#8221;/g, '"');
+}
+
+async function mpWpApi(path) {
+  const res = await axios.get(`${MOVIEPLEX_BASE}/wp-json/wp/v2/${path}`, {
+    headers: { 'User-Agent': MOVIEPLEX_UA, 'Accept': 'application/json' },
+    timeout: 20000,
+  });
+  return {
+    data: res.data,
+    total: parseInt(res.headers['x-wp-total'] || '0'),
+    totalPages: parseInt(res.headers['x-wp-totalpages'] || '1'),
+  };
+}
+
+function mpIs18Plus(p, title) {
+  const catIds = Array.isArray(p.categories) ? p.categories : [];
+  if (catIds.includes(21)) return true; // Category 21 is 'hot'
+  const text = (title || '') + ' ' + (p.slug || '');
+  return /\b(18\+|Ullu|Hotshots|Moodx|Kooku|Uncut|PrimeShots|Rabbit|RabbitMovies|Voovi|Chikooflix|Balloons|Besharams|Cinemadosti|Hot Web Series|Adult)\b/i.test(text);
+}
+
+function mpNormalizePost(p) {
+  const title = mpDecodeTitle(p.title && p.title.rendered ? p.title.rendered : '');
+  const is18 = mpIs18Plus(p, title);
+  return {
+    id: `mp-${p.id}`, movieplexId: p.id, movieplexSlug: p.slug,
+    title: title,
+    slug: p.slug, date: (p.date || '').substring(0, 10),
+    categoryIds: Array.isArray(p.categories) ? p.categories : [],
+    is18Plus: is18,
+    thumbnail: '', coverImage: '', bannerImage: '', source: 'movieplex',
+  };
+}
+
+async function buildMpCatalog() {
+  if (mpCache.building) return;
+  mpCache.building = true;
+  console.log('[MoviePlex] Building catalog...');
+  try {
+    const catsRes = await mpWpApi('categories?per_page=100&_fields=id,name,slug,count');
+    if (Array.isArray(catsRes.data)) {
+      catsRes.data.forEach(function(c) { mpCache.categoryMap[c.id] = { name: c.name, slug: c.slug, count: c.count }; });
+    }
+    const first = await mpWpApi('posts?per_page=100&page=1&_fields=id,title,slug,date,categories&orderby=date&order=desc');
+    const allPosts = Array.isArray(first.data) ? first.data.slice() : [];
+    const totalPages = first.totalPages;
+    for (let page = 2; page <= totalPages; page += 5) {
+      const batch = [];
+      for (let p = page; p < page + 5 && p <= totalPages; p++) {
+        batch.push(mpWpApi(`posts?per_page=100&page=${p}&_fields=id,title,slug,date,categories&orderby=date&order=desc`));
+      }
+      const results = await Promise.allSettled(batch);
+      results.forEach(function(r) { if (r.status === 'fulfilled' && Array.isArray(r.value.data)) allPosts.push.apply(allPosts, r.value.data); });
+      await new Promise(function(r) { setTimeout(r, 150); });
+    }
+    const normalized = allPosts.map(mpNormalizePost);
+    const byCategory = {};
+    normalized.forEach(function(post) {
+      post.categoryIds.forEach(function(catId) {
+        if (!byCategory[catId]) byCategory[catId] = [];
+        byCategory[catId].push(post);
+      });
+    });
+    mpCache.posts = normalized;
+    mpCache.byCategory = byCategory;
+    mpCache.lastBuilt = Date.now();
+    console.log('[MoviePlex] Catalog built: ' + normalized.length + ' posts');
+  } catch (err) {
+    console.error('[MoviePlex] Catalog build failed:', err.message);
+  } finally {
+    mpCache.building = false;
+  }
+}
+
+// ── Poster API Keys ──────────────────────────────────────────────────────────
+const TMDB_KEY = process.env.TMDB_API_KEY || '4e44d9029b1270a757cddc766a1bcb63';
+const OMDB_KEY = process.env.OMDB_API_KEY || 'trilogy';    // omdbapi.com free key
+
+// ── Title helpers ─────────────────────────────────────────────────────────────
+
+// Extract the 4-digit year embedded in raw title e.g. "Fighter (2024) Hindi" → 2024
+function mpExtractYear(raw) {
+  const m = (raw || '').match(/\b(19[5-9]\d|20[0-2]\d)\b/);
+  return m ? parseInt(m[1]) : null;
+}
+
+// Strip junk leaving only the clean movie/show name.
+function mpCleanTitle(raw) {
+  return (raw || '')
+    // Decode common HTML entities
+    .replace(/&#\d+;/g, function(m) { try { return String.fromCharCode(parseInt(m.slice(2))); } catch(e) { return ''; } })
+    .replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    // Strip "Watch Online" and common trailer phrases FIRST (whole phrase before word-level stripping)
+    .replace(/\bWatch\s+Online\b/gi, '')
+    .replace(/\bFull\s+Movie\b/gi, '')
+    .replace(/\bFull\s+Web\s+Series\b/gi, '')
+    .replace(/\bDownload\s+Now\b/gi, '')
+    // Strip year in parens or standalone
+    .replace(/\(\d{4}\)/g, '').replace(/\b(19|20)\d{2}\b/g, '')
+    // Strip brackets content
+    .replace(/\[.*?\]/g, '')
+    // Strip episode/season/part markers
+    .replace(/E\d+[-T]\d+/gi, '').replace(/\bE\d+\b/gi, '').replace(/\bS\d+\b/gi, '')
+    .replace(/\bPart\s*\d+\b/gi, '').replace(/\bVolume\s*\d+\b/gi, '').replace(/\bVol\.?\s*\d+\b/gi, '')
+    .replace(/\bEpisode\s*\d+\b/gi, '').replace(/\bSeason\s*\d+\b/gi, '').replace(/\bComplete\b/gi, '')
+    // Strip language labels
+    .replace(/\b(Hindi Dubbed|Hindi Dub|Hindi|Bengali|Malayalam|Tamil|Telugu|Kannada|Marathi|Punjabi|Gujarati|English|Bangladeshi|South Indian|Korean|Japanese|Chinese|Thai)\b/gi, '')
+    // Strip quality labels — including the ones that were MISSING before
+    .replace(/\b(HDRip|BluRay|WEB-DL|WEBRip|UNCUT|HDTS|HDTC|HDCam|HDCAM|CAMRip|CAM|DVDSCR|DVDScr|SCR|TS|DVDRIP|DVDRip|HD|4K|1080p|720p|480p|360p|Extended|Directors.?Cut)\b/gi, '')
+    // Strip geography/origin labels that were MISSING before
+    .replace(/\b(Hollywood|Bollywood|Tollywood|Mollywood|Kollywood|Pollywood)\b/gi, '')
+    // Strip platform / content-type keywords
+    .replace(/\b(Short Film|App Video|Webseries|Web Series|OTT|Originals|Exclusive)\b/gi, '')
+    .replace(/\b(Sigmaseries|Sigma|Cukkuboo|Hulchul|HulChul|Hoichoi|Moodx|Kooku|Ullu|ALTBalaji|PrimeShots|Rabbit|RabbitMovies|Voovi|Chikooflix|Atrangii|NewSensations|LookEnt|Nuefliks|GupChup|Hotshots|Flizmovies|Mastram|DigiMoviePlex|Balloons|Besharams|Cinemadosti|Netflix|Amazon|Hotstar|SonyLiv|ZEE5|Voot|MXPlayer|JioCinema|Aha|Hoichoi|Lionsgate|Disney)\b/gi, '')
+    // Strip standalone Movie/Series/Film
+    .replace(/\bMovie\b/gi, '').replace(/\bSeries\b/gi, '').replace(/\bFilm\b/gi, '')
+    // Normalise separators
+    .replace(/[-_:]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// ── TMDB: one search pass (movie or tv), returns first result with poster ────
+async function _tmdbSearch(type, query, year) {
+  const qs = 'api_key=' + TMDB_KEY + '&query=' + encodeURIComponent(query) + (year ? '&year=' + year : '');
+  const r = await axios.get('https://api.themoviedb.org/3/search/' + type + '?' + qs, { timeout: 7000 });
+  const results = (r.data && r.data.results) ? r.data.results : [];
+  return results.find(function(x) { return !!x.poster_path; }) || null;
+}
+
+// ── OMDb: lookup by title (uses IMDb data, good for Bollywood) ───────────────
+async function _omdbLookup(title, year) {
+  const qs = 'apikey=' + OMDB_KEY + '&t=' + encodeURIComponent(title) + (year ? '&y=' + year : '') + '&r=json';
+  const r = await axios.get('https://www.omdbapi.com/?' + qs, { timeout: 6000 });
+  if (r.data && r.data.Poster && r.data.Poster !== 'N/A') {
+    // OMDb posters are direct IMDb CDN JPEGs – no credit required
+    return { poster: r.data.Poster, backdrop: null, rating: r.data.imdbRating && r.data.imdbRating !== 'N/A' ? r.data.imdbRating : null };
+  }
+  return null;
+}
+
+// ── TMDB multi-search (searches movies, TV and persons at once) ──────────────
+async function _tmdbMultiSearch(query) {
+  const r = await axios.get('https://api.themoviedb.org/3/search/multi?api_key=' + TMDB_KEY + '&query=' + encodeURIComponent(query), { timeout: 7000 });
+  const results = (r.data && r.data.results) ? r.data.results : [];
+  const hit = results.find(function(x) { return (x.media_type === 'movie' || x.media_type === 'tv') && !!x.poster_path; });
+  if (!hit) return null;
+  return {
+    poster: 'https://image.tmdb.org/t/p/w500' + hit.poster_path,
+    backdrop: hit.backdrop_path ? 'https://image.tmdb.org/t/p/w1280' + hit.backdrop_path : null,
+    rating: hit.vote_average ? parseFloat(hit.vote_average).toFixed(1) : null
+  };
+}
+
+// ── Master poster resolver: tries multiple strategies across multiple APIs ────
+// Strategies in order:
+//   1. TMDB movie search, title + year
+//   2. TMDB movie search, title only
+//   3. TMDB TV   search, title + year
+//   4. TMDB TV   search, title only
+//   5. TMDB movie search, first 3 words of title (catches "Fighter" → Bollywood Fighter)
+//   6. OMDb title + year (excellent Bollywood coverage via IMDb)
+//   7. OMDb title only
+//   8. TMDB multi-search on short title
+async function mpTmdbPoster(rawTitle) {
+  const clean = typeof rawTitle === 'string' && rawTitle.length < 100 && !rawTitle.includes(' ') ? rawTitle : mpCleanTitle(rawTitle);
+  if (!clean || clean.length < 2) return null;
+  const year = mpExtractYear(rawTitle);
+
+  // helper to build response object from a TMDB item
+  function fmt(item) {
+    if (!item) return null;
+    return {
+      poster: 'https://image.tmdb.org/t/p/w500' + item.poster_path,
+      backdrop: item.backdrop_path ? 'https://image.tmdb.org/t/p/w1280' + item.backdrop_path : null,
+      rating: item.vote_average ? parseFloat(item.vote_average).toFixed(1) : null
+    };
+  }
+
+  try {
+    // 1. TMDB movie + year
+    if (year) {
+      const r1 = await _tmdbSearch('movie', clean, year);
+      if (r1) return fmt(r1);
+    }
+
+    // 2. TMDB movie, no year
+    const r2 = await _tmdbSearch('movie', clean, null);
+    if (r2) return fmt(r2);
+
+    // 3. TMDB TV + year
+    if (year) {
+      const r3 = await _tmdbSearch('tv', clean, year);
+      if (r3) return fmt(r3);
+    }
+
+    // 4. TMDB TV, no year
+    const r4 = await _tmdbSearch('tv', clean, null);
+    if (r4) return fmt(r4);
+
+    // 5. Short title (first 3 significant words) – handles cases where cleaner leaves too many words
+    const shortTitle = clean.split(' ').slice(0, 3).join(' ');
+    if (shortTitle !== clean && shortTitle.length > 2) {
+      const r5 = await _tmdbSearch('movie', shortTitle, year || null);
+      if (r5) return fmt(r5);
+    }
+
+    // 6. OMDb with year (IMDb data – great Bollywood coverage)
+    const omdb1 = await _omdbLookup(clean, year).catch(function() { return null; });
+    if (omdb1) return omdb1;
+
+    // 7. OMDb without year
+    if (year) {
+      const omdb2 = await _omdbLookup(clean, null).catch(function() { return null; });
+      if (omdb2) return omdb2;
+    }
+
+    // 8. TMDB multi-search on short title as last resort
+    const multiHit = await _tmdbMultiSearch(shortTitle || clean).catch(function() { return null; });
+    if (multiHit) return multiHit;
+
+  } catch (e) { /* all APIs unreachable */ }
+  return null;
+}
+
+// Batch poster fetch: Query TMDB API FIRST for official posters & backdrops.
+// Only fall back to LuluStream scrape if TMDB finds no result for a title.
+async function buildMpThumbnails(maxPosts) {
+  maxPosts = maxPosts || 500;
+  const posts = mpCache.posts;
+  if (!posts.length) return;
+
+  const targetPosts = posts.slice(0, maxPosts);
+  console.log('[MoviePlex] Posters: starting TMDB PRIMARY pass for ' + targetPosts.length + ' posts...');
+
+  let tmdbFetched = 0;
+  const TMDB_BATCH = 8;
+  for (let i = 0; i < targetPosts.length; i += TMDB_BATCH) {
+    const batch = targetPosts.slice(i, i + TMDB_BATCH);
+    await Promise.allSettled(batch.map(async function(post) {
+      const clean = mpCleanTitle(post.title);
+      if (!clean) return;
+      const tmdb = await mpTmdbPoster(clean);
+      if (tmdb && tmdb.poster) {
+        post.thumbnail = tmdb.poster;
+        post.coverImage = tmdb.poster;
+        post.bannerImage = tmdb.backdrop || tmdb.poster;
+        if (tmdb.rating) post.rating = tmdb.rating;
+        tmdbFetched++;
+      }
+    }));
+    await new Promise(function(r) { setTimeout(r, 120); });
+  }
+  console.log('[MoviePlex] TMDB pass complete — ' + tmdbFetched + '/' + targetPosts.length + ' official TMDB posters attached!');
+
+  // Secondary Fallback: LuluStream scrape only for posts still missing a poster
+  const missing = targetPosts.filter(function(p) { return !p.thumbnail; });
+  if (!missing.length) return;
+
+  console.log('[MoviePlex] Fallback pass: scraping LuluStream for ' + missing.length + ' remaining posts...');
+  let fallbackFetched = 0;
+  const BATCH = 8;
+  for (let i = 0; i < missing.length; i += BATCH) {
+    const batch = missing.slice(i, i + BATCH);
+    await Promise.allSettled(batch.map(async function(post) {
+      try {
+        const res = await axios.get(MOVIEPLEX_BASE + '/' + post.slug + '/', {
+          headers: { 'User-Agent': MOVIEPLEX_UA, 'Accept': 'text/html' },
+          timeout: 8000,
+        });
+        const html = typeof res.data === 'string' ? res.data : '';
+        const bfEmbed = html.match(/bfmovies\.online\/e\/([a-z0-9]+)/i);
+        const bfDown = !bfEmbed && html.match(/bfmovies\.online\/d\/([a-z0-9]+)/i);
+        const tpeadMatch = !bfEmbed && !bfDown && html.match(/tpead\.net\/e\/([a-z0-9]+)/i);
+        const vid = bfEmbed ? bfEmbed[1] : bfDown ? bfDown[1] : tpeadMatch ? tpeadMatch[1] : null;
+        if (vid) {
+          const thumb = 'https://img.lulucdn.com/' + vid + '_xt.jpg';
+          post.thumbnail = thumb;
+          post.coverImage = thumb;
+          post.bannerImage = thumb;
+          fallbackFetched++;
+        }
+      } catch (e) { /* skip */ }
+    }));
+    await new Promise(function(r) { setTimeout(r, 150); });
+  }
+  console.log('[MoviePlex] Poster enrichment complete! Total with images: ' + (tmdbFetched + fallbackFetched) + '/' + targetPosts.length);
+}
+
+setImmediate(function() {
+  buildMpCatalog()
+    .then(function() { return buildMpThumbnails(300); })
+    .catch(function() {});
+  setInterval(function() {
+    if (Date.now() - mpCache.lastBuilt > MP_TTL) {
+      buildMpCatalog().then(function() { return buildMpThumbnails(300); }).catch(function() {});
+    }
+  }, 60 * 60 * 1000);
+});
+
+async function scrapeMoviePlexPost(slug) {
+  const res = await axios.get(`${MOVIEPLEX_BASE}/${slug}/`, {
+    headers: { 'User-Agent': MOVIEPLEX_UA, 'Accept': 'text/html', 'Referer': MOVIEPLEX_BASE },
+    timeout: 20000,
+  });
+  const $ = cheerio.load(res.data);
+  const ogImage = $('meta[property="og:image"]').attr('content') || '';
+  const title = $('h1').first().text().trim() || '';
+  const iframes = [];
+  ['tab1', 'tab2', 'tab3'].forEach(function(tabId) {
+    const src = $(`#${tabId} iframe`).attr('data-lazy-src') ||
+                $(`#${tabId} iframe`).attr('data-src') ||
+                $(`#${tabId} iframe`).attr('src') || '';
+    if (src && src.startsWith('http') && src !== 'about:blank') iframes.push(src);
+  });
+  if (!iframes.length) {
+    $('iframe').each(function(_, el) {
+      const src = $(el).attr('data-lazy-src') || $(el).attr('data-src') || $(el).attr('src') || '';
+      if (src && src.startsWith('http') && !iframes.includes(src)) iframes.push(src);
+    });
+  }
+  let thumbnail = ogImage;
+  if (!thumbnail) {
+    const luluSrc = iframes.find(function(s) { return s.includes('bfmovies.online') || s.includes('lulustream.com') || s.includes('luluvdo.com'); });
+    if (luluSrc) {
+      const vid = (luluSrc.split('/e/')[1] || luluSrc.split('/d/')[1] || '').split('?')[0].split('/')[0];
+      if (vid) thumbnail = `https://img.lulucdn.com/${vid}_xt.jpg`;
+    }
+  }
+  // Also check for bfmovies /d/ or /e/ links anywhere in the HTML body (not just iframes)
+  if (!thumbnail) {
+    const htmlStr = $.html();
+    const bfMatch = htmlStr.match(/bfmovies\.online\/(?:e|d)\/([a-z0-9]+)/i);
+    if (bfMatch) thumbnail = `https://img.lulucdn.com/${bfMatch[1]}_xt.jpg`;
+  }
+  return { thumbnail: thumbnail, iframes: iframes, title: title };
+}
+
+async function extractLuluHLS(embedUrl) {
+  const res = await axios.get(embedUrl, {
+    headers: { 'User-Agent': MOVIEPLEX_UA, 'Referer': MOVIEPLEX_BASE, 'Accept': 'text/html' },
+    timeout: 20000, maxRedirects: 5,
+  });
+  let html = res.data;
+
+  // If page is a tiny JS redirect (e.g. chuckle-tube -> stevenfamilyedge), follow it
+  if (!html.includes('eval(function(p,a,c,k')) {
+    const redir = html.match(/window\.location\.href\s*=\s*['"]([^'"]+)['"]/);
+    if (redir && redir[1]) {
+      console.log('[LuluHLS] Following JS redirect to:', redir[1]);
+      const res2 = await axios.get(redir[1], {
+        headers: { 'User-Agent': MOVIEPLEX_UA, 'Referer': embedUrl, 'Accept': 'text/html' },
+        timeout: 20000, maxRedirects: 5,
+      });
+      html = res2.data;
+    }
+  }
+
+  const thumbM = html.match(/<meta[^>]+og:image[^>]+content="([^"]+)"/i);
+  const thumbnail = thumbM ? thumbM[1] : '';
+
+  const packedIdx = html.indexOf('eval(function(p,a,c,k,e,d)');
+  if (packedIdx === -1) throw new Error('LuluStream: no packed JS found');
+
+
+  let depth = 0, end = -1;
+  for (let i = packedIdx + 4; i < Math.min(packedIdx + 50000, html.length); i++) {
+    if (html[i] === '(') depth++;
+    else if (html[i] === ')') { depth--; if (depth === 0) { end = i + 1; break; } }
+  }
+  if (end === -1) throw new Error('LuluStream: could not find end of eval()');
+  const packedBlock = html.substring(packedIdx, end);
+
+  let captured = null;
+  const ctx = vm.createContext({
+    jwplayer: function() {
+      return {
+        setup: function(cfg) { captured = cfg; },
+        on: function() { return {}; },
+        bitrateSelection: function() { return {}; },
+      };
+    },
+    document: { getElementById: function() { return null; }, querySelector: function() { return null; } },
+    window: {}, console: { log: function() {} },
+  });
+
+  try { vm.runInContext(packedBlock, ctx, { timeout: 5000 }); } catch (e) { /* ignore missing browser APIs */ }
+
+  if (!captured || !captured.sources || !captured.sources.length) {
+    throw new Error('LuluStream: jwplayer.setup() not captured');
+  }
+  const m3u8 = (captured.sources.find(function(s) { return s.file && s.file.includes('m3u8'); }) || captured.sources[0] || {}).file;
+  if (!m3u8) throw new Error('LuluStream: no m3u8 source');
+  return { streamUrl: m3u8, thumbnail: thumbnail, source: 'lulustream' };
+}
+
+async function extractStreamTapeUrl(embedUrl) {
+  const res = await axios.get(embedUrl, {
+    headers: { 'User-Agent': MOVIEPLEX_UA, 'Referer': MOVIEPLEX_BASE },
+    timeout: 20000,
+  });
+  const html = res.data;
+  const p1m = html.match(/id="[^"]*"[^>]*>([^<]*\/get_video\?[^<]+)</);
+  const p2m = html.match(/<span[^>]*id="[^"]*"[^>]*>([^<]{3,40})<\/span>/);
+  if (!p1m || !p2m) throw new Error('StreamTape: split token not found');
+  return { streamUrl: `https://streamtape.com${p1m[1].trim()}${p2m[1].trim()}&stream=1`, source: 'streamtape' };
+}
+
+async function resolveMoviePlexStream(slug, req) {
+  const info = await scrapeMoviePlexPost(slug);
+  if (!info.iframes.length) throw new Error('No video sources found');
+
+  const luluSrc = info.iframes.find(function(s) { return s.includes('bfmovies.online') || s.includes('lulustream.com') || s.includes('luluvdo.com'); });
+  if (luluSrc) {
+    try {
+      const r = await extractLuluHLS(luluSrc);
+      const host = publicHost(req);
+      // Proxy the m3u8 through our server so the browser avoids CORS issues.
+      // streamProxyHeaders sends BROWSER_UA without Accept-Language, so tnmr.org returns 200 OK.
+      const proxiedUrl = host + '/api/m3u8-proxy?url=' + encodeURIComponent(r.streamUrl) + '&referer=' + encodeURIComponent(luluSrc);
+      return {
+        streamUrl: proxiedUrl,
+        thumbnail: r.thumbnail || info.thumbnail,
+        title: info.title,
+        source: 'lulustream',
+        fallbackIframe: luluSrc,
+      };
+    } catch (e) { console.warn('[MP Stream] LuluStream failed (' + slug + '):', e.message); }
+  }
+
+  const tapeSrc = info.iframes.find(function(s) { return s.includes('tpead.net') || s.includes('streamtape.com'); });
+  if (tapeSrc) {
+    try {
+      const r = await extractStreamTapeUrl(tapeSrc);
+      return { streamUrl: r.streamUrl, thumbnail: info.thumbnail, title: info.title, source: r.source, fallbackIframe: info.iframes[0] };
+    } catch (e) { console.warn('[MP Stream] StreamTape failed (' + slug + '):', e.message); }
+  }
+
+  return { streamUrl: null, thumbnail: info.thumbnail, title: info.title, fallbackIframe: info.iframes[0] || null, error: 'HLS extraction failed' };
+}
+
+app.get('/api/movieplex/catalog', async function(req, res) {
+  try {
+    const page = Math.max(1, parseInt(req.query.page || '1'));
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '40')));
+    const catId = req.query.category ? parseInt(req.query.category) : null;
+    const search = (req.query.search || '').toLowerCase().trim();
+    if (!mpCache.posts.length) {
+      const params = new URLSearchParams({ per_page: limit, page: page, _fields: 'id,title,slug,date,categories', orderby: 'date', order: 'desc' });
+      if (catId) params.set('categories', catId);
+      if (search) params.set('search', search);
+      const r = await mpWpApi('posts?' + params.toString());
+      return res.json({ movies: (Array.isArray(r.data) ? r.data : []).map(mpNormalizePost), total: r.total, page: page, totalPages: r.totalPages, cached: false });
+    }
+    let posts = catId ? (mpCache.byCategory[catId] || []) : mpCache.posts;
+
+    // 18+ filtering logic
+    const allow18 = catId === 21 || req.query.is18 === 'true';
+    if (!allow18) {
+      posts = posts.filter(function(p) { return !p.is18Plus; });
+    } else if (req.query.is18 === 'true' && !catId) {
+      posts = posts.filter(function(p) { return p.is18Plus; });
+    }
+
+    // If category filter yields 0 from cache (WP REST API sometimes omits catId from post.categories),
+    // fall back to a live WP API query for this specific category
+    if (catId && posts.length === 0 && !search) {
+      try {
+        const params2 = new URLSearchParams({ categories: catId, per_page: limit, page: page, _fields: 'id,title,slug,date,categories', orderby: 'date', order: 'desc' });
+        const r2 = await mpWpApi('posts?' + params2.toString());
+        const movies2 = (Array.isArray(r2.data) ? r2.data : []).map(function(p) {
+          return Object.assign(mpNormalizePost(p), { categories: (p.categories || []).map(function(id) { return mpCache.categoryMap[id] && mpCache.categoryMap[id].name; }).filter(Boolean) });
+        });
+        await Promise.allSettled(movies2.map(async function(p) {
+          if (!p.thumbnail) {
+            const clean = mpCleanTitle(p.title);
+            const tmdb = await mpTmdbPoster(clean);
+            if (tmdb && tmdb.poster) {
+              p.thumbnail = tmdb.poster;
+              p.coverImage = tmdb.poster;
+              p.bannerImage = tmdb.backdrop || tmdb.poster;
+              if (tmdb.rating) p.rating = tmdb.rating;
+            }
+          }
+        }));
+        return res.json({ movies: movies2, total: r2.total, page: page, totalPages: r2.totalPages, cached: false, note: 'live-fallback' });
+      } catch(e2) { /* continue with empty */ }
+    }
+
+    if (search) posts = posts.filter(function(p) { return p.title.toLowerCase().includes(search); });
+    const total = posts.length;
+    const paginated = posts.slice((page - 1) * limit, page * limit);
+
+    // On-the-fly TMDB poster enrichment for any post missing a poster in this page batch
+    await Promise.allSettled(paginated.map(async function(p) {
+      if (!p.thumbnail) {
+        const clean = mpCleanTitle(p.title);
+        const tmdb = await mpTmdbPoster(clean);
+        if (tmdb && tmdb.poster) {
+          p.thumbnail = tmdb.poster;
+          p.coverImage = tmdb.poster;
+          p.bannerImage = tmdb.backdrop || tmdb.poster;
+          if (tmdb.rating) p.rating = tmdb.rating;
+        }
+      }
+    }));
+
+    const withCats = paginated.map(function(p) {
+      return Object.assign({}, p, { categories: p.categoryIds.map(function(id) { return mpCache.categoryMap[id] && mpCache.categoryMap[id].name; }).filter(Boolean) });
+    });
+    res.json({ movies: withCats, total: total, page: page, totalPages: Math.ceil(total / limit), cached: true });
+  } catch (err) {
+    console.error('[MP Catalog]', err.message);
+    res.status(500).json({ error: 'Catalog fetch failed', message: err.message });
+  }
+});
+
+app.get('/api/movieplex/stream', async function(req, res) {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: 'Missing slug' });
+  try {
+    const result = await resolveMoviePlexStream(slug, req);
+    res.json(result);
+  } catch (err) {
+    console.error('[MP Stream] ' + slug + ':', err.message);
+    res.status(502).json({ error: 'Stream resolution failed', message: err.message });
+  }
+});
+
+app.get('/api/movieplex/post-info', async function(req, res) {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: 'Missing slug' });
+  try {
+    const info = await scrapeMoviePlexPost(slug);
+    const luluSrc = info.iframes.find(function(s) { return s.includes('bfmovies.online'); });
+    const vid = luluSrc ? (luluSrc.split('/e/')[1] || '').split('?')[0].split('/')[0] : null;
+    let thumbnail = (vid ? 'https://img.lulucdn.com/' + vid + '_xt.jpg' : null) || info.thumbnail || null;
+
+    // If still no thumbnail, try TMDB by cleaned title
+    if (!thumbnail && info.title) {
+      const clean = mpCleanTitle(info.title);
+      const tmdb = await mpTmdbPoster(clean).catch(function() { return null; });
+      if (tmdb && tmdb.poster) thumbnail = tmdb.poster;
+    }
+
+    res.json({ thumbnail: thumbnail, title: info.title, iframes: info.iframes });
+  } catch (err) { res.status(502).json({ error: err.message }); }
+});
+
+app.get('/api/movieplex/catalog/status', function(req, res) {
+  res.json({ total: mpCache.posts.length, built: mpCache.lastBuilt > 0, building: mpCache.building, lastRefresh: new Date(mpCache.lastBuilt).toISOString(), categoryCount: Object.keys(mpCache.categoryMap).length });
+});
+
+const moviesHomeCache = { data: null, builtAt: 0 };
+app.get('/api/movies/home', async function(req, res) {
+  // If mpCache has built posts, use them directly so thumbnails are included!
+  if (mpCache.posts.length > 0) {
+    const getCatPosts = function(catId, limit, isHotCat = false) {
+      limit = limit || 24;
+      let posts = mpCache.byCategory[catId] || [];
+      if (!isHotCat) {
+        posts = posts.filter(function(p) { return !p.is18Plus; });
+      }
+      return posts.slice(0, limit).map(function(p) {
+        return Object.assign({}, p, {
+          categories: (p.categoryIds || []).map(function(id) { return mpCache.categoryMap[id] && mpCache.categoryMap[id].name; }).filter(Boolean)
+        });
+      });
+    };
+
+    const trending = getCatPosts(MP_CATS.trending);
+    const hot = getCatPosts(MP_CATS.hot, 24, true);
+    const webSeries = getCatPosts(MP_CATS.web_series);
+    const hindiDubbed = getCatPosts(MP_CATS.hindi_dubbed);
+    const bollywood = getCatPosts(MP_CATS.bollywood);
+    const hollywood = getCatPosts(MP_CATS.hollywood);
+    const action = getCatPosts(MP_CATS.action);
+    const shortFilm = getCatPosts(MP_CATS.short_film);
+    const thriller = getCatPosts(MP_CATS.thriller);
+    const romance = getCatPosts(MP_CATS.romance);
+
+    // Pick a featured title with a valid image if possible (excluding 18+)
+    const withThumb = mpCache.posts.filter(function(p) { return !!p.thumbnail && !p.is18Plus; });
+    const featured = withThumb[0] || trending[0] || hindiDubbed[0] || bollywood[0] || mpCache.posts.find(function(p) { return !p.is18Plus; }) || null;
+
+    const data = {
+      featured: featured, bollywood: bollywood, popular: trending, trending: trending,
+      hollywood: hollywood, action: action, classics: [], topRated: [],
+      netmirror: { trending: [], netflix: [], prime: [], hotstar: [] },
+      movieplex: { trending, hot, webSeries, hindiDubbed, bollywood, hollywood, action, shortFilm, thriller, romance },
+    };
+    return res.json(data);
+  }
+
+  if (moviesHomeCache.data && Date.now() - moviesHomeCache.builtAt < 30 * 60 * 1000) {
+    return res.json(moviesHomeCache.data);
+  }
+  try {
+    const fetchCat = async function(catId, limit) {
+      limit = limit || 24;
+      try {
+        const r = await mpWpApi(`posts?categories=${catId}&per_page=${limit}&_fields=id,title,slug,date,categories&orderby=date&order=desc`);
+        return (Array.isArray(r.data) ? r.data : []).map(mpNormalizePost);
+      } catch(e) { return []; }
+    };
+    const results = await Promise.all([
+      fetchCat(MP_CATS.trending), fetchCat(MP_CATS.hot), fetchCat(MP_CATS.web_series),
+      fetchCat(MP_CATS.hindi_dubbed), fetchCat(MP_CATS.bollywood), fetchCat(MP_CATS.hollywood),
+      fetchCat(MP_CATS.action), fetchCat(MP_CATS.short_film), fetchCat(MP_CATS.thriller), fetchCat(MP_CATS.romance),
+    ]);
+    const [trending, hot, webSeries, hindiDubbed, bollywood, hollywood, action, shortFilm, thriller, romance] = results;
+    const featured = trending[0] || hindiDubbed[0] || bollywood[0] || null;
+    const data = {
+      featured: featured, bollywood: bollywood, popular: trending, trending: trending,
+      hollywood: hollywood, action: action, classics: [], topRated: [],
+      netmirror: { trending: [], netflix: [], prime: [], hotstar: [] },
+      movieplex: { trending, hot, webSeries, hindiDubbed, bollywood, hollywood, action, shortFilm, thriller, romance },
+    };
+    moviesHomeCache.data = data;
+    moviesHomeCache.builtAt = Date.now();
+    res.json(data);
+  } catch (err) {
+    console.error('[Movies Home]', err.message);
+    res.status(502).json({ error: 'Movies home failed', message: err.message });
+  }
+});
+
 if (!process.env.VERCEL) {
   app.listen(PORT, () => {
-    console.log(`\n🚀 EetNet backend running on http://localhost:${PORT}`);
-    console.log(`   PRIMARY:  AnimeKai (HTTP scraper — English subs) ⚡`);
-    console.log(`   FALLBACK: AnimeUnity (Consumet — Italian subs)`);
-    console.log(`   DRAMA:    KissKH via enc-dec.app (English subs) 🎬`);
+    console.log(`\nÃ°Å¸Å¡â‚¬ EetNet backend running on http://localhost:${PORT}`);
+    console.log(`   PRIMARY:  AnimeKai (HTTP scraper Ã¢â‚¬â€ English subs) Ã¢Å¡Â¡`);
+    console.log(`   FALLBACK: AnimeUnity (Consumet Ã¢â‚¬â€ Italian subs)`);
+    console.log(`   DRAMA:    KissKH via enc-dec.app (English subs) Ã°Å¸Å½Â¬`);
     console.log(`   Endpoints:`);
-    console.log(`     GET /api/info/:anilistId                     — anime details + episode list`);
-    console.log(`     GET /api/gogoanime/watch?title=X&episode=N   — AnimeKai English sub stream ⚡`);
-    console.log(`     GET /api/watch/:episodeId                    — AnimeUnity fallback stream`);
-    console.log(`     GET /api/search?q=<query>                    — AnimeKai search`);
-    console.log(`     GET /api/drama/list?type=1&page=1            — KissKH drama catalog 🎬`);
-    console.log(`     GET /api/drama/search?q=<query>              — KissKH drama search`);
-    console.log(`     GET /api/drama/info/:dramaId                 — episode list for a drama`);
-    console.log(`     GET /api/drama/stream/:episodeId             — stream URL + subtitles`);
-    console.log(`     GET /api/drama/subtitle?url=<url>            — decode KissKH subtitle`);
-    console.log(`     GET /api/m3u8-proxy?url=<url>                — HLS manifest proxy`);
-    console.log(`     GET /api/ts-proxy?url=<url>                  — HLS segment proxy\n`);
+    console.log(`     GET /api/info/:anilistId                     Ã¢â‚¬â€ anime details + episode list`);
+    console.log(`     GET /api/gogoanime/watch?title=X&episode=N   Ã¢â‚¬â€ AnimeKai English sub stream Ã¢Å¡Â¡`);
+    console.log(`     GET /api/watch/:episodeId                    Ã¢â‚¬â€ AnimeUnity fallback stream`);
+    console.log(`     GET /api/search?q=<query>                    Ã¢â‚¬â€ AnimeKai search`);
+    console.log(`     GET /api/drama/list?type=1&page=1            Ã¢â‚¬â€ KissKH drama catalog Ã°Å¸Å½Â¬`);
+    console.log(`     GET /api/drama/search?q=<query>              Ã¢â‚¬â€ KissKH drama search`);
+    console.log(`     GET /api/drama/info/:dramaId                 Ã¢â‚¬â€ episode list for a drama`);
+    console.log(`     GET /api/drama/stream/:episodeId             Ã¢â‚¬â€ stream URL + subtitles`);
+    console.log(`     GET /api/drama/subtitle?url=<url>            Ã¢â‚¬â€ decode KissKH subtitle`);
+    console.log(`     GET /api/m3u8-proxy?url=<url>                Ã¢â‚¬â€ HLS manifest proxy`);
+    console.log(`     GET /api/ts-proxy?url=<url>                  Ã¢â‚¬â€ HLS segment proxy\n`);
   });
 }
 
