@@ -5307,9 +5307,13 @@ function MovieHomeView({
   const saveRandomPicks = async (picks) => {
     setRandomPicks(picks);
     try {
-      await supabase
+      const { error } = await supabase
         .from('site_config')
         .upsert({ key: 'random_picks', value: picks, updated_at: new Date().toISOString() });
+      if (error) {
+        console.error('[RandomPicks] Supabase write error:', error);
+        alert('⚠️ Cloud Sync Warning: ' + (error.message || 'Row Level Security policy blocked the update in Supabase. Please check SQL permissions.'));
+      }
     } catch (e) {
       console.error('[RandomPicks] Save failed:', e);
     }
