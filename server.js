@@ -1849,6 +1849,199 @@ app.get('/api/netmirror/playlist/:id', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────
+// KISSKH DRAMA — Handlers & Routes
+// ─────────────────────────────────────────────────────
+const dramaHomeCache = new Map();
+
+async function kissKhFetch(url) {
+  const res = await kissKhGet(url);
+  return res.data;
+}
+
+// GET /api/drama/home
+app.get('/api/drama/home', async (req, res) => {
+  console.log('\n[DRAMA HOME] Endpoint hit!');
+  const cacheKey = 'home';
+  const cached = dramaHomeCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < DRAMA_LIST_TTL) {
+    return res.json(cached.data);
+  }
+
+  try {
+    const [showRes, koreanRes, chineseRes, topRatingRes, lastUpdateRes] = await Promise.all([
+      kissKhFetch(`${KISSKH_BASE}/api/DramaList/Show`),
+      kissKhFetch(`${KISSKH_BASE}/api/DramaList/MostView?ispc=false&c=2`),
+      kissKhFetch(`${KISSKH_BASE}/api/DramaList/MostView?ispc=false&c=1`),
+      kissKhFetch(`${KISSKH_BASE}/api/DramaList/TopRating?ispc=false`),
+      kissKhFetch(`${KISSKH_BASE}/api/DramaList/LastUpdate?ispc=false`),
+    ]);
+    const data = {
+      show:       Array.isArray(showRes)       ? showRes       : [],
+      korean:     Array.isArray(koreanRes)     ? koreanRes     : [],
+      chinese:    Array.isArray(chineseRes)    ? chineseRes    : [],
+      topRating:  Array.isArray(topRatingRes)  ? topRatingRes  : [],
+      lastUpdate: Array.isArray(lastUpdateRes) ? lastUpdateRes : [],
+    };
+    dramaHomeCache.set(cacheKey, { data, timestamp: Date.now() });
+    res.json(data);
+  } catch (err) {
+    console.error('[DRAMA HOME] Error:', err.message);
+    res.status(502).json({ error: 'KissKH home fetch failed', message: err.message });
+  }
+});
+
+// GET /api/drama/list
+app.get('/api/drama/list', async (req, res) => {
+  const type = req.query.type || 0;
+  const q    = req.query.q    || '';
+  const cacheKey = `list:${type}:${q}`;
+
+  const cached = dramaListCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < DRAMA_LIST_TTL) {
+    return res.json(cached.data);
+  }
+
+  try {
+    const data = await kissKhFetch(`${KISSKH_BASE}/api/DramaList/Search?q=${encodeURIComponent(q)}&type=${type}`);
+    dramaListCache.set(cacheKey, { data, timestamp: Date.now() });
+    res.json(data);
+  } catch (err) {
+    console.error('[DRAMA LIST] Error:', err.message);
+    res.status(502).json({ error: 'KissKH drama list failed', message: err.message });
+  }
+});
+
+// GET /api/drama/search
+app.get('/api/drama/search', async (req, res) => {
+  const q = req.query.q;
+  if (!q) return res.status(400).json({ error: 'Missing q parameter' });
+
+  try {
+    const data = await kissKhFetch(`${KISSKH_BASE}/api/DramaList/Search?q=${encodeURIComponent(q)}&type=0`);
+    res.json(data);
+  } catch (err) {
+    console.error('[DRAMA SEARCH] Error:', err.message);
+    res.status(502).json({ error: 'KissKH search failed', message: err.message });
+  }
+});
+
+// GET /api/drama/info/:dramaId
+app.get('/api/drama/info/:dramaId', async (req, res) => {
+  const { dramaId } = req.params;
+
+  const cached = dramaInfoCache.get(dramaId);
+  if (cached && Date.now() - cached.timestamp < DRAMA_LIST_TTL) {
+    return res.json(cached.data);
+  }
+
+  try {
+    const data = await kissKhFetch(`${KISSKH_BASE}/api/DramaList/Drama/${dramaId}?isq=false`);
+    dramaInfoCache.set(dramaId, { data, timestamp: Date.now() });
+    res.json(data);
+  } catch (err) {
+    console.error('[DRAMA INFO] Error:', err.message);
+    res.status(502).json({ error: 'KissKH episode list failed', message: err.message });
+  }
+});
+
+// GET /api/drama/stream/:episodeId
+app.get('/api/drama/stream/:episodeId', async (req, res) => {
+  const { episodeId } = req.params;
+  const host = publicHost(req);
+
+  const cached = dramaStreamCache.get(episodeId);
+  if (cached && Date.now() - cached.timestamp < STREAM_TTL) {
+    return res.json(cached.data);
+  }
+
+  try {
+    const vidKeyRes = await axios.get(
+      `${ENCDEC_BASE}/api/enc-kisskh?text=${episodeId}&type=vid`,
+      { timeout: 10000 }
+    );
+    const vidKkey = vidKeyRes.data?.result;
+    if (!vidKkey) {
+      return res.status(502).json({ error: 'enc-dec.app returned no video kkey' });
+    }
+
+    const streamResData = await kissKhFetch(
+      `${KISSKH_BASE}/api/DramaList/Episode/${episodeId}.png?err=false&ts=&time=&kkey=${vidKkey}`
+    );
+    const videoUrl = streamResData?.Video;
+    if (!videoUrl) {
+      return res.status(404).json({ error: 'No stream URL found for this episode' });
+    }
+
+    let subtitles = [];
+    try {
+      const subKeyRes = await axios.get(
+        `${ENCDEC_BASE}/api/enc-kisskh?text=${episodeId}&type=sub`,
+        { timeout: 8000 }
+      );
+      const subKkey = subKeyRes.data?.result;
+      if (subKkey) {
+        const rawSubs = await kissKhFetch(`${KISSKH_BASE}/api/Sub/${episodeId}?kkey=${subKkey}`);
+        if (Array.isArray(rawSubs)) {
+          subtitles = rawSubs.map(s => ({
+            label: s.label || s.language || 'English',
+            file: `${host}/api/drama/subtitle?url=${encodeURIComponent(s.src)}`,
+            rawFile: s.src,
+            default: (s.label || s.language || '').toLowerCase().includes('en'),
+          }));
+        }
+      }
+    } catch (subErr) {
+      console.warn('[DRAMA STREAM] Subtitle fetch failed (non-fatal):', subErr.message);
+    }
+
+    const isM3U8 = videoUrl.includes('.m3u8');
+    const proxiedStream = isM3U8
+      ? `${host}/api/m3u8-proxy?url=${encodeURIComponent(videoUrl)}&referer=${encodeURIComponent(KISSKH_BASE + '/')}`
+      : videoUrl;
+
+    const result = {
+      episodeId,
+      type: isM3U8 ? 'hls' : 'mp4',
+      streamUrl: proxiedStream,
+      subtitles,
+    };
+
+    dramaStreamCache.set(episodeId, { data: result, timestamp: Date.now() });
+    res.json(result);
+
+  } catch (err) {
+    console.error('[DRAMA STREAM] Fatal error:', err.message);
+    res.status(502).json({ error: 'Drama stream fetch failed', message: err.message });
+  }
+});
+
+// GET /api/drama/subtitle?url=<url>
+app.get('/api/drama/subtitle', async (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: 'Missing url parameter' });
+
+  try {
+    const subRes = await axios.get(url, { timeout: 10000, responseType: 'text' });
+    let content = subRes.data;
+
+    if (typeof content !== 'string') {
+      content = String(content);
+    }
+
+    if (!content.trimStart().startsWith('WEBVTT')) {
+      content = 'WEBVTT\n\n' + content.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
+    }
+
+    res.setHeader('Content-Type', 'text/vtt; charset=utf-8');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.send(content);
+  } catch (err) {
+    console.error('[DRAMA SUB] Error:', err.message);
+    res.status(502).json({ error: 'Subtitle retrieval failed', message: err.message });
+  }
+});
+
 // Get NetMirror trending/home catalog (HTML parsing with cheerio)
 // GET /api/netmirror/trending
 app.get('/api/netmirror/trending', async (req, res) => {
