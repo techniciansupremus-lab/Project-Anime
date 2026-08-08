@@ -5572,54 +5572,55 @@ function MovieHomeView({
           {activeCategory === 'All' ? (
             /* ALL CATEGORIES HOME VIEW (Horizontal Scrolling Rows) */
             <div style={{ padding: '0.5rem clamp(1rem, 4vw, 3rem) 4rem' }}>
-              {/* ──  Random Picks Row (developer-curated) ── */}
+              {mpTrending.length > 0 && (
+                <MovieRow title="Trending" icon={<Flame size={20} style={{ color: '#ef4444' }} />} movies={mpTrending} onMovieClick={onMovieClick} />
+              )}
+              {mpHindiDub.length > 0 && (
+                <MovieRow title="Hindi Dubbed" icon={<Globe size={20} style={{ color: '#06b900' }} />} movies={mpHindiDub} onMovieClick={onMovieClick} />
+              )}
+              {mpBollywood.length > 0 && (
+                <MovieRow title="Bollywood" icon={<Flame size={20} style={{ color: '#f97316' }} />} movies={mpBollywood} onMovieClick={onMovieClick} />
+              )}
+              {mpHollywood.length > 0 && (
+                <MovieRow title="Hollywood" icon={<Tv size={20} style={{ color: '#3b82f6' }} />} movies={mpHollywood} onMovieClick={onMovieClick} />
+              )}
+              {mpWebSeries.length > 0 && (
+                <MovieRow title="Web Series" icon={<Tv size={20} style={{ color: '#8b5cf6' }} />} movies={mpWebSeries} onMovieClick={onMovieClick} />
+              )}
+              {mpAction.length > 0 && (
+                <MovieRow title="Action" icon={<Zap size={20} style={{ color: '#f97316' }} />} movies={mpAction} onMovieClick={onMovieClick} />
+              )}
+              {mpThriller.length > 0 && (
+                <MovieRow title="Thriller" icon={<Zap size={20} style={{ color: '#ef4444' }} />} movies={mpThriller} onMovieClick={onMovieClick} />
+              )}
+              {mpShortFilm.length > 0 && (
+                <MovieRow title="Short Films" icon={<Sparkles size={20} style={{ color: '#06b900' }} />} movies={mpShortFilm} onMovieClick={onMovieClick} />
+              )}
+              {mpRomance.length > 0 && (
+                <MovieRow title="Romance" icon={<Star size={20} style={{ color: '#ec4899' }} />} movies={mpRomance} onMovieClick={onMovieClick} />
+              )}
+
+              {/* ──  Random Picks Section (Developer-Curated Infinite Grid at Bottom) ── */}
               {randomPicks.length > 0 && (
-                <section style={{ marginTop: '2.2rem', position: 'relative' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.9rem' }}>
+                <section style={{ marginTop: '3.5rem', paddingTop: '2rem', borderTop: '1px solid rgba(255,255,255,0.08)', position: 'relative' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.2rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                      <span style={{ fontSize: '1.25rem' }}>🎲</span>
-                      <h2 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 700, color: '#ffffff', letterSpacing: '-0.2px' }}>Random Picks!</h2>
-                      <span style={{ background: 'rgba(139,92,246,0.25)', color: '#a78bfa', padding: '2px 8px', borderRadius: '12px', fontSize: '0.7rem', fontWeight: 700 }}>{randomPicks.length} movies</span>
+                      <Sparkles size={20} style={{ color: '#a78bfa' }} />
+                      <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: '#ffffff', letterSpacing: '-0.2px' }}>Random Picks</h2>
+                      <span style={{ background: 'rgba(139,92,246,0.25)', color: '#a78bfa', padding: '2px 9px', borderRadius: '12px', fontSize: '0.72rem', fontWeight: 700 }}>{randomPicks.length} movies</span>
                     </div>
                     <button
                       onClick={() => { if (window.confirm('Clear all Random Picks?')) saveRandomPicks([]); }}
                       style={{ background: 'none', border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.4)', padding: '3px 10px', borderRadius: '12px', cursor: 'pointer', fontSize: '0.72rem' }}
                     >Clear</button>
                   </div>
-                  {/* Full infinite-scroll grid for Random Picks (not a limited row) */}
+                  {/* Infinite Grid for Random Picks */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '1.2rem 1rem' }}>
                     {randomPicks.map((m, idx) => (
                       <MovieCard key={m.id + '-rp-' + idx} movie={m} onClick={() => onMovieClick(m)} />
                     ))}
                   </div>
                 </section>
-              )}
-              {mpTrending.length > 0 && (
-                <MovieRow title="🔥 Trending" icon={<Flame size={20} style={{ color: '#ef4444' }} />} movies={mpTrending} onMovieClick={onMovieClick} />
-              )}
-              {mpHindiDub.length > 0 && (
-                <MovieRow title="🇮🇳 Hindi Dubbed" icon={<Globe size={20} style={{ color: '#06b900' }} />} movies={mpHindiDub} onMovieClick={onMovieClick} />
-              )}
-              {mpBollywood.length > 0 && (
-                <MovieRow title="🎬 Bollywood" icon={<Flame size={20} style={{ color: '#f97316' }} />} movies={mpBollywood} onMovieClick={onMovieClick} />
-              )}
-              {mpHollywood.length > 0 && (
-                <MovieRow title="🌐 Hollywood" icon={<Tv size={20} style={{ color: '#3b82f6' }} />} movies={mpHollywood} onMovieClick={onMovieClick} />
-              )}
-              {mpWebSeries.length > 0 && (
-                <MovieRow title="📺 Web Series" icon={<Tv size={20} style={{ color: '#8b5cf6' }} />} movies={mpWebSeries} onMovieClick={onMovieClick} />
-              )}
-              {mpAction.length > 0 && (
-                <MovieRow title="⚡ Action" icon={<Zap size={20} style={{ color: '#f97316' }} />} movies={mpAction} onMovieClick={onMovieClick} />
-              )}
-              {mpThriller.length > 0 && (
-                <MovieRow title="🔪 Thriller" icon={<Zap size={20} style={{ color: '#ef4444' }} />} movies={mpThriller} onMovieClick={onMovieClick} />
-              )}
-              {mpShortFilm.length > 0 && (
-                <MovieRow title="🎥 Short Films" icon={<Sparkles size={20} style={{ color: '#06b900' }} />} movies={mpShortFilm} onMovieClick={onMovieClick} />
-              )}
-              {mpRomance.length > 0 && (
-                <MovieRow title="💕 Romance" icon={<Star size={20} style={{ color: '#ec4899' }} />} movies={mpRomance} onMovieClick={onMovieClick} />
               )}
             </div>
           ) : (
