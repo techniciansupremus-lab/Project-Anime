@@ -16,6 +16,8 @@ import WebtoonDetailView from './components/WebtoonDetailView';
 import { storage } from './utils/storage';
 import { saveSession, loadSession, saveVideoProgress, getVideoProgress } from './utils/sessionRestore';
 import { initNativeApp } from './utils/nativeApp';
+import HindiView from './features/anime/hindi/components/HindiView';
+import AnimeView from './features/anime/components/AnimeView';
 import {
   SaveToPlaylistModal,
   CreatePlaylistModal,
@@ -2609,15 +2611,14 @@ const HOME_FEATURED_ITEMS = [
   }
 ];
 
-//  YouTube Card Component 
-function YTCard({ item, onClick, badge }) {
+export function YTCard({ item, onClick, badge }) {
   const thumb = item.episodeThumbnail || item.bannerImage || item.coverImage || item.thumbnail || item.cover || '';
   const animeTitle = item.title || 'Untitled';
   const seasonNum = item.season || 1;
   const epNum = item.episode || 1;
   const displayTitle = `${animeTitle} | Season ${seasonNum} | Episode ${epNum}`;
 
-  const channelText = item.genres?.slice(0, 2).join(' â€¢ ') || item.type || 'Anime';
+  const channelText = item.genres?.slice(0, 2).join(' • ') || item.type || 'Anime';
   const viewsText = formatViews(item.popularity || item.viewsCount);
   const timeAgoText = formatRelativeTime(item.startDate, epNum);
   const durationText = item.formattedDuration || (item.rawDuration ? `${item.rawDuration}:00` : (item.duration && !isNaN(parseInt(item.duration)) ? `${parseInt(item.duration)}:00` : '23:45'));
@@ -2644,14 +2645,15 @@ function YTCard({ item, onClick, badge }) {
         <div className="yt-card-info">
           <div className="yt-card-title">{displayTitle}</div>
           <div className="yt-card-channel">{channelText}</div>
-          <div className="yt-card-stats">{viewsText} Â· {timeAgoText}</div>
+          <div className="yt-card-stats">{viewsText} • {timeAgoText}</div>
         </div>
       </div>
     </div>
   );
 }
+
 //  Chip Bar Component 
-function ChipBar({ chips, active, onSelect }) {
+export function ChipBar({ chips, active, onSelect }) {
   return (
     <div className="yt-chip-bar">
       {chips.map(chip => (
@@ -2808,154 +2810,8 @@ function HomeView({ onAnimeClick, onStartWatching, onManhwaClick }) {
   );
 }
 
-//  AnimeView (YouTube-style chip + grid) 
-function AnimeView({
-  activeFeatured,
-  featured = [],
-  activeCategory = 'All',
-  filteredTrending = [],
-  top10Famous = [],
-  setActiveCategory,
-  onAnimeClick,
-  onStartWatching,
-  watchHistory = [],
-  onHistoryItemClick,
-  onDramaClick,
-  onManhwaClick,
-  hindiLoading = false
-}) {
-  const ANIME_CHIPS = [
-    { id: 'All', label: 'All' },
-    { id: 'Action', label: 'Action' },
-    { id: 'Adventure', label: 'Adventure' },
-    { id: 'Romance', label: 'Romance' },
-    { id: 'Comedy', label: 'Comedy' },
-    { id: 'Fantasy', label: 'Fantasy' },
-    { id: 'Thriller', label: 'Thriller' },
-    { id: 'Horror', label: 'Horror' },
-    { id: 'Sci-Fi', label: 'Sci-Fi' },
-    { id: 'Sports', label: 'Sports' },
-    { id: 'Hindi', label: 'Hindi Dub' },
-  ];
+// AnimeView is imported from ./features/anime/components/AnimeView
 
-  // Show all types in Continue Watching (anime, movie, drama, manhwa)
-  const continueWatching = watchHistory.slice(0, 12);
-
-  const TYPE_COLORS = { anime: '#6366f1', movie: '#f59e0b', drama: '#ec4899', manhwa: '#10b981', manga: '#3b82f6' };
-  const getCWBadge = (h) => {
-    const t = h.type || 'anime';
-    if (t === 'movie') return '▶ Movie';
-    if (t === 'drama') return `Ep. ${h.episode_number || '?'}`;
-    if (t === 'manhwa') return `Ch. ${h.chapter_number || '?'}`;
-    return `Ep. ${h.episode_number || '?'}`;
-  };
-
-  return (
-    <div className="yt-section-view">
-      {/* Chip filter bar */}
-      <ChipBar chips={ANIME_CHIPS} active={activeCategory} onSelect={setActiveCategory} />
-
-      {/* Continue Watching row (if exists) */}
-      {continueWatching.length > 0 && (
-        <div className="yt-section-block">
-          <div className="yt-section-header">
-            <span className="yt-section-title">Continue Watching</span>
-          </div>
-          <div className="yt-content-grid">
-            {continueWatching.slice(0, 8).map(h => {
-              const typeColor = TYPE_COLORS[h.type || 'anime'] || '#6366f1';
-              return (
-                <div key={h.media_id || h.id} style={{ position: 'relative' }}>
-                  <YTCard
-                    item={{ id: h.media_id || h.id, title: h.title, coverImage: h.cover || h.coverImage, rating: 'N/A', genres: [] }}
-                    badge={getCWBadge(h)}
-                    onClick={() => onHistoryItemClick ? onHistoryItemClick(h) : onAnimeClick(h.media_id || h.id)}
-                  />
-                  {/* Type label */}
-                  <span style={{
-                    position: 'absolute', top: 6, left: 6,
-                    background: typeColor, color: '#fff',
-                    borderRadius: '4px', padding: '2px 6px',
-                    fontSize: '0.62rem', fontWeight: 700, textTransform: 'uppercase', zIndex: 2,
-                  }}>
-                    {(h.type || 'anime').charAt(0).toUpperCase() + (h.type || 'anime').slice(1)}
-                  </span>
-                  {/* Progress bar */}
-                  {h.duration_seconds > 0 && (
-                    <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '3px', background: 'rgba(255,255,255,0.15)', borderRadius: '0 0 6px 6px' }}>
-                      <div style={{ height: '100%', background: '#e50914', width: `${Math.min(100, Math.round((h.progress_seconds / h.duration_seconds) * 100))}%`, borderRadius: '0 0 6px 6px' }} />
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Top 10 */}
-      {top10Famous.length > 0 && (
-        <div className="yt-section-block">
-          <div className="yt-section-header">
-            <span className="yt-section-title"> Top 10 This Week</span>
-          </div>
-          <div className="yt-content-grid">
-            {top10Famous.slice(0, 10).map((anime, i) => (
-              <YTCard
-                key={anime.id}
-                item={anime}
-                badge={`#${i + 1}`}
-                onClick={() => onStartWatching(anime, 1)}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Main grid */}
-      <div className="yt-section-block">
-        <div className="yt-section-header">
-          <span className="yt-section-title">
-            {activeCategory === 'All' ? 'Trending Anime' : activeCategory === 'Hindi' ? 'Hindi Dubbed Anime' : `${activeCategory} Anime`}
-          </span>
-          {featured.length > 0 && (
-            <button className="yt-section-more" onClick={() => onAnimeClick(featured[0]?.id)}>
-              View all â†’
-            </button>
-          )}
-        </div>
-        <div className="yt-content-grid">
-          {filteredTrending.length > 0 ? (
-            filteredTrending.map(anime => (
-              <YTCard
-                key={anime.id}
-                item={anime}
-                onClick={() => onStartWatching(anime, 1)}
-              />
-            ))
-          ) : (activeCategory === 'Hindi' && hindiLoading) || (activeCategory === 'All' && featured.length === 0) ? (
-            Array.from({ length: 12 }).map((_, i) => (
-              <div key={i} className="yt-card-skeleton">
-                <div className="yt-skeleton-thumb" />
-                <div className="yt-card-meta" style={{ padding: '4px 0' }}>
-                  <div className="yt-skeleton-avatar" />
-                  <div style={{ flex: 1 }}>
-                    <div className="yt-skeleton-line" style={{ width: '90%' }} />
-                    <div className="yt-skeleton-line" style={{ width: '60%', marginTop: '6px' }} />
-                  </div>
-                </div>
-              </div>
-            ))
-          ) : (
-            <div style={{ gridColumn: '1 / -1', padding: '3rem 1rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
-              No {activeCategory} anime found at the moment.
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 
 function NetflixRow({ title, icon, items, onAnimeClick, progress = false, ranked = false }) {
@@ -4243,210 +4099,8 @@ function CategoryGridView({
   );
 }
 
-function HindiView({ hindiAnime = [], onAnimeClick, onStartWatching, isLoading = false }) {
-  const [activeFilter, setActiveFilter] = React.useState('All');
-  const [sortBy, setSortBy] = React.useState('popularity');
+// HindiView and HindiYTCard are imported from ./features/anime/hindi/components/HindiView
 
-  if (isLoading && hindiAnime.length === 0) {
-    return (
-      <div className="hindi-yt-page">
-        <div className="hindi-yt-banner-skeleton" />
-        <div className="hindi-yt-chips-row">
-          {['All','Action','Adventure','Fantasy','Romance','Thriller'].map(c => (
-            <div key={c} className="hindi-chip-skeleton" />
-          ))}
-        </div>
-        <div className="hindi-yt-grid">
-          {Array.from({ length: 12 }).map((_, i) => (
-            <div key={i} className="hindi-yt-card-skeleton">
-              <div className="hindi-yt-card-thumb-skeleton" />
-              <div className="hindi-yt-card-meta-skeleton">
-                <div className="hindi-yt-line-skeleton w70" />
-                <div className="hindi-yt-line-skeleton w50" />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  const FILTERS = ['All', 'Action', 'Adventure', 'Fantasy', 'Romance', 'Thriller', 'Supernatural', 'Comedy', 'Sci-Fi'];
-
-  const filtered = activeFilter === 'All'
-    ? hindiAnime
-    : hindiAnime.filter(a => a.genres?.some(g => g.toLowerCase() === activeFilter.toLowerCase()));
-
-  const sorted = [...filtered].sort((a, b) => {
-    if (sortBy === 'popularity') return (b.popularity || 0) - (a.popularity || 0);
-    if (sortBy === 'rating') return parseFloat(b.rating || 0) - parseFloat(a.rating || 0);
-    if (sortBy === 'az') return (a.title || '').localeCompare(b.title || '');
-    return 0;
-  });
-
-  const topPick = hindiAnime[0];
-
-  return (
-    <div className="hindi-yt-page">
-
-      {/*  Channel Header Banner  */}
-      {topPick && (
-        <div
-          className="hindi-yt-banner"
-          style={{ backgroundImage: `url(${topPick.bannerImage || topPick.coverImage})` }}
-        >
-          <div className="hindi-yt-banner-overlay" />
-          <div className="hindi-yt-banner-content">
-            <div className="hindi-yt-channel-info">
-              <div className="hindi-yt-channel-avatar">
-                
-              </div>
-              <div className="hindi-yt-channel-text">
-                <div className="hindi-yt-channel-name">Hindi Dubbed Anime</div>
-                <div className="hindi-yt-channel-sub">
-                  <span className="hindi-yt-live-dot" />
-                  <span>{hindiAnime.length} series available</span>
-                  <span className="hindi-yt-badge">Hindi Audio</span>
-                </div>
-              </div>
-            </div>
-            {topPick && (
-              <button
-                className="hindi-yt-play-btn"
-                onClick={() => onStartWatching(topPick, 1)}
-              >
-                <Play size={16} fill="currentColor" />
-                <span>Play Featured</span>
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/*  Filter Chips Row  */}
-      <div className="hindi-yt-controls">
-        <div className="hindi-yt-chips-row">
-          {FILTERS.map(f => (
-            <button
-              key={f}
-              className={`hindi-yt-chip ${activeFilter === f ? 'active' : ''}`}
-              onClick={() => setActiveFilter(f)}
-            >
-              {f}
-            </button>
-          ))}
-        </div>
-        <select
-          className="hindi-yt-sort"
-          value={sortBy}
-          onChange={e => setSortBy(e.target.value)}
-        >
-          <option value="popularity">Most Popular</option>
-          <option value="rating">Highest Rated</option>
-          <option value="az">A  Z</option>
-        </select>
-      </div>
-
-      {/*  Results count  */}
-      <div className="hindi-yt-count">
-        {filtered.length} Hindi dubbed {activeFilter !== 'All' ? activeFilter : ''} series
-        {isLoading && <span className="hindi-yt-loading-badge"> Loading more</span>}
-      </div>
-
-      {/*  Video Grid  */}
-      {sorted.length === 0 ? (
-        <div className="hindi-yt-empty">
-          <span></span>
-          <p>No Hindi dubbed anime found for <strong>{activeFilter}</strong></p>
-          <button className="hindi-yt-chip active" onClick={() => setActiveFilter('All')}>Show All</button>
-        </div>
-      ) : (
-        <div className="hindi-yt-grid">
-          {sorted.map((anime) => (
-            <HindiYTCard
-              key={anime.id}
-              anime={anime}
-              onPlay={() => onStartWatching(anime, 1)}
-              onInfo={() => onAnimeClick(anime.id)}
-            />
-          ))}
-        </div>
-      )}
-
-    </div>
-  );
-}
-
-function HindiYTCard({ anime, onPlay, onInfo }) {
-  const [imgErr, setImgErr] = React.useState(false);
-  const [hovered, setHovered] = React.useState(false);
-
-  const episodeCount = anime.totalEpisodes || anime.episodes?.length || '?';
-  const rating = parseFloat(anime.rating) || 0;
-  const genre = anime.genres?.[0] || 'Anime';
-
-  return (
-    <div
-      className={`hindi-yt-card ${hovered ? 'hovered' : ''}`}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      {/* Thumbnail */}
-      <div className="hindi-yt-card-thumb" onClick={onInfo}>
-        {!imgErr ? (
-          <img
-            src={anime.coverImage || anime.bannerImage}
-            alt={anime.title}
-            loading="lazy"
-            onError={() => setImgErr(true)}
-          />
-        ) : (
-          <div className="hindi-yt-card-thumb-fallback">
-            <span>{anime.title?.charAt(0) || '?'}</span>
-          </div>
-        )}
-
-        {/* Duration/Episodes badge */}
-        <div className="hindi-yt-card-ep-badge">
-          {episodeCount} EP
-        </div>
-
-        {/* Hindi audio badge */}
-        <div className="hindi-yt-card-audio-badge">ðŸ‡®ðŸ‡³ HINDI</div>
-
-        {/* Hover overlay */}
-        <div className="hindi-yt-card-hover-overlay">
-          <button className="hindi-yt-card-play-circle" onClick={(e) => { e.stopPropagation(); onPlay(); }}>
-            <Play size={22} fill="white" />
-          </button>
-        </div>
-      </div>
-
-      {/* Meta info  YouTube style */}
-      <div className="hindi-yt-card-meta">
-        <div className="hindi-yt-card-avatar-dot">
-          <span></span>
-        </div>
-        <div className="hindi-yt-card-info">
-          <div className="hindi-yt-card-title" title={anime.title} onClick={onInfo}>
-            {anime.title}
-          </div>
-          <div className="hindi-yt-card-channel">{genre} â€¢ {anime.type || 'TV'}</div>
-          <div className="hindi-yt-card-stats">
-            {rating > 0 && (
-              <span className="hindi-yt-card-rating">
-                <Star size={11} fill="#fbbf24" style={{ color: '#fbbf24' }} />
-                {rating.toFixed(1)}
-              </span>
-            )}
-            <span>{anime.status || 'Finished'}</span>
-          </div>
-        </div>
-        <button className="hindi-yt-card-more" title="More options"></button>
-      </div>
-    </div>
-  );
-}
 
 
 function WatchlistView({ items, onAnimeClick, onBackHome }) {
