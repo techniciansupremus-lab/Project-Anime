@@ -1,0 +1,5 @@
+- Each media feature under `src/features/<type>/` follows a fixed `api/` + `components/` split, exposing a typed API module and a set of view components rendered by the root App.
+- All feature API modules obtain their base URL through `runtimeConfig.apiUrl(path)` rather than hard-coded endpoints, so switching backends requires no code changes.
+- User-scoped data (watch history, watchlist, playlists, subscriptions, notifications) is persisted to `localStorage` keys prefixed with `anistream_` and merged with Supabase on auth state change.
+- Client-side routing uses `window.history.pushState/replaceState` with a serializable state object keyed by a string `view` name, parsed on initial load from `location.pathname`.
+- Shared UI building blocks (cards, rows, sliders, player, modals) are placed in `src/components/` and reused across features instead of being duplicated per feature.

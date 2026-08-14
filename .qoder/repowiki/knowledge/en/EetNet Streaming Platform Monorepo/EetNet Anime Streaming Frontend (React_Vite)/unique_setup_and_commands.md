@@ -1,0 +1,1 @@
+Runtime backend URL is resolved at startup via `loadRuntimeConfig()` before the React tree mounts; no build-time env leak of localhost URLs on Vercel, and a `?apiBase=` query override can be used for ad-hoc tunneling without redeploy.

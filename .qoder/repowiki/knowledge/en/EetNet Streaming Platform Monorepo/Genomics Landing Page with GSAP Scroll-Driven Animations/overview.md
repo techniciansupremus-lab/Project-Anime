@@ -1,0 +1,1 @@
+A single-page marketing landing for a genomics company featuring scroll-driven banner transitions, an animated tree diagram with hover-reactive branches, and butterfly wing animations powered by GSAP.

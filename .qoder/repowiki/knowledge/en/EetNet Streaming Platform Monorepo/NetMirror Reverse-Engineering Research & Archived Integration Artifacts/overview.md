@@ -1,0 +1,1 @@
+Research dossier and archived frontend/backend artifacts documenting the reverse-engineered NetMirror OTT aggregator API, its auth bypass, and a planned Movies/Dramas integration into the EetNet app.

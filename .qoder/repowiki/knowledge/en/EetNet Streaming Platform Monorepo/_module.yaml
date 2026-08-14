@@ -1,0 +1,31 @@
+schema_version: 1
+module_path: ""
+title: EetNet Streaming Platform Monorepo
+scope:
+    - README.md
+    - .gitignore
+    - .oxlintrc.json
+    - package.json
+    - package-lock.json
+    - vite.config.js
+    - vercel.json
+    - capacitor.config.json
+    - index.html
+    - .env.example
+    - ARCHITECTURE_RESEARCH_BRIEF.txt
+    - MOVIES_SECTION_STATE.md
+    - scratch_clean_verify.cjs
+    - scratch_movieplex_count.cjs
+    - scratch_movieplex_deep.cjs
+    - scratch_movieplex_deep2.cjs
+    - scratch_movieplex_research.cjs
+    - scratch_mp_tmdb.cjs
+    - scratch_poster_audit.cjs
+    - scratch_tmdb_diag.cjs
+    - scratch_tmdb_test.cjs
+    - server_log.txt
+    - test_comick_covers.cjs
+    - tmdb_debug.mjs
+source_files: []
+depends_on: []
+related_to: []

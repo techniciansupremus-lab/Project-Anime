@@ -1,0 +1,1 @@
+Serves static images, icons, and PWA manifest/config files that power the EetNet anime streaming frontend's offline capabilities and app identity.

@@ -1,0 +1,1 @@
+Android native shell for the EetNet hybrid app, wrapping a prebuilt web application in a Capacitor BridgeActivity and wiring Cordova plugins.

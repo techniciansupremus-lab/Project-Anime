@@ -1,0 +1,1 @@
+GSAP animation library with ScrollTrigger, SplitText, DrawSVGPlugin, MotionPathPlugin, and CustomEase; vanilla JavaScript (no framework); SASS for styling; inline SVGs and external video/audio assets hosted on cdn.zajno.com.

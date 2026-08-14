@@ -1,0 +1,1 @@
+Node.js + Express with ESM imports; Axios + Cheerio for scraping; `@consumet/extensions` for HiAnime/AniList/AnimeUnity providers; Python `http.server` as a lightweight KissKH TLS relay; in-process `Map` caches with TTLs.

@@ -1,0 +1,12 @@
+schema_version: 1
+module_path: api_server
+title: Anime & Manga Streaming API Server
+scope:
+    - api/
+    - server.js
+    - proxy.py
+source_files: []
+depends_on: []
+related_to:
+    - path: frontend_app
+    - path: research_and_scripts

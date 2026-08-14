@@ -1,0 +1,5 @@
+- Provider base URLs and service endpoints are read from environment variables with string defaults rather than hard-coded constants.
+- Caching uses an in-process `Map` keyed by a composite string (e.g. `${malId}:${page}`, `${anilistId}:e${episodeNum}:${lang}`) paired with a `timestamp` field checked against a module-level TTL constant.
+- Outbound HTTP requests set a browser-like `User-Agent` and derive `Referer`/`Origin` from the target URL via a shared `streamProxyHeaders` helper to avoid CDN 403 blocks.
+- Media proxy endpoints validate required query parameters early and return `400` with a plain text message before attempting any network call.
+- Errors from upstream scrapers are logged with a bracketed tag (e.g. `[M3U8-PROXY]`, `[ANIMERULZ]`, `[JIKAN]`) and surfaced to the client as `502` responses containing the error message.

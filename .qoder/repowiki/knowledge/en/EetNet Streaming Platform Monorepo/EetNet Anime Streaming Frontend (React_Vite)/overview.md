@@ -1,0 +1,1 @@
+React/Vite frontend that orchestrates anime, drama, movie, manhwa, manga and Hindi YouTube content through a single App shell with per-feature feature folders sharing common UI components and Supabase-backed user state.

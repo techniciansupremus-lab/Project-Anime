@@ -1,0 +1,2 @@
+- Static assets are referenced from the site root using absolute paths prefixed with `/` (e.g., `/favicon.png`, `/index.html`, `/manifest.json`).
+- Service worker fetch interception explicitly whitelists routes to bypass caching by checking pathname prefixes (`/assets/`, `/api/`, `/anilist-proxy`) and hostnames (`anilist.co`, `streamindia`) rather than blacklisting specific URLs.

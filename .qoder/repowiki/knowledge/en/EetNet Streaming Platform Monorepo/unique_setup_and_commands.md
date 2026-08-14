@@ -1,0 +1,1 @@
+`npm run dev` starts the Vite dev server which proxies `/api` to a concurrently running Express backend (`npm run server` / `node server.js`); `npm run build` produces the static frontend while `npm start` serves it via the Express server; `npx cap sync` rebuilds the Capacitor Android project from the built assets.

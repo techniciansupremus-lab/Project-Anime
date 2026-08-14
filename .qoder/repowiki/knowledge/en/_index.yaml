@@ -1,0 +1,111 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: en-US
+branch: main
+nodes_managed: true
+exported_at: "2026-08-14T10:45:27Z"
+modules:
+    "":
+        dir_name: EetNet Streaming Platform Monorepo
+        title: EetNet Streaming Platform Monorepo
+        scope:
+            - README.md
+            - .gitignore
+            - .oxlintrc.json
+            - package.json
+            - package-lock.json
+            - vite.config.js
+            - vercel.json
+            - capacitor.config.json
+            - index.html
+            - .env.example
+            - ARCHITECTURE_RESEARCH_BRIEF.txt
+            - MOVIES_SECTION_STATE.md
+            - scratch_clean_verify.cjs
+            - scratch_movieplex_count.cjs
+            - scratch_movieplex_deep.cjs
+            - scratch_movieplex_deep2.cjs
+            - scratch_movieplex_research.cjs
+            - scratch_mp_tmdb.cjs
+            - scratch_poster_audit.cjs
+            - scratch_tmdb_diag.cjs
+            - scratch_tmdb_test.cjs
+            - server_log.txt
+            - test_comick_covers.cjs
+            - tmdb_debug.mjs
+        source_files: []
+        children:
+            - android_app
+            - api_server
+            - frontend_app
+            - research_and_scripts
+            - scratch_workspaces
+        depends_on: []
+        related_to: []
+    android_app:
+        dir_name: EetNet Android Native Shell (Capacitor Hybrid App)
+        title: EetNet Android Native Shell (Capacitor Hybrid App)
+        scope:
+            - android/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: frontend_app
+            - path: frontend_app/static_assets
+    api_server:
+        dir_name: Anime & Manga Streaming API Server
+        title: Anime & Manga Streaming API Server
+        scope:
+            - api/
+            - server.js
+            - proxy.py
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: frontend_app
+            - path: research_and_scripts
+    frontend_app:
+        dir_name: EetNet Anime Streaming Frontend (React_Vite)
+        title: EetNet Anime Streaming Frontend (React/Vite)
+        scope:
+            - src/
+            - public/
+        source_files: []
+        children:
+            - frontend_app/static_assets
+        depends_on: []
+        related_to:
+            - path: android_app
+            - path: api_server
+    frontend_app/static_assets:
+        dir_name: Frontend Static Assets & PWA Configuration
+        title: Frontend Static Assets & PWA Configuration
+        scope:
+            - public/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: android_app
+    research_and_scripts:
+        dir_name: NetMirror Reverse-Engineering Research & Archived Integration Artifacts
+        title: NetMirror Reverse-Engineering Research & Archived Integration Artifacts
+        scope:
+            - research on reverse engineering/
+            - archive_movies_netmirror/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: api_server
+    scratch_workspaces:
+        dir_name: Genomics Landing Page with GSAP Scroll-Driven Animations
+        title: Genomics Landing Page with GSAP Scroll-Driven Animations
+        scope:
+            - CSS intro/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []

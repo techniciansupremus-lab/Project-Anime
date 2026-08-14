@@ -2,6 +2,7 @@ import React from 'react';
 import { Play, AlertCircle } from 'lucide-react';
 import { apiUrl } from '../../../runtimeConfig';
 import VideoPlayer from '../../../components/VideoPlayer';
+import MoviePlexPlayerView from './MoviePlexPlayerView';
 
 function cleanMovieDisplayTitle(raw) {
   if (!raw) return 'Untitled Movie';
@@ -36,19 +37,15 @@ function MovieWatchView({ movie, onBack, onProgress }) {
   const [resolving, setResolving] = React.useState(false);
 
   // If it's a MoviePlex movie, delegate to MoviePlexPlayerView.
-  // We still need the hooks above unconditionally but we short-circuit the render here.
   if (isMoviePlex) {
     return <MoviePlexPlayerView movie={movie} onBack={onBack} />;
   }
-
-
 
   // For NetMirror items: search TMDB by title to get a TMDB ID for embed servers
   // For regular TMDB items: fetch full info to get imdbId
   React.useEffect(() => {
     if (movie.netmirrorId && movie.title) {
       setResolving(true);
-      // Search TMDB for this title to get the TMDB numeric ID
       fetch(`/api/movies/search?q=${encodeURIComponent(movie.title)}`)
         .then(r => r.json())
         .then(results => {
@@ -128,7 +125,7 @@ function MovieWatchView({ movie, onBack, onProgress }) {
         <span style={{ color: '#06b900', fontWeight: 700, fontSize: '1.3rem' }}>NET MIRROR</span>
       </div>
 
-      {/* Player area — NetMirror style fullscreen black */}
+      {/* Player area */}
       <div style={{
         position: 'relative',
         width: '100%',
@@ -145,10 +142,12 @@ function MovieWatchView({ movie, onBack, onProgress }) {
           style={{ width: '100%', height: '100%', border: 'none' }}
           allowFullScreen
           allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+          sandbox="allow-scripts allow-same-origin allow-presentation allow-encrypted-media allow-forms"
+          referrerPolicy="no-referrer"
         />
       </div>
 
-      {/* Server selector — NetMirror pill style */}
+      {/* Server selector */}
       <div style={{
         maxWidth: '900px',
         margin: '1.5rem auto',
@@ -189,7 +188,7 @@ function MovieWatchView({ movie, onBack, onProgress }) {
           ))}
         </div>
 
-        {/* Movie info block — NetMirror style */}
+        {/* Movie info block */}
         <div style={{
           marginTop: '1.5rem',
           padding: '1.5rem',

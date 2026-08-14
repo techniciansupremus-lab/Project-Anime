@@ -1,0 +1,5 @@
+- NetMirror API calls are funneled through a single `netmirrorApi(path, options)` helper that automatically attaches the cached `t_hash_t` cookie, an `ott` source prefix, and a `t=<unix>` cache-buster parameter.
+- Auth tokens are obtained by POSTing `verify.php` with a `crypto.randomUUID()` value as `g-recaptcha-response`, relying on the server never validating the field.
+- Token expiry is detected by inspecting JSON `status === 'n'` rather than HTTP status codes, then clearing the in-memory token and retrying the call once.
+- All outbound requests to NetMirror use a fixed mobile User-Agent string ending in `/OS.Gatu v3.0` and include `X-Requested-With: XMLHttpRequest` plus a `Referer` pointing at the NetMirror base host.
+- Archived route modules export named functions via `module.exports` so they can be imported and wired into the main Express app without side effects on require.

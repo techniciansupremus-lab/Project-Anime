@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">EetNet</string>
+    <string name="title_activity_main">EetNet</string>
+    <string name="package_name">com.eetnet.app</string>
+    <string name="custom_url_scheme">com.eetnet.app</string>
+</resources>

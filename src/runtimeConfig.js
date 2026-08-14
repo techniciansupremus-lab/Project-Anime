@@ -49,7 +49,7 @@ function readQueryOverride() {
   return value;
 }
 
-const FALLBACK_TUNNEL = 'https://saves-included-software-park.trycloudflare.com';
+const FALLBACK_TUNNEL = 'https://hardcover-hide-fabulous-bid.trycloudflare.com';
 
 async function fetchJson(url) {
   const isNativeCapacitor = typeof window !== 'undefined' && Boolean(window.Capacitor?.isNativePlatform?.());

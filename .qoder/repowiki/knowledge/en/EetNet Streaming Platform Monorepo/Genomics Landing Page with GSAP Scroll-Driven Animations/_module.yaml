@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: scratch_workspaces
+title: Genomics Landing Page with GSAP Scroll-Driven Animations
+scope:
+    - CSS intro/
+source_files: []
+depends_on: []
+related_to: []

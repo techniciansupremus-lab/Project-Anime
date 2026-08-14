@@ -1,0 +1,1 @@
+React 19 + Vite 8 for the frontend, Express 5 for the backend, Capacitor 8 for the Android shell, Supabase for auth/state, HLS.js for streaming, and @consumet/expressions for provider abstraction — all installed once at the monorepo root.

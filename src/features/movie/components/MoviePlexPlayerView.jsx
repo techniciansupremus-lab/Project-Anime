@@ -1,7 +1,8 @@
 import React from 'react';
-import { Play, AlertCircle } from 'lucide-react';
+import { Play, AlertCircle, ShieldCheck } from 'lucide-react';
 import { apiUrl } from '../../../runtimeConfig';
 import VideoPlayer from '../../../components/VideoPlayer';
+import MovieCard from './MovieCard';
 
 function cleanMovieDisplayTitle(raw) {
   if (!raw) return 'Untitled Movie';
@@ -54,7 +55,10 @@ function MoviePlexPlayerView({ movie, onBack }) {
       .then(data => {
         setStreamData(data);
         setLoading(false);
-        if (data.source === 'streamtape') setUseFallback(true);
+        // If direct stream URL is not available or source is streamtape, automatically use the shielded external player
+        if ((!data.streamUrl && data.fallbackIframe) || data.source === 'streamtape') {
+          setUseFallback(true);
+        }
       })
       .catch(err => { setError(err.message || 'Failed to load stream'); setLoading(false); });
   }, [slug]);
@@ -71,7 +75,7 @@ function MoviePlexPlayerView({ movie, onBack }) {
 
   const thumbnail = postInfo?.thumbnail || movie.thumbnail || movie.coverImage || '';
   const isHLS = (streamData?.source === 'lulustream' || streamData?.directHls) && !!streamData?.streamUrl;
-  const extractionFailed = !loading && streamData && !streamData.source && !!streamData.error;
+  const extractionFailed = !loading && streamData && !streamData.streamUrl && !streamData.fallbackIframe;
 
   return (
     <div style={{ minHeight: '100vh', background: '#0a0a0a', color: '#fff', fontFamily: '"Inter","Roboto",sans-serif' }}>
@@ -125,9 +129,10 @@ function MoviePlexPlayerView({ movie, onBack }) {
                 objectFit: 'cover', opacity: 0.3
               }} />}
               <div className="loading-spinner" style={{ width: '48px', height: '48px', borderWidth: '3px', zIndex: 2 }} />
-              <p style={{ color: '#fff', fontSize: '0.9rem', fontWeight: 600, zIndex: 2 }}>Preparing High-Speed HLS Stream…</p>
+              <p style={{ color: '#fff', fontSize: '0.9rem', fontWeight: 600, zIndex: 2 }}>Loading Player…</p>
             </div>
           )}
+
           {!loading && isHLS && !useFallback && (
             <VideoPlayer
               source={{ url: streamData.streamUrl, isM3U8: true }}
@@ -139,6 +144,7 @@ function MoviePlexPlayerView({ movie, onBack }) {
               }}
             />
           )}
+
           {!loading && useFallback && streamData?.fallbackIframe && (
             <iframe
               src={streamData.fallbackIframe}
@@ -146,9 +152,12 @@ function MoviePlexPlayerView({ movie, onBack }) {
               style={{ width: '100%', height: '100%', border: 'none', position: 'absolute', inset: 0 }}
               allowFullScreen
               allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+              sandbox="allow-scripts allow-same-origin allow-presentation allow-encrypted-media allow-forms"
+              referrerPolicy="no-referrer"
             />
           )}
-          {!loading && extractionFailed && !useFallback && (
+
+          {!loading && extractionFailed && (
             <div style={{
               position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
               alignItems: 'center', justifyContent: 'center', gap: '1rem', background: '#111'
@@ -161,18 +170,17 @@ function MoviePlexPlayerView({ movie, onBack }) {
                 <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>⚠️</div>
                 <p style={{ fontWeight: 700, fontSize: '1.1rem', margin: '0 0 0.4rem' }}>Stream Unavailable</p>
                 <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.85rem', margin: '0 0 1.2rem' }}>
-                  Could not extract a direct stream. Switch to external player below.
+                  Could not load a playable stream for this title.
                 </p>
-                {streamData?.fallbackIframe && (
-                  <button onClick={() => setUseFallback(true)} style={{
-                    padding: '0.6rem 1.6rem', background: '#E50914',
-                    border: 'none', borderRadius: '6px',
-                    color: '#fff', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 700
-                  }}>🌐 Switch to External Player</button>
-                )}
+                <button onClick={onBack} style={{
+                  padding: '0.6rem 1.6rem', background: '#E50914',
+                  border: 'none', borderRadius: '6px',
+                  color: '#fff', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 700
+                }}>← Go Back</button>
               </div>
             </div>
           )}
+
           {!loading && error && !streamData && (
             <div style={{
               position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
@@ -194,27 +202,41 @@ function MoviePlexPlayerView({ movie, onBack }) {
 
           {/* Player Switcher Bar */}
           <div style={{
-            display: 'flex', alignItems: 'center', gap: '0.8rem',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             padding: '0.8rem 1.2rem', background: 'rgba(255,255,255,0.03)',
             borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)',
-            marginBottom: '2rem', flexWrap: 'wrap'
+            marginBottom: '2rem', flexWrap: 'wrap', gap: '0.8rem'
           }}>
-            <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', fontWeight: 600, marginRight: '0.5rem' }}>Server Source:</span>
-            {isHLS && (
-              <button onClick={() => setUseFallback(false)} style={{
-                padding: '0.45rem 1.3rem', borderRadius: '20px', border: 'none', cursor: 'pointer',
-                fontSize: '0.85rem', fontWeight: 700,
-                background: !useFallback ? '#E50914' : 'rgba(255,255,255,0.08)',
-                color: '#fff', transition: 'all 0.18s'
-              }}>⚡ Our HLS Player (Ad-Free)</button>
-            )}
-            {streamData.fallbackIframe && (
-              <button onClick={() => setUseFallback(true)} style={{
-                padding: '0.45rem 1.3rem', borderRadius: '20px', border: 'none', cursor: 'pointer',
-                fontSize: '0.85rem', fontWeight: 700,
-                background: useFallback ? '#E50914' : 'rgba(255,255,255,0.08)',
-                color: '#fff', transition: 'all 0.18s'
-              }}>🌐 External Player</button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>Player Server:</span>
+              {isHLS && (
+                <button onClick={() => setUseFallback(false)} style={{
+                  padding: '0.45rem 1.3rem', borderRadius: '20px', border: 'none', cursor: 'pointer',
+                  fontSize: '0.85rem', fontWeight: 700,
+                  background: !useFallback ? '#E50914' : 'rgba(255,255,255,0.08)',
+                  color: '#fff', transition: 'all 0.18s'
+                }}>⚡ Our Custom Player (Ad-Free)</button>
+              )}
+              {streamData.fallbackIframe && (
+                <button onClick={() => setUseFallback(true)} style={{
+                  padding: '0.45rem 1.3rem', borderRadius: '20px', border: 'none', cursor: 'pointer',
+                  fontSize: '0.85rem', fontWeight: 700,
+                  background: useFallback ? '#E50914' : 'rgba(255,255,255,0.08)',
+                  color: '#fff', transition: 'all 0.18s'
+                }}>🌐 External Player</button>
+              )}
+            </div>
+
+            {useFallback && (
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+                fontSize: '0.75rem', fontWeight: 700, color: '#4ade80',
+                background: 'rgba(74,222,128,0.1)', padding: '0.3rem 0.8rem',
+                borderRadius: '20px', border: '1px solid rgba(74,222,128,0.2)'
+              }}>
+                <ShieldCheck size={14} />
+                <span>Ad-Popup Shield Active</span>
+              </div>
             )}
           </div>
 

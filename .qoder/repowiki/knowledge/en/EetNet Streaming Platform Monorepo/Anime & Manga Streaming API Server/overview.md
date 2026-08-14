@@ -1,0 +1,1 @@
+Express-based backend that proxies anime, manga, and drama streams from multiple providers (HiAnime, AnimeKai, AnimeRulz, KissKH, HiVetoons) with HLS manifest/segment rewriting, subtitle proxying, and image proxying.

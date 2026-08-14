@@ -1,0 +1,1 @@
+Monorepo that builds a React/Vite web app, an Express API server, and a Capacitor Android shell into a single EetNet streaming platform with shared Supabase auth and multi-content features.

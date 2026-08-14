@@ -1,0 +1,4 @@
+- BEM-style class naming is used throughout the markup and styles (e.g. `header-search__btn`, `tree-svg__branches`, `tree-wings__top-left`) to keep selectors scoped to components.
+- Interactive nodes share a `data-position` attribute (`left`, `right`, `top`, `left-top`, `right-top`) that both the HTML structure and the JS selector logic use to correlate titles, balls, and SVG branch paths.
+- Animations are organized as named `gsap.timeline` instances (master scroll timeline, tree reveal timeline, per-hover timelines) rather than ad-hoc tweens, and custom easing curves are registered once via `CustomEase.create` before use.
+- Staggered text reveals are achieved by wrapping content in `.split` elements, running `SplitText` with `type: 'lines'`, then animating the generated `.fade-overflow` children with staggered `y`/`opacity` transitions.

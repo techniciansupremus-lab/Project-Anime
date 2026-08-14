@@ -1,0 +1,1 @@
+Open `main.html` directly in a browser — no build step or server is required. GSAP plugins must be loaded externally (the file assumes they are available in the global scope, e.g. via CDN).

@@ -1,0 +1,1 @@
+Android Gradle Plugin 8.13.0, Capacitor (BridgeActivity + core plugins: app, browser, filesystem, preferences, splash-screen, status-bar), AndroidX (AppCompat, CoordinatorLayout, Core Splashscreen), optional Google Play Services via `google-services.json`, Cordova plugin bridge via `capacitor-cordova-android-plugins` flat directory.

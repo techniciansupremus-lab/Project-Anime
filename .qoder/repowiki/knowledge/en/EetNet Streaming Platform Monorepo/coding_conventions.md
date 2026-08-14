@@ -1,0 +1,4 @@
+- Each content vertical (anime, drama, manga, manhwa, movie) lives in its own `src/features/<vertical>/` folder split into `api/` and `components/` subfolders.
+- Cross-cutting UI pieces (cards, player, navbar, sidebar) are kept in `src/components/` and imported by feature folders rather than duplicated.
+- Backend proxy endpoints mirror the frontend's feature structure under `api/` and re-export through `api/index.js`.
+- Environment-driven configuration is read from `.env` and exposed via `runtimeConfig.js` to both frontend and backend.
