@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, AlertCircle, ShieldCheck } from 'lucide-react';
+import { Play, AlertCircle, ShieldCheck, ShieldAlert, RefreshCw } from 'lucide-react';
 import { apiUrl } from '../../../runtimeConfig';
 import VideoPlayer from '../../../components/VideoPlayer';
 import MovieCard from './MovieCard';
@@ -33,6 +33,7 @@ function MoviePlexPlayerView({ movie, onBack }) {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState(null);
   const [useFallback, setUseFallback] = React.useState(false);
+  const [shieldActive, setShieldActive] = React.useState(false);
   const [postInfo, setPostInfo] = React.useState(null);
   const [moreMovies, setMoreMovies] = React.useState([]);
 
@@ -55,7 +56,7 @@ function MoviePlexPlayerView({ movie, onBack }) {
       .then(data => {
         setStreamData(data);
         setLoading(false);
-        // If direct stream URL is not available or source is streamtape, automatically use the shielded external player
+        // If direct stream URL is not available or source is streamtape, automatically use the external player
         if ((!data.streamUrl && data.fallbackIframe) || data.source === 'streamtape') {
           setUseFallback(true);
         }
@@ -147,13 +148,13 @@ function MoviePlexPlayerView({ movie, onBack }) {
 
           {!loading && useFallback && streamData?.fallbackIframe && (
             <iframe
+              key={shieldActive ? 'shield-on' : 'shield-off'}
               src={streamData.fallbackIframe}
               title={displayTitle}
               style={{ width: '100%', height: '100%', border: 'none', position: 'absolute', inset: 0 }}
               allowFullScreen
               allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-              sandbox="allow-scripts allow-same-origin allow-presentation allow-encrypted-media allow-forms"
-              referrerPolicy="no-referrer"
+              sandbox={shieldActive ? "allow-scripts allow-same-origin allow-presentation allow-forms" : undefined}
             />
           )}
 
@@ -228,15 +229,23 @@ function MoviePlexPlayerView({ movie, onBack }) {
             </div>
 
             {useFallback && (
-              <div style={{
-                display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
-                fontSize: '0.75rem', fontWeight: 700, color: '#4ade80',
-                background: 'rgba(74,222,128,0.1)', padding: '0.3rem 0.8rem',
-                borderRadius: '20px', border: '1px solid rgba(74,222,128,0.2)'
-              }}>
-                <ShieldCheck size={14} />
-                <span>Ad-Popup Shield Active</span>
-              </div>
+              <button
+                onClick={() => setShieldActive(!shieldActive)}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+                  fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer',
+                  background: shieldActive ? 'rgba(74,222,128,0.15)' : 'rgba(255,255,255,0.08)',
+                  color: shieldActive ? '#4ade80' : 'rgba(255,255,255,0.7)',
+                  padding: '0.4rem 0.9rem',
+                  borderRadius: '20px',
+                  border: `1px solid ${shieldActive ? 'rgba(74,222,128,0.3)' : 'rgba(255,255,255,0.12)'}`,
+                  transition: 'all 0.2s'
+                }}
+                title={shieldActive ? "Shield is blocking popup tabs. If video is blocked, click to disable shield." : "Direct mode active for maximum video host compatibility."}
+              >
+                {shieldActive ? <ShieldCheck size={14} /> : <ShieldAlert size={14} />}
+                <span>{shieldActive ? 'Popup Shield: ON' : 'Popup Shield: OFF (Compatible Mode)'}</span>
+              </button>
             )}
           </div>
 
