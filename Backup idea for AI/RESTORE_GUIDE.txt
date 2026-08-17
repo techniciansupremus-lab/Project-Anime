@@ -1,0 +1,82 @@
+===========================================================
+  BACKUP GUIDE FOR AI AGENTS — READ THIS BEFORE TOUCHING ANYTHING
+  Project: EetNet / Project Anime
+  Created: 2026-08-17
+===========================================================
+
+THE USER DOES NOT KNOW GIT.
+If they say anything like:
+  - "go back to how it was"
+  - "revert everything"
+  - "restore working state"
+  - "undo all changes"
+  - "it was working before, fix it back"
+
+...THIS IS WHAT YOU DO:
+
+---
+
+OPTION A — GO BACK TO THE SAFE STATE BEFORE API RESTRUCTURING
+(Use this if restructuring broke things)
+
+Run these commands:
+
+  git checkout main
+  git reset --hard 8ded51c
+
+Commit hash: 8ded51c
+Commit message: "Add smart compatibility mode for external movie player"
+Date saved: 2026-08-17
+Branch name: backup-before-restructure
+
+This will restore ALL files to exactly how they were on 2026-08-17
+before the API restructuring project began.
+
+---
+
+OPTION B — SWITCH TO THE BACKUP BRANCH (NON-DESTRUCTIVE)
+(Use this if you just want to look at old code without deleting new work)
+
+  git checkout backup-before-restructure
+
+To go back to the new work after:
+
+  git checkout main
+
+---
+
+WHAT WAS WORKING AT THIS BACKUP POINT:
+- Anime section: Working (AnimeKai + HiAnime + AnimeUnity + AnimeRulz Hindi)
+- Drama section: Working (KissKH)
+- Comics/Manga/Manhwa/Webtoon: Working (Comick + MangaDex + Manhwa18)
+- Movies section: Working (MoviePlex scraper + TMDB posters)
+- Frontend: React app on Vercel
+- Backend: Node.js server.js on Termux phone
+- Tunnel: Cloudflare tunnel (quick tunnel, URL changes on restart)
+- Config system: eetnet-config.json + /api/runtime-config Vercel serverless
+
+---
+
+WHERE THE CODE LIVES:
+- Local PC: C:\Users\Admin\Desktop\Project Anime\
+- GitHub: https://github.com/techniciansupremus-lab/Project-Anime.git
+- Live site: Deployed on Vercel (check vercel.com dashboard)
+
+---
+
+WHAT THE AI WAS DOING WHEN THIS BACKUP WAS CREATED:
+- About to restructure server.js (3,632 lines) into 4 separate API services:
+    - eetnet-anime-api   (Port 8080)
+    - eetnet-drama-api   (Port 8081)
+    - eetnet-comics-api  (Port 8082)
+    - eetnet-movies-api  (Port 8083)
+- The user wanted to split everything into standalone API projects
+  so that each one can be debugged independently without reading all files.
+
+---
+
+IF YOU ARE UNSURE, ASK THE USER:
+"Do you want to restore to commit 8ded51c (before restructuring) or
+to a different point? Run 'git log --oneline -10' to see all recent saves."
+
+===========================================================
