@@ -1,4 +1,4 @@
-import { EditorialHero } from "./components/editorial-hero";
+import { DriftHero } from "./components/drift-hero";
 import { StaffPick } from "./components/staff-pick";
 import { TrendingRail } from "./components/trending-rail";
 import { HomePosterMarquee } from "./components/poster-marquee";
@@ -8,16 +8,18 @@ import type { AnimeMedia } from "../../shared/api/anime";
 export function HomePage({
   onOpen,
   onOpenAnime,
+  onNavigateCategory,
 }: {
   onOpen: () => void;
   onOpenAnime?: (anime: AnimeMedia) => void;
+  onNavigateCategory?: (category: "anime" | "movies" | "drama" | "comics") => void;
 }) {
   return (
     <>
-      <EditorialHero
-        onOpen={() => {
-          onOpen();
-        }}
+      <DriftHero
+        onStartWatching={onOpen}
+        onOpenAnime={onOpenAnime}
+        onNavigateCategory={onNavigateCategory}
       />
       <HomePosterMarquee
         label="Everything. One Place."

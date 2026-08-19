@@ -103,6 +103,7 @@ export default function App() {
         <HomePage
           onOpen={() => setView("anime")}
           onOpenAnime={(anime) => openAnimeDetail(anime, "home")}
+          onNavigateCategory={(category) => setView(category)}
         />
       )}
 
