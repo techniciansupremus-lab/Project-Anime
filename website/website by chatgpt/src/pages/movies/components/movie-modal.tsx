@@ -89,7 +89,9 @@ export const MovieModal = ({
     setStreamError(null);
 
     try {
+      const rawSlug = (movie as any)?.slug || (movie as any)?.movieplexSlug || (movie?.id ? String(movie.id).replace(/^mp-/, "") : undefined);
       const res = await resolveMovieStream({
+        slug: rawSlug,
         title: movie.title,
         year: movie.year,
       });

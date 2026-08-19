@@ -6,35 +6,36 @@ import { VideoCarousel } from "./components/video-carousel";
 import { MovieCatalog } from "./components/movie-catalog";
 import { MovieModal } from "./components/movie-modal";
 import {
-  fetchTmdbMovies,
-  searchTmdbMovies,
-  type TmdbMovie,
-} from "./api/tmdb";
+  fetchMoviesHome,
+  fetchMovieCatalog,
+  type MovieSummary,
+} from "../../shared/api/movies";
+import type { TmdbMovie } from "./api/tmdb";
 
 const GENRES = [
   "All",
-  "Trending",
+  "Bollywood",
+  "Hollywood",
+  "Hindi Dubbed",
   "Action",
-  "Sci-Fi",
-  "Animation",
-  "Drama",
-  "Comedy",
+  "Web Series",
+  "Romance",
   "Thriller",
+  "Comedy",
   "Horror",
-  "Adventure",
 ];
 
-const genrePaths: Record<string, string> = {
-  All: "/trending/movie/week",
-  Trending: "/trending/movie/week",
-  Action: "/discover/movie?with_genres=28&sort_by=popularity.desc",
-  "Sci-Fi": "/discover/movie?with_genres=878&sort_by=popularity.desc",
-  Animation: "/discover/movie?with_genres=16&sort_by=popularity.desc",
-  Drama: "/discover/movie?with_genres=18&sort_by=popularity.desc",
-  Comedy: "/discover/movie?with_genres=35&sort_by=popularity.desc",
-  Thriller: "/discover/movie?with_genres=53&sort_by=popularity.desc",
-  Horror: "/discover/movie?with_genres=27&sort_by=popularity.desc",
-  Adventure: "/discover/movie?with_genres=12&sort_by=popularity.desc",
+const categoryIdMap: Record<string, number | undefined> = {
+  All: undefined,
+  Bollywood: 10,
+  Hollywood: 19,
+  "Hindi Dubbed": 17,
+  Action: 6,
+  "Web Series": 33,
+  Romance: 24,
+  Thriller: 28,
+  Comedy: 11,
+  Horror: 20,
 };
 
 const STORAGE_MY_LIST = "eetnet-movies-my-list";
@@ -55,6 +56,7 @@ export function MoviesPage({ onExit }: { onExit: () => void }) {
   const [actionMovies, setActionMovies] = useState<TmdbMovie[]>([]);
   const [sciFiMovies, setSciFiMovies] = useState<TmdbMovie[]>([]);
   const [catalogMovies, setCatalogMovies] = useState<TmdbMovie[]>([]);
+  const [heroMovie, setHeroMovie] = useState<TmdbMovie | null>(null);
 
   const [activeGenre, setActiveGenre] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
@@ -85,22 +87,24 @@ export function MoviesPage({ onExit }: { onExit: () => void }) {
   useEffect(() => {
     let active = true;
 
-    Promise.all([
-      fetchTmdbMovies("/trending/movie/week"),
-      fetchTmdbMovies("/movie/top_rated"),
-      fetchTmdbMovies("/discover/movie?with_genres=28&sort_by=popularity.desc"),
-      fetchTmdbMovies("/discover/movie?with_genres=878&sort_by=popularity.desc"),
-    ])
-      .then(([trending, topRated, action, sciFi]) => {
+    fetchMoviesHome()
+      .then((data: any) => {
         if (!active) return;
+        const trending = (data.trending || []) as unknown as TmdbMovie[];
+        const bollywood = (data.bollywood || []) as unknown as TmdbMovie[];
+        const hindiDubbed = (data.hindiDubbed || []) as unknown as TmdbMovie[];
+        const hollywood = (data.hollywood || []) as unknown as TmdbMovie[];
+        const featured = (data.featured || trending[0] || null) as unknown as TmdbMovie | null;
+
         setTrendingMovies(trending);
-        setTopRatedMovies(topRated);
-        setActionMovies(action);
-        setSciFiMovies(sciFi);
+        setTopRatedMovies(bollywood);
+        setActionMovies(hindiDubbed);
+        setSciFiMovies(hollywood);
         setCatalogMovies(trending);
+        setHeroMovie(featured);
       })
-      .catch((err) => {
-        console.error("Failed to load TMDB movies:", err);
+      .catch((err: any) => {
+        console.error("Failed to load MoviePlex movies:", err);
       });
 
     return () => {
@@ -111,12 +115,12 @@ export function MoviesPage({ onExit }: { onExit: () => void }) {
   const handleGenreChange = async (genre: string) => {
     setActiveGenre(genre);
     setSearchQuery("");
-    const path = genrePaths[genre] || "/trending/movie/week";
+    const catId = categoryIdMap[genre];
     try {
-      const movies = await fetchTmdbMovies(path);
-      setCatalogMovies(movies);
+      const movies = await fetchMovieCatalog({ category: catId, limit: 36 });
+      setCatalogMovies(movies as unknown as TmdbMovie[]);
     } catch (err) {
-      console.error("Genre fetch error:", err);
+      console.error("MoviePlex genre fetch error:", err);
     }
   };
 
@@ -127,10 +131,10 @@ export function MoviesPage({ onExit }: { onExit: () => void }) {
       return;
     }
     try {
-      const results = await searchTmdbMovies(query.trim());
-      setCatalogMovies(results);
+      const results = await fetchMovieCatalog({ search: query.trim(), limit: 40 });
+      setCatalogMovies(results as unknown as TmdbMovie[]);
     } catch (err) {
-      console.error("Search error:", err);
+      console.error("MoviePlex search error:", err);
     }
   };
 
@@ -164,7 +168,7 @@ export function MoviesPage({ onExit }: { onExit: () => void }) {
     );
   };
 
-  const heroMovie = trendingMovies[0] || null;
+  const currentHero = heroMovie || trendingMovies[0] || null;
 
   return (
     <div className="min-h-screen bg-background text-white selection:bg-white selection:text-black">
@@ -179,7 +183,7 @@ export function MoviesPage({ onExit }: { onExit: () => void }) {
       <main>
         <div className="relative z-10 bg-background">
           <Hero
-            heroMovie={heroMovie}
+            heroMovie={currentHero}
             onStreamNow={scrollToCatalog}
             onPlayMovie={handlePlayMovie}
           />
