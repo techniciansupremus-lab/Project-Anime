@@ -81,12 +81,8 @@ function streamProxyHeaders(targetUrl, referer, extraHeaders = {}) {
 
 // Normalizer
 
-
 // Helpers
 
-
-
-}
 
 function unwrapM3u8ProxyUrl(value, maxDepth = 8) {
   let resolved = value;
@@ -114,8 +110,6 @@ function unwrapStreamIndiaRelayUrl(value) {
     return value;
   }
 }
-
-
 
 
 
@@ -1151,15 +1145,9 @@ const ENCDEC_BASE = process.env.ENCDEC_BASE || 'https://enc-dec.app';
 
 
 
-
 // Normalizer: ensure /drama/... maps to /api/drama/...
 
-
 // Helpers
-
-
-
-}
 
 
 
@@ -1502,12 +1490,8 @@ const HT_HEADERS     = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64
 
 // Normalizer: ensure /manga/..., /webtoon/... maps to /api/...
 
-
 // Helpers
 
-
-
-}
 
 function proxyCoverUrl(host, rawUrl) {
   if (!rawUrl) return null;
@@ -2247,13 +2231,7 @@ app.get('/api/img-proxy', handleImageProxy);
 
 // Normalizer: ensure /movies/..., /movieplex/..., /netmirror/... map to /api/...
 
-
 // Helpers
-
-
-
-}
-
 
 
 
@@ -3345,8 +3323,7 @@ app.use((err, req, res, next) => {
 
 // Start Monolith Server
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`
-====================================================================`);
+  console.log(`\n====================================================================`);
   console.log(`🚀 EetNet Monolith Backend Running on http://localhost:${PORT}`);
   console.log(`📦 Compiled from: services/anime, drama, comics, movies`);
   console.log(`🕒 Started at: ${startedAt.toLocaleTimeString()}`);

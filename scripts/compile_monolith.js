@@ -10,6 +10,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -41,8 +42,8 @@ for (const name of serviceNames) {
   console.log(`  ✓ Read services/${name}/server.js (${serviceSources[name].length} bytes)`);
 }
 
-// 3. Extract unique imports from all services
-const allImports = new Set([
+// 3. Extract unique imports
+const allImports = [
   "import express from 'express';",
   "import cors from 'cors';",
   "import axios from 'axios';",
@@ -51,55 +52,76 @@ const allImports = new Set([
   "import crypto from 'crypto';",
   "import vm from 'node:vm';",
   "import { ANIME, META } from '@consumet/extensions';"
-]);
+];
 
-// 4. Helper to clean and extract service body (strip individual imports, app init, app.listen)
-function extractServiceBody(source, serviceName) {
-  let lines = source.split('\n');
-
-  // Filter out import lines, app creation, PORT definition, app.listen blocks
-  let inListenBlock = false;
-  const filtered = [];
+// Helper to filter out boilerplate blocks from child service files cleanly
+function cleanServiceCode(source, serviceName) {
+  const lines = source.split('\n');
+  const result = [];
+  let skipBlockDepth = 0;
+  let skippingBlock = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const trimmed = line.trim();
 
-    // Skip import statements
+    // Skip all top-level imports
     if (trimmed.startsWith('import ')) continue;
 
-    // Skip individual app initialization & standalone listens
-    if (trimmed.startsWith('const app = express()')) continue;
+    // Skip single-line boilerplate
+    if (/^(const|let|var)\s+app\s*=\s*express\(/.test(trimmed)) continue;
     if (trimmed.startsWith('app.set(')) continue;
-    if (trimmed.startsWith('const PORT =')) continue;
-    if (trimmed.startsWith('const startedAt =')) continue;
+    if (/^(const|let|var)\s+PORT\s*=/.test(trimmed)) continue;
+    if (/^(const|let|var)\s+startedAt\s*=/.test(trimmed)) continue;
     if (trimmed.startsWith('app.use(cors(')) continue;
     if (trimmed.startsWith('app.use(express.json(')) continue;
     if (trimmed.startsWith("process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'")) continue;
-    if (trimmed.startsWith('const httpsAgent = new https.Agent')) continue;
+    if (/^(const|let|var)\s+httpsAgent\s*=/.test(trimmed)) continue;
+    if (/^(const|let|var)\s+BROWSER_UA\s*=/.test(trimmed)) continue;
 
-    // Check for app.listen block
-    if (trimmed.startsWith('app.listen(')) {
-      inListenBlock = true;
-      continue;
-    }
-    if (inListenBlock) {
-      if (trimmed === '});' || trimmed === '})') {
-        inListenBlock = false;
+    // Detect and skip multi-line boilerplate functions / middleware
+    if (!skippingBlock) {
+      if (
+        trimmed.startsWith('app.use((req, res, next) =>') ||
+        trimmed.startsWith('function publicHost(') ||
+        trimmed.startsWith('function safeOrigin(') ||
+        trimmed.startsWith('function streamProxyHeaders(') ||
+        trimmed.startsWith('app.listen(')
+      ) {
+        skippingBlock = true;
+        skipBlockDepth = 0;
+        // Count braces on this starting line
+        for (const char of line) {
+          if (char === '{') skipBlockDepth++;
+          if (char === '}') skipBlockDepth--;
+        }
+        if (skipBlockDepth <= 0) {
+          skippingBlock = false;
+        }
+        continue;
+      }
+    } else {
+      // In skipping block, update brace depth
+      for (const char of line) {
+        if (char === '{') skipBlockDepth++;
+        if (char === '}') skipBlockDepth--;
+      }
+      if (skipBlockDepth <= 0) {
+        skippingBlock = false;
       }
       continue;
     }
 
-    filtered.push(line);
+    result.push(line);
   }
 
   return `\n// ============================================================================\n` +
          `// 📦 MODULE: ${serviceName.toUpperCase()} SERVICE\n` +
          `// ============================================================================\n` +
-         filtered.join('\n');
+         result.join('\n');
 }
 
-// 5. Compose the unified compilation server
+// 4. Build Unified Header
 const header = `/**
  * ============================================================================
  * ⚠️ AUTO-GENERATED MONOLITH SERVER — DO NOT EDIT DIRECTLY!
@@ -119,7 +141,7 @@ const header = `/**
  * ============================================================================
  */
 
-${Array.from(allImports).join('\n')}
+${allImports.join('\n')}
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
@@ -168,29 +190,13 @@ function streamProxyHeaders(targetUrl, referer, extraHeaders = {}) {
 }
 `;
 
-// Deduplicate helper functions that might be defined in multiple services
-let animeCode = extractServiceBody(serviceSources.anime, 'anime');
-let dramaCode = extractServiceBody(serviceSources.drama, 'drama');
-let comicsCode = extractServiceBody(serviceSources.comics, 'comics');
-let moviesCode = extractServiceBody(serviceSources.movies, 'movies');
+// 5. Clean and combine each service module
+const animeCode = cleanServiceCode(serviceSources.anime, 'anime');
+const dramaCode = cleanServiceCode(serviceSources.drama, 'drama');
+const comicsCode = cleanServiceCode(serviceSources.comics, 'comics');
+const moviesCode = cleanServiceCode(serviceSources.movies, 'movies');
 
-// Clean duplicate helper function definitions from child services
-const helpersToRemove = [
-  /function publicHost\(req\)\s*\{[\s\S]*?return `\$\{proto\}:\/\/\$\{req\.get\('host'\)\}`;?\s*\}/g,
-  /function safeOrigin\(value\)\s*\{[\s\S]*?return value \|\| '';?\s*\}/g,
-  /function streamProxyHeaders\(targetUrl, referer, extraHeaders = \{\}\)\s*\{[\s\S]*?return \{[\s\S]*?\};?\s*\}/g,
-  /const BROWSER_UA\s*=\s*'[^']+';/g,
-  /app\.use\(\(req, res, next\) =>\s*\{[\s\S]*?if \(req\.url && !req\.url\.startsWith\('\/api\/'\)\s*&& req\.url !== '\/api'\)\s*\{[\s\S]*?req\.url = '\/api' \+ req\.url;[\s\S]*?\}\s*next\(\);?\s*\}\);/g
-];
-
-for (const pattern of helpersToRemove) {
-  animeCode = animeCode.replace(pattern, '');
-  dramaCode = dramaCode.replace(pattern, '');
-  comicsCode = comicsCode.replace(pattern, '');
-  moviesCode = moviesCode.replace(pattern, '');
-}
-
-// Global Health & Status endpoint
+// 6. Global Unified Health & Status Footer
 const footer = `
 // ============================================================================
 // 🏥 UNIFIED HEALTH & STATUS ENDPOINT
@@ -229,7 +235,7 @@ app.use((err, req, res, next) => {
 
 // Start Monolith Server
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(\`\n====================================================================\`);
+  console.log(\`\\n====================================================================\`);
   console.log(\`🚀 EetNet Monolith Backend Running on http://localhost:\${PORT}\`);
   console.log(\`📦 Compiled from: services/anime, drama, comics, movies\`);
   console.log(\`🕒 Started at: \${startedAt.toLocaleTimeString()}\`);
@@ -239,6 +245,15 @@ app.listen(PORT, '0.0.0.0', () => {
 
 const compiledCode = header + animeCode + dramaCode + comicsCode + moviesCode + footer;
 
+// Write output file
 fs.writeFileSync(outputFile, compiledCode, 'utf8');
-console.log(`\n🎉 Compilation Successful!`);
-console.log(`📁 Generated: ${outputFile} (${compiledCode.length} bytes)`);
+
+// 7. Validate output with node --check
+try {
+  execSync(`node --check "${outputFile}"`, { stdio: 'inherit' });
+  console.log(`\n🎉 Compilation Successful & Syntax Verified!`);
+  console.log(`📁 Generated: ${outputFile} (${compiledCode.length} bytes)`);
+} catch (err) {
+  console.error(`\n❌ Compilation Syntax Error: node --check failed!`, err);
+  process.exit(1);
+}
