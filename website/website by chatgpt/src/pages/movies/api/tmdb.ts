@@ -103,115 +103,85 @@ export async function fetchTrailerKey(id: number): Promise<string | null> {
   return trailer?.key ?? null;
 }
 
-const tmdbCache = new Map<
-  string,
-  { poster: string; backdrop: string; rating: number; synopsis?: string }
->();
+// ─── Genre → TMDB discover/trending query ────────────────────────────────────
+type CatalogQuery =
+  | { type: "trending" }
+  | { type: "movie" | "tv"; params: Record<string, string> };
+
+const GENRE_QUERY: Record<string, CatalogQuery> = {
+  All:            { type: "trending" },
+  Bollywood:      { type: "movie", params: { with_original_language: "hi", sort_by: "popularity.desc" } },
+  "Hindi Dubbed": { type: "movie", params: { with_original_language: "hi", sort_by: "release_date.desc", "vote_count.gte": "5" } },
+  Hollywood:      { type: "movie", params: { with_original_language: "en", sort_by: "popularity.desc", "vote_count.gte": "200" } },
+  "Web Series":   { type: "tv",    params: { with_original_language: "hi", sort_by: "popularity.desc" } },
+  Action:         { type: "movie", params: { with_genres: "28",    sort_by: "popularity.desc", "vote_count.gte": "100" } },
+  Drama:          { type: "movie", params: { with_genres: "18",    sort_by: "popularity.desc", "vote_count.gte": "100" } },
+  Romance:        { type: "movie", params: { with_genres: "10749", sort_by: "popularity.desc", "vote_count.gte": "100" } },
+  Thriller:       { type: "movie", params: { with_genres: "53",    sort_by: "popularity.desc", "vote_count.gte": "100" } },
+  Comedy:         { type: "movie", params: { with_genres: "35",    sort_by: "popularity.desc", "vote_count.gte": "100" } },
+  Horror:         { type: "movie", params: { with_genres: "27",    sort_by: "popularity.desc", "vote_count.gte": "100" } },
+  Punjabi:        { type: "movie", params: { with_original_language: "pa", sort_by: "popularity.desc" } },
+  Tamil:          { type: "movie", params: { with_original_language: "ta", sort_by: "popularity.desc" } },
+  Telugu:         { type: "movie", params: { with_original_language: "te", sort_by: "popularity.desc" } },
+};
 
 /**
- * Cleans a movie title and queries the official TMDB API for HD poster art, backdrop, and rating.
+ * Fetches movies/shows from TMDB based on genre label.
+ * Returns up to `limit` results with HD posters, real titles, and ratings.
  */
+export async function fetchTmdbCatalog(
+  genre: string,
+  page = 1,
+  limit = 36
+): Promise<TmdbMovie[]> {
+  const query = GENRE_QUERY[genre] ?? GENRE_QUERY["All"];
+
+  let basePath: string;
+  if (query.type === "trending") {
+    basePath = `/trending/movie/week`;
+  } else {
+    const qs = new URLSearchParams(query.params).toString();
+    basePath = `/discover/${query.type}?${qs}`;
+  }
+
+  // Fetch multiple pages if needed (TMDB returns 20 per page)
+  const pages = Math.ceil(limit / 20);
+  const requests = Array.from({ length: pages }, (_, i) => {
+    const pageNum = page + i;
+    const sep = basePath.includes("?") ? "&" : "?";
+    return requestTmdb<TmdbResponse>(`${basePath}${sep}page=${pageNum}`);
+  });
+
+  const responses = await Promise.all(requests);
+  const allResults = responses.flatMap((r) => r.results || []);
+  return allResults
+    .filter((m) => m.poster_path)
+    .map(asMovie)
+    .filter((m): m is TmdbMovie => m !== null)
+    .slice(0, limit);
+}
+
+/**
+ * Searches TMDB by text query (movies and shows).
+ */
+export async function searchTmdbCatalog(query: string, limit = 40): Promise<TmdbMovie[]> {
+  const data = await requestTmdb<TmdbResponse>(
+    `/search/multi?query=${encodeURIComponent(query)}&include_adult=false&page=1`
+  );
+  return (data.results || [])
+    .filter((m) => m.poster_path)
+    .map(asMovie)
+    .filter((m): m is TmdbMovie => m !== null)
+    .slice(0, limit);
+}
+
+// Keep for backwards compatibility
 export async function enrichMovieWithTmdb(movie: any): Promise<TmdbMovie> {
-  if (!movie) {
-    return {
-      id: "unknown",
-      title: "Movie",
-      year: "2026",
-      genre: "Cinema",
-      synopsis: "Full HD streaming available.",
-      backdrop: "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=1280&q=80",
-      poster: "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&q=80",
-      rating: 7.8,
-    };
-  }
-
-  const rawTitle = movie.title || "Untitled";
-  const cleanTitle = rawTitle
-    .replace(/\b(Watch\s+Online|Full\s+Movie|Full\s+Web\s+Series|Download\s+Now)\b/gi, "")
-    .replace(/\b(Hindi\s+Dubbed|Hindi\s+Dub|Hindi|Bengali|Malayalam|Tamil|Telugu|Kannada|Marathi|Punjabi|Gujarati|English)\b/gi, "")
-    .replace(/\b(HDRip|BluRay|WEB-DL|WEBRip|UNCUT|HDTS|HDTC|HDCam|CAMRip|DVDScr|HD|4K|1080p|720p|480p|360p)\b/gi, "")
-    .replace(/\b(Bollywood|Hollywood|South\s+Indian|Low\s+Quality)\b/gi, "")
-    .replace(/\(\s*\)/g, "")
-    .replace(/\[\s*\]/g, "")
-    .replace(/[-_:]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim() || rawTitle;
-
-  // Check cache first
-  if (tmdbCache.has(cleanTitle)) {
-    const cached = tmdbCache.get(cleanTitle)!;
-    return {
-      ...movie,
-      title: cleanTitle,
-      poster: cached.poster || movie.poster,
-      backdrop: cached.backdrop || movie.backdrop,
-      rating: cached.rating || movie.rating || 7.8,
-      synopsis: cached.synopsis || movie.synopsis,
-    };
-  }
-
-  // Ensure default poster has high-res TMDB link if available
-  let bestPoster = movie.poster || movie.thumbnail || "";
-  if (bestPoster.includes("image.tmdb.org/t/p/")) {
-    bestPoster = bestPoster.replace(/\/t\/p\/(w\d+|original)\//, "/t/p/w500/");
-  }
-
-  let bestBackdrop = movie.backdrop || movie.bannerImage || bestPoster;
-  if (bestBackdrop.includes("image.tmdb.org/t/p/")) {
-    bestBackdrop = bestBackdrop.replace(/\/t\/p\/(w\d+|original)\//, "/t/p/w1280/");
-  }
-
-  try {
-    const data = await requestTmdb<TmdbResponse>(
-      `/search/multi?query=${encodeURIComponent(cleanTitle)}&include_adult=false`
-    );
-    const match = data.results?.[0];
-    if (match) {
-      if (match.poster_path) {
-        bestPoster = `${imageBase}/w500${match.poster_path}`;
-      }
-      if (match.backdrop_path) {
-        bestBackdrop = `${imageBase}/w1280${match.backdrop_path}`;
-      }
-      const rawVote = match.vote_average && match.vote_average > 0 ? match.vote_average : (movie.rating || 7.8);
-      const rating = Number(Number(rawVote).toFixed(1));
-      const synopsis = match.overview || movie.synopsis;
-
-      const enriched = {
-        poster: bestPoster,
-        backdrop: bestBackdrop,
-        rating,
-        synopsis,
-      };
-
-      tmdbCache.set(cleanTitle, enriched);
-
-      return {
-        ...movie,
-        title: cleanTitle,
-        poster: bestPoster,
-        backdrop: bestBackdrop,
-        rating,
-        synopsis: synopsis || movie.synopsis,
-      };
-    }
-  } catch (err) {
-    // Graceful fallback to existing properties
-  }
-
-  return {
-    ...movie,
-    title: cleanTitle,
-    poster: bestPoster || "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&q=80",
-    backdrop: bestBackdrop || "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=1280&q=80",
-    rating: movie.rating ? Number(Number(movie.rating).toFixed(1)) : 7.8,
-  };
+  return movie as TmdbMovie;
 }
-
-/**
- * Enriches an entire array of movies with official TMDB posters in parallel.
- */
 export async function enrichMoviesList(movies: any[]): Promise<TmdbMovie[]> {
-  if (!Array.isArray(movies) || movies.length === 0) return [];
-  return Promise.all(movies.map(enrichMovieWithTmdb));
+  return movies as TmdbMovie[];
 }
+
+
+

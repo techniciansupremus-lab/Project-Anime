@@ -10,7 +10,11 @@ import {
   fetchMovieCatalog,
   type MovieSummary,
 } from "../../shared/api/movies";
-import type { TmdbMovie } from "./api/tmdb";
+import {
+  fetchTmdbCatalog,
+  searchTmdbCatalog,
+  type TmdbMovie,
+} from "./api/tmdb";
 
 /** Upgrade TMDB poster resolution from w185/w342 → w500 inline — no API call needed. */
 function upgradePosters(items: MovieSummary[]): TmdbMovie[] {
@@ -43,23 +47,6 @@ const GENRES = [
   "Tamil",
   "Telugu",
 ];
-
-const categoryKeyMap: Record<string, string | undefined> = {
-  All: undefined,
-  Bollywood: "desi_cinema",
-  "Hindi Dubbed": "hindi_dubbed",
-  Hollywood: "hollywood",
-  "Web Series": "series",
-  Action: "action",
-  Drama: "drama",
-  Romance: "romance",
-  Thriller: "thriller",
-  Comedy: "comedy",
-  Horror: "horror",
-  Punjabi: "punjabi",
-  Tamil: "tamil",
-  Telugu: "telugu",
-};
 
 const STORAGE_MY_LIST = "eetnet-movies-my-list";
 const STORAGE_LIKED = "eetnet-movies-liked";
@@ -110,6 +97,7 @@ export function MoviesPage({ onExit }: { onExit: () => void }) {
   useEffect(() => {
     let active = true;
 
+    // Load top carousel/rows from backend
     fetchMoviesHome()
       .then((data) => {
         if (!active) return;
@@ -123,11 +111,21 @@ export function MoviesPage({ onExit }: { onExit: () => void }) {
         setTopRatedMovies(bollywood);
         setActionMovies(hindiDubbed);
         setSciFiMovies(webSeries);
-        setCatalogMovies(trending);
         setHeroMovie(featured);
       })
       .catch((err) => {
         console.error("Failed to load DesiCinemas movies:", err);
+      });
+
+    // Populate the Explore Movies section directly with official TMDB API results
+    fetchTmdbCatalog("All", 1, 36)
+      .then((movies) => {
+        if (active && movies.length > 0) {
+          setCatalogMovies(movies);
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to load initial TMDB catalog:", err);
       });
 
     return () => {
@@ -138,17 +136,11 @@ export function MoviesPage({ onExit }: { onExit: () => void }) {
   const handleGenreChange = async (genre: string) => {
     setActiveGenre(genre);
     setSearchQuery("");
-    const catKey = categoryKeyMap[genre];
     try {
-      if (!catKey) {
-        const homeData = await fetchMoviesHome();
-        setCatalogMovies(upgradePosters(homeData.trending || []));
-      } else {
-        const movies = await fetchMovieCatalog({ category: catKey, limit: 36 });
-        setCatalogMovies(upgradePosters(movies));
-      }
+      const movies = await fetchTmdbCatalog(genre, 1, 36);
+      setCatalogMovies(movies);
     } catch (err) {
-      console.error("DesiCinemas genre fetch error:", err);
+      console.error("TMDB genre fetch error:", err);
     }
   };
 
@@ -159,10 +151,10 @@ export function MoviesPage({ onExit }: { onExit: () => void }) {
       return;
     }
     try {
-      const results = await fetchMovieCatalog({ search: query.trim(), limit: 40 });
-      setCatalogMovies(upgradePosters(results));
+      const results = await searchTmdbCatalog(query.trim(), 40);
+      setCatalogMovies(results);
     } catch (err) {
-      console.error("DesiCinemas search error:", err);
+      console.error("TMDB search error:", err);
     }
   };
 
