@@ -14,7 +14,18 @@
 - [android/capacitor-cordova-android-plugins/cordova.variables.gradle](file://android/capacitor-cordova-android-plugins/cordova.variables.gradle)
 - [capacitor.config.json](file://capacitor.config.json)
 - [android/app/src/main/AndroidManifest.xml](file://android/app/src/main/AndroidManifest.xml)
+- [android/app/src/main/java/com/eetnet/app/MainActivity.java](file://android/app/src/main/java/com/eetnet/app/MainActivity.java)
+- [android/app/src/androidTest/java/com/getcapacitor/myapp/ExampleInstrumentedTest.java](file://android/app/src/androidTest/java/com/getcapacitor/myapp/ExampleInstrumentedTest.java)
+- [android/app/src/test/java/com/getcapacitor/myapp/ExampleUnitTest.java](file://android/app/src/test/java/com/getcapacitor/myapp/ExampleUnitTest.java)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Updated namespace configuration to use `com.eetnet.app` instead of generic Capacitor package
+- Enhanced minimum SDK version support with proper SDK version management
+- Added complete Gradle configuration files for Capacitor-based Android project structure
+- Integrated ProGuard rules and test configurations
+- Updated build pipeline to reflect modern Capacitor integration patterns
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -28,10 +39,10 @@
 9. [Conclusion](#conclusion)
 
 ## Introduction
-This document explains the Android build pipeline for a Capacitor-based app using Gradle. It covers build configuration, signing and release packaging (APK/AAB), code shrinking and obfuscation with ProGuard, multi-architecture support, Capacitor integration, native plugin compilation, resource optimization, differences between development and production builds, debug vs release configurations, testing variants, and troubleshooting common issues.
+This document explains the enhanced Android build pipeline for a Capacitor-based app using Gradle with proper namespace configuration (`com.eetnet.app`). It covers build configuration, signing and release packaging (APK/AAB), code shrinking and obfuscation with ProGuard, multi-architecture support, Capacitor integration, native plugin compilation, resource optimization, differences between development and production builds, debug vs release configurations, testing variants, and troubleshooting common issues.
 
 ## Project Structure
-The Android module is configured as a standard Android application with additional Capacitor modules included via settings files. The top-level Gradle script centralizes repositories and classpaths, while variables are shared across modules. Capacitor plugins are resolved from node_modules and included as subprojects.
+The Android module is configured as a standard Android application with proper namespace setup (`com.eetnet.app`) and additional Capacitor modules included via settings files. The top-level Gradle script centralizes repositories and classpaths, while variables are shared across modules. Capacitor plugins are resolved from node_modules and included as subprojects.
 
 ```mermaid
 graph TB
@@ -47,6 +58,7 @@ D --> J["capacitor-splash-screen"]
 D --> K["capacitor-status-bar"]
 C --> L["Cordova Plugins Module"]
 L --> M["capacitor-cordova-android-plugins"]
+C --> N["MainActivity (com.eetnet.app)"]
 ```
 
 **Diagram sources**
@@ -56,6 +68,7 @@ L --> M["capacitor-cordova-android-plugins"]
 - [android/settings.gradle:1-5](file://android/settings.gradle#L1-L5)
 - [android/capacitor.settings.gradle:1-22](file://android/capacitor.settings.gradle#L1-L22)
 - [android/capacitor-cordova-android-plugins/build.gradle:1-59](file://android/capacitor-cordova-android-plugins/build.gradle#L1-L59)
+- [android/app/src/main/java/com/eetnet/app/MainActivity.java:1-6](file://android/app/src/main/java/com/eetnet/app/MainActivity.java#L1-L6)
 
 **Section sources**
 - [android/build.gradle:1-30](file://android/build.gradle#L1-L30)
@@ -64,9 +77,9 @@ L --> M["capacitor-cordova-android-plugins"]
 - [android/capacitor.settings.gradle:1-22](file://android/capacitor.settings.gradle#L1-L22)
 
 ## Core Components
-- Application module: Defines compile/target SDKs, default config, build types, dependencies, and applies Capacitor-specific configuration.
+- Application module: Defines compile/target SDKs, default config, build types, dependencies, and applies Capacitor-specific configuration with proper namespace `com.eetnet.app`.
 - Top-level Gradle: Declares Android Gradle Plugin version and Google Services plugin; applies shared variables.
-- Variables: Centralizes SDK versions and dependency versions used by all modules.
+- Variables: Centralizes SDK versions (minSdkVersion 24, compileSdkVersion 36, targetSdkVersion 36) and dependency versions used by all modules.
 - Capacitor integration: Includes core Capacitor runtime and feature modules; resolves from node_modules.
 - Cordova plugins bridge: A library module that hosts any Cordova-based plugins and their dependencies.
 - Manifest and assets: Declares main activity, permissions, FileProvider, and includes web assets packaged under assets/public.
@@ -86,15 +99,15 @@ Key responsibilities:
 - [android/app/src/main/AndroidManifest.xml:1-42](file://android/app/src/main/AndroidManifest.xml#L1-L42)
 
 ## Architecture Overview
-The build system composes multiple Gradle modules:
-- App module depends on Capacitor core and feature modules.
+The build system composes multiple Gradle modules with proper namespace configuration:
+- App module depends on Capacitor core and feature modules with namespace `com.eetnet.app`.
 - Capacitor modules are pulled from node_modules and included via capacitor.settings.gradle.
 - Cordova plugins are compiled into a separate library module and included by the app.
 - Shared variables ensure consistent SDK and dependency versions across modules.
 
 ```mermaid
 graph LR
-App["App Module"] --> CapCore["capacitor-android"]
+App["App Module (com.eetnet.app)"] --> CapCore["capacitor-android"]
 App --> CapApp["capacitor-app"]
 App --> CapBrowser["capacitor-browser"]
 App --> CapFS["capacitor-filesystem"]
@@ -131,7 +144,7 @@ Recommendations:
 
 ### ProGuard Rules and Code Obfuscation
 - ProGuard file path is referenced in the release build type.
-- The current proguard-rules.pro contains comments and no active rules.
+- The current proguard-rules.pro contains comments and guidance for WebView JS bridges and line number preservation.
 - For WebView JS bridges, keep necessary classes if you expose JavaScript interfaces.
 - Optionally preserve line numbers for stack traces in release builds.
 
@@ -158,7 +171,7 @@ Recommended approach:
 
 ### Capacitor Integration and Native Plugin Compilation
 - Capacitor modules are included via capacitor.settings.gradle and depend on Capacitor core.
-- The app module applies capacitor.build.gradle which sets Java compatibility and adds Capacitor feature modules.
+- The app module applies capacitor.build.gradle which sets Java compatibility (VERSION_21) and adds Capacitor feature modules.
 - Cordova plugins are compiled into a library module and included by the app.
 
 Build flow highlights:
@@ -203,7 +216,7 @@ Testing:
 - [android/app/build.gradle:33-43](file://android/app/build.gradle#L33-L43)
 
 ### Manifest and Runtime Permissions
-- Main activity is exported and handles launch intent.
+- Main activity is exported and handles launch intent with proper namespace `com.eetnet.app`.
 - FileProvider is configured for secure file sharing.
 - Internet permission is declared for network access.
 
@@ -214,10 +227,24 @@ Considerations:
 **Section sources**
 - [android/app/src/main/AndroidManifest.xml:1-42](file://android/app/src/main/AndroidManifest.xml#L1-L42)
 
+### Namespace Configuration and MainActivity
+- Proper namespace `com.eetnet.app` is configured in the app module.
+- MainActivity extends BridgeActivity from Capacitor framework.
+- Application ID matches the namespace for consistency.
+
+Benefits:
+- Clear package organization following Android best practices.
+- Consistent naming across all components.
+- Better separation from Capacitor's default package structure.
+
+**Section sources**
+- [android/app/build.gradle:3-12](file://android/app/build.gradle#L3-L12)
+- [android/app/src/main/java/com/eetnet/app/MainActivity.java:1-6](file://android/app/src/main/java/com/eetnet/app/MainActivity.java#L1-L6)
+
 ## Dependency Analysis
 Centralized dependency management ensures consistency:
 - Top-level build.gradle declares Android Gradle Plugin and Google Services plugin.
-- variables.gradle defines SDK and dependency versions.
+- variables.gradle defines SDK and dependency versions with modern SDK levels (compileSdkVersion 36, targetSdkVersion 36).
 - App module uses these versions for AndroidX components and test libraries.
 - Capacitor modules are included as projects from node_modules.
 - Cordova plugins module depends on Apache Cordova framework.
@@ -225,7 +252,7 @@ Centralized dependency management ensures consistency:
 ```mermaid
 graph TD
 Root["Root build.gradle"] --> Vars["variables.gradle"]
-Root --> AppMod["App Module"]
+Root --> AppMod["App Module (com.eetnet.app)"]
 AppMod --> Deps["AndroidX & Test Deps"]
 AppMod --> CapMods["Capacitor Modules"]
 AppMod --> CordovaMod["Cordova Plugins Module"]
@@ -251,8 +278,7 @@ CordovaMod --> CordovaFW["Apache Cordova Framework"]
 - ABI filtering: Use AAB or filter ABIs to reduce APK size.
 - Asset trimming: Remove unused resources and leverage AAPT ignore patterns.
 - Dependency alignment: Keep AndroidX and Capacitor versions aligned to avoid conflicts.
-
-[No sources needed since this section provides general guidance]
+- Java compatibility: Modern Java version (VERSION_21) ensures optimal performance.
 
 ## Troubleshooting Guide
 
@@ -278,6 +304,9 @@ Common issues and resolutions:
 - Build performance:
   - Symptom: Slow builds.
   - Resolution: Increase Gradle JVM heap, enable parallel builds, and cache dependencies.
+- Namespace conflicts:
+  - Symptom: Package name conflicts or MainActivity not found.
+  - Resolution: Ensure namespace `com.eetnet.app` is consistently used across all configuration files.
 
 **Section sources**
 - [android/app/build.gradle:19-24](file://android/app/build.gradle#L19-L24)
@@ -286,4 +315,4 @@ Common issues and resolutions:
 - [android/gradle.properties:1-23](file://android/gradle.properties#L1-L23)
 
 ## Conclusion
-The Android build pipeline leverages Gradle and Capacitor to integrate web assets with native capabilities. The configuration centralizes versions, includes Capacitor modules, and supports Cordova plugins. For production readiness, add signing configuration, enable minification, and optimize resources. Use AAB for distribution and follow the troubleshooting steps to resolve common build issues efficiently.
+The enhanced Android build pipeline leverages Gradle and Capacitor with proper namespace configuration (`com.eetnet.app`) to integrate web assets with native capabilities. The configuration centralizes versions, includes Capacitor modules, supports Cordova plugins, and provides modern SDK support (compileSdkVersion 36, targetSdkVersion 36). For production readiness, add signing configuration, enable minification, and optimize resources. Use AAB for distribution and follow the troubleshooting steps to resolve common build issues efficiently. The updated structure ensures better maintainability and follows Android development best practices.

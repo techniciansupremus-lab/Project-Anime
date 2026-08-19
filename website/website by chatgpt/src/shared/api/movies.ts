@@ -41,7 +41,7 @@ export type MovieStreamResult = {
  * Enhances low-resolution poster URLs from TMDB (e.g. w185 / w342) to crisp high-res w500
  */
 export function enhancePosterUrl(url?: string): string {
-  if (!url) return "/img/apple-tv-rebuild/posters/napoleon.webp";
+  if (!url) return "https://placehold.co/300x450/1a1a2e/white?text=No+Poster";
   let clean = url.startsWith("//") ? `https:${url}` : url;
   if (clean.includes("image.tmdb.org/t/p/")) {
     clean = clean.replace(/\/t\/p\/(w185|w342|w92|w154|w45|w200)\//, "/t/p/w500/");
@@ -56,7 +56,7 @@ export function enhancePosterUrl(url?: string): string {
  * Enhances low-resolution backdrop URLs to high-res w1280 or original
  */
 export function enhanceBackdropUrl(url?: string): string {
-  if (!url) return "/img/apple-tv-rebuild/posters/napoleon.webp";
+  if (!url) return "https://placehold.co/1280x720/1a1a2e/white?text=No+Backdrop";
   let clean = url.startsWith("//") ? `https:${url}` : url;
   if (clean.includes("image.tmdb.org/t/p/")) {
     clean = clean.replace(/\/t\/p\/(w185|w342|w500|w780)\//, "/t/p/w1280/");
@@ -90,8 +90,8 @@ export function normalizeMovieItem(item: any): MovieSummary {
     return {
       id: "unknown",
       title: "Movie",
-      poster: "/img/apple-tv-rebuild/posters/napoleon.webp",
-      backdrop: "/img/apple-tv-rebuild/posters/napoleon.webp",
+      poster: "https://placehold.co/300x450/1a1a2e/white?text=No+Poster",
+      backdrop: "https://placehold.co/1280x720/1a1a2e/white?text=No+Backdrop",
       genre: "Movie",
       rating: 7.8,
       year: "2026",

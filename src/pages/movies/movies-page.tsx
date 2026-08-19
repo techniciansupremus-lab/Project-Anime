@@ -8,12 +8,24 @@ import { MovieModal } from "./components/movie-modal";
 import {
   fetchMoviesHome,
   fetchMovieCatalog,
+  type MovieSummary,
 } from "../../shared/api/movies";
-import {
-  enrichMoviesList,
-  enrichMovieWithTmdb,
-  type TmdbMovie,
-} from "./api/tmdb";
+import type { TmdbMovie } from "./api/tmdb";
+
+/** Upgrade TMDB poster resolution from w185/w342 → w500 inline — no API call needed. */
+function upgradePosters(items: MovieSummary[]): TmdbMovie[] {
+  return items.map((m) => ({
+    id: m.id,
+    slug: m.slug,
+    title: m.title,
+    year: String(m.year || ""),
+    genre: m.genre || "Movie",
+    synopsis: m.synopsis || "Stream in Full HD.",
+    poster: (m.poster || "").replace(/\/t\/p\/(w\d+|original)\//g, "/t/p/w500/") || "https://placehold.co/300x450/1a1a2e/white?text=No+Poster",
+    backdrop: (m.backdrop || m.poster || "").replace(/\/t\/p\/(w\d+|original)\//g, "/t/p/w1280/") || "https://placehold.co/1280x720/1a1a2e/white?text=No+Backdrop",
+    rating: typeof m.rating === "number" ? m.rating : parseFloat(String(m.rating || 7.8)) || 7.8,
+  } as TmdbMovie));
+}
 
 const GENRES = [
   "All",
@@ -99,19 +111,13 @@ export function MoviesPage({ onExit }: { onExit: () => void }) {
     let active = true;
 
     fetchMoviesHome()
-      .then(async (data) => {
+      .then((data) => {
         if (!active) return;
-        const [trending, bollywood, hindiDubbed, webSeries] = await Promise.all([
-          enrichMoviesList(data.trending || []),
-          enrichMoviesList(data.bollywood || []),
-          enrichMoviesList(data.hindiDubbed || []),
-          enrichMoviesList(data.webSeries || []),
-        ]);
-
-        if (!active) return;
-        const featured = data.featured
-          ? await enrichMovieWithTmdb(data.featured)
-          : trending[0] || null;
+        const trending = upgradePosters(data.trending || []);
+        const bollywood = upgradePosters(data.bollywood || []);
+        const hindiDubbed = upgradePosters(data.hindiDubbed || []);
+        const webSeries = upgradePosters(data.webSeries || []);
+        const featured = data.featured ? upgradePosters([data.featured])[0] : trending[0] || null;
 
         setTrendingMovies(trending);
         setTopRatedMovies(bollywood);
@@ -136,12 +142,10 @@ export function MoviesPage({ onExit }: { onExit: () => void }) {
     try {
       if (!catKey) {
         const homeData = await fetchMoviesHome();
-        const enriched = await enrichMoviesList(homeData.trending || []);
-        setCatalogMovies(enriched);
+        setCatalogMovies(upgradePosters(homeData.trending || []));
       } else {
         const movies = await fetchMovieCatalog({ category: catKey, limit: 36 });
-        const enriched = await enrichMoviesList(movies);
-        setCatalogMovies(enriched);
+        setCatalogMovies(upgradePosters(movies));
       }
     } catch (err) {
       console.error("DesiCinemas genre fetch error:", err);
@@ -156,8 +160,7 @@ export function MoviesPage({ onExit }: { onExit: () => void }) {
     }
     try {
       const results = await fetchMovieCatalog({ search: query.trim(), limit: 40 });
-      const enriched = await enrichMoviesList(results);
-      setCatalogMovies(enriched);
+      setCatalogMovies(upgradePosters(results));
     } catch (err) {
       console.error("DesiCinemas search error:", err);
     }

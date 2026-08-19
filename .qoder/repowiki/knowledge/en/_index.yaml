@@ -3,7 +3,7 @@ schema_version: 1
 locale: en-US
 branch: main
 nodes_managed: true
-exported_at: "2026-08-14T10:45:27Z"
+exported_at: "2026-08-19T14:25:14Z"
 modules:
     "":
         dir_name: EetNet Streaming Platform Monorepo
@@ -67,8 +67,8 @@ modules:
             - path: frontend_app
             - path: research_and_scripts
     frontend_app:
-        dir_name: EetNet Anime Streaming Frontend (React_Vite)
-        title: EetNet Anime Streaming Frontend (React/Vite)
+        dir_name: EetNet Frontend SPA
+        title: EetNet Frontend SPA
         scope:
             - src/
             - public/
@@ -80,8 +80,8 @@ modules:
             - path: android_app
             - path: api_server
     frontend_app/static_assets:
-        dir_name: Frontend Static Assets & PWA Configuration
-        title: Frontend Static Assets & PWA Configuration
+        dir_name: Static Assets & PWA Runtime Configuration
+        title: Static Assets & PWA Runtime Configuration
         scope:
             - public/
         source_files: []
@@ -90,8 +90,8 @@ modules:
         related_to:
             - path: android_app
     research_and_scripts:
-        dir_name: NetMirror Reverse-Engineering Research & Archived Integration Artifacts
-        title: NetMirror Reverse-Engineering Research & Archived Integration Artifacts
+        dir_name: NetMirror Reverse Engineering Research & Archived Movies Integration
+        title: NetMirror Reverse Engineering Research & Archived Movies Integration
         scope:
             - research on reverse engineering/
             - archive_movies_netmirror/

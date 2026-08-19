@@ -1,0 +1,1 @@
+Serves the EetNet frontend's static branding assets, home-carousel images, and PWA runtime configuration (manifest, service worker, and API base URL) that enable offline support and app identity.

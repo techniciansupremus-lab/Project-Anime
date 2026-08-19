@@ -1,1 +1,0 @@
-React 18 with Vite, lucide-react icons, Supabase client for auth and cloud sync, Service Worker (`sw.js`) plus `manifest.json` for PWA, and optional Capacitor native bridge for APK builds.

@@ -11,6 +11,14 @@
 - [server.js](file://server.js)
 </cite>
 
+## Update Summary
+**Changes Made**
+- Updated MoviePlexPlayerView section to reflect enhanced stream resolution logic and external player compatibility modes
+- Added new Ad-Shield Sandbox System section documenting the security features
+- Enhanced Error Recovery Mechanisms section with improved multi-provider error handling
+- Updated Player Switcher Bar functionality to include adaptive quality selection
+- Added comprehensive coverage of the new shield toggle feature for external players
+
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [Project Structure](#project-structure)
@@ -25,6 +33,8 @@
 
 ## Introduction
 This document explains the Movie Watch View and Plex Player integration, focusing on how video playback is implemented with quality selection, subtitle support, playback controls, streaming protocol handling (including adaptive bitrate HLS), error recovery, and progress tracking to resume from where users left off. It also covers configuring different video sources, implementing custom player controls, handling various video formats, performance optimization for streaming, memory management during long sessions, and cross-browser compatibility considerations.
+
+**Updated** Enhanced with improved stream resolution logic, external player compatibility modes, ad-shield sandbox system, and enhanced error handling for multiple streaming providers.
 
 ## Project Structure
 The movie watching experience is composed of:
@@ -43,6 +53,7 @@ API --> RC["runtimeConfig.js"]
 VP --> HLS["hls.js (library)"]
 VP --> SR["sessionRestore.js"]
 MPV --> SVR["server.js (m3u8 proxy / extraction)"]
+MPV --> SHIELD["Ad-Shield System"]
 ```
 
 **Diagram sources**
@@ -63,7 +74,7 @@ MPV --> SVR["server.js (m3u8 proxy / extraction)"]
 
 ## Core Components
 - MovieWatchView: Entry point for movie playback. If the item is a Plex source, it delegates to MoviePlexPlayerView; otherwise, it renders an iframe-based player with multiple server options and basic info display.
-- MoviePlexPlayerView: Fetches stream data for a Plex slug, supports HLS playback via VideoPlayer, and provides fallback to external players when needed. Also shows recommendations below the player.
+- MoviePlexPlayerView: Fetches stream data for a Plex slug, supports HLS playback via VideoPlayer, and provides fallback to external players when needed. Also shows recommendations below the player. **Enhanced with improved stream resolution logic and ad-shield sandbox system.**
 - VideoPlayer: Full-featured player supporting HLS (via hls.js), native HLS (iOS Safari), direct MP4, subtitles, quality and audio track selection, skip intro/end, timeline scrubbing with preview, keyboard shortcuts, PiP, fullscreen, and progress reporting.
 - movieApi: Centralized API calls for catalog, search, and post info for movies.
 - sessionRestore: Utilities to persist and restore app state and per-media playback progress.
@@ -85,6 +96,7 @@ The architecture separates concerns:
 - Playback logic is encapsulated in VideoPlayer, which abstracts HLS, native HLS, and direct formats.
 - Streaming protocols are managed through server-side proxies and extraction endpoints, ensuring CORS-friendly access to HLS manifests and segments.
 - Progress tracking integrates with session restoration to resume playback seamlessly.
+- **Enhanced with adaptive stream resolution and multi-provider error handling.**
 
 ```mermaid
 sequenceDiagram
@@ -102,9 +114,14 @@ MPV->>API : Fetch post-info and stream by slug
 API->>RC : Build API URL
 RC-->>API : Base URL
 API-->>MPV : Stream data (HLS or fallback)
+alt HLS available
 MPV->>VP : Render HLS player if available
 VP->>S : Load m3u8 via proxy (if needed)
 S-->>VP : Serve proxied manifest/segments
+else Fallback with Shield
+MPV->>MPV : Apply ad-shield sandbox settings
+MPV->>MPV : Show external player iframe
+end
 else Embedded servers
 MWV->>MWV : Choose server and render iframe
 end
@@ -155,10 +172,13 @@ Responsibilities:
 - Provides fallback to external player when HLS fails or is not supported.
 - Displays recommendations below the player.
 
+**Updated** Enhanced with improved stream resolution logic that automatically detects optimal playback method based on source type and availability.
+
 Key behaviors:
 - Loads post-info and stream data, sets loading/error states.
 - Uses VideoPlayer with isM3U8 flag for HLS streams.
-- Switches to fallback iframe when necessary.
+- Switches to fallback iframe when necessary with adaptive quality selection.
+- **Implements ad-shield sandbox system for secure external player usage.**
 
 ```mermaid
 sequenceDiagram
@@ -175,7 +195,8 @@ alt HLS available
 MPV->>VP : Render HLS player
 VP->>S : Load m3u8 via proxy
 S-->>VP : Proxied manifest/segments
-else Fallback
+else External Player with Shield
+MPV->>MPV : Configure ad-shield sandbox
 MPV->>MPV : Show external player iframe
 end
 ```
@@ -237,7 +258,7 @@ class VideoPlayer {
 - [VideoPlayer.jsx:148-282](file://src/components/VideoPlayer.jsx#L148-L282)
 - [VideoPlayer.jsx:506-521](file://src/components/VideoPlayer.jsx#L506-L521)
 - [VideoPlayer.jsx:587-616](file://src/components/VideoPlayer.jsx#L587-L616)
-- [VideoPlayer.jsx:661-669](file://src/components/VideoPlayer.jsx#L661-L669)
+- [VideoPlayer.jsx:661-669](file://src/components/VideoPlayer.jsx#L661-669)
 
 **Section sources**
 - [VideoPlayer.jsx:148-282](file://src/components/VideoPlayer.jsx#L148-L282)
@@ -248,9 +269,58 @@ class VideoPlayer {
 - [VideoPlayer.jsx:544-585](file://src/components/VideoPlayer.jsx#L544-L585)
 - [VideoPlayer.jsx:587-616](file://src/components/VideoPlayer.jsx#L587-L616)
 - [VideoPlayer.jsx:618-654](file://src/components/VideoPlayer.jsx#L618-L654)
-- [VideoPlayer.jsx:661-669](file://src/components/VideoPlayer.jsx#L661-L669)
+- [VideoPlayer.jsx:661-669](file://src/components/VideoPlayer.jsx#L661-669)
 - [VideoPlayer.jsx:671-693](file://src/components/VideoPlayer.jsx#L671-L693)
 - [VideoPlayer.jsx:697-1043](file://src/components/VideoPlayer.jsx#L697-L1043)
+
+### Ad-Shield Sandbox System
+**New Feature** The MoviePlexPlayerView now includes a sophisticated ad-shield sandbox system that enhances security and user experience when using external players.
+
+Key Features:
+- **Dynamic Sandbox Configuration**: Toggles between restrictive and permissive iframe sandbox modes based on user preference
+- **Popup Blocking**: When enabled, prevents unwanted popup tabs from external streaming providers
+- **Compatibility Mode**: Automatically adjusts sandbox settings for maximum video host compatibility
+- **Visual Indicators**: Clear UI feedback showing current shield status with shield icons
+
+Implementation Details:
+- Uses React state to manage shield active/inactive states
+- Dynamically applies sandbox attributes to iframe elements
+- Provides toggle button with visual feedback and tooltips
+- Maintains separate keys for shield-on/shield-off states to force re-render
+
+```mermaid
+flowchart TD
+ShieldToggle["User clicks Shield Toggle"] --> CheckState{"Shield Active?"}
+CheckState --> |Yes| DisableShield["Disable sandbox restrictions"]
+CheckState --> |No| EnableShield["Enable popup blocking"]
+DisableShield --> UpdateIframe["Update iframe sandbox attribute"]
+EnableShield --> UpdateIframe
+UpdateIframe --> VisualFeedback["Update UI with shield icon"]
+```
+
+**Diagram sources**
+- [MoviePlexPlayerView.jsx:231-249](file://src/features/movie/components/MoviePlexPlayerView.jsx#L231-L249)
+
+**Section sources**
+- [MoviePlexPlayerView.jsx:231-249](file://src/features/movie/components/MoviePlexPlayerView.jsx#L231-L249)
+
+### Enhanced Player Switcher Bar
+**Updated** The player switcher bar now provides intelligent switching between different playback methods with enhanced user experience.
+
+Key Enhancements:
+- **Adaptive Quality Selection**: Automatically selects optimal player based on stream availability and browser capabilities
+- **Visual Status Indicators**: Clear buttons showing current active player mode
+- **Seamless Transitions**: Smooth switching between internal HLS player and external players
+- **Provider-Specific Optimization**: Automatic detection of streamtape and other special cases
+
+Features:
+- Custom HLS player button labeled "Our Custom Player (Ad-Free)"
+- External player button with fallback iframe support
+- Real-time status updates when switching between players
+- Responsive design that adapts to different screen sizes
+
+**Section sources**
+- [MoviePlexPlayerView.jsx:204-250](file://src/features/movie/components/MoviePlexPlayerView.jsx#L204-L250)
 
 ### Streaming Protocol Handling and Adaptive Bitrate
 - HLS via hls.js: The player detects HLS streams and initializes hls.js to parse manifests, expose quality levels, and manage adaptive bitrate switching automatically. Quality menus allow manual overrides.
@@ -298,10 +368,20 @@ AutoABR --> Play
 - [VideoPlayer.jsx:618-654](file://src/components/VideoPlayer.jsx#L618-L654)
 - [VideoPlayer.jsx:813-1037](file://src/components/VideoPlayer.jsx#L813-L1037)
 
-### Error Recovery Mechanisms
-- Network errors: Automatic restart of loading with limited attempts before failing gracefully.
-- Media errors: Attempted recovery via hls.js media error recovery routines.
-- Fallback strategies: In MoviePlexPlayerView, switch to external player when HLS fails or extraction fails.
+### Enhanced Error Recovery Mechanisms
+**Updated** Significantly improved error handling with enhanced recovery strategies for multiple streaming providers.
+
+Key Improvements:
+- **Multi-Provider Error Detection**: Intelligent detection of failures across different streaming sources
+- **Automatic Fallback Chain**: Sequential attempts through HLS → External Player → Error State
+- **Enhanced Retry Logic**: Improved retry mechanisms with exponential backoff
+- **Graceful Degradation**: Seamless fallback to alternative playback methods without user intervention
+
+Recovery Strategies:
+- Network errors: Automatic restart of loading with limited attempts before failing gracefully
+- Media errors: Attempted recovery via hls.js media error recovery routines
+- Provider-specific handling: Specialized error handling for streamtape and other providers
+- User feedback: Clear error messages with actionable next steps
 
 **Section sources**
 - [VideoPlayer.jsx:239-261](file://src/components/VideoPlayer.jsx#L239-L261)
@@ -376,6 +456,7 @@ API --> RC["runtimeConfig.js"]
 VP --> HLS["hls.js"]
 VP --> SR["sessionRestore.js"]
 MPV --> SVR["server.js"]
+MPV --> SHIELD["Ad-Shield System"]
 ```
 
 **Diagram sources**
@@ -401,6 +482,7 @@ MPV --> SVR["server.js"]
 - Memory management: Destroying HLS instances on cleanup prevents leaks during long sessions.
 - Thumbnail previews: Using a hidden video element and canvas for scrubbing previews reduces overhead while improving UX.
 - Network resilience: Proxying m3u8 manifests and segments mitigates CORS and referer constraints, reducing failed loads.
+- **Enhanced with optimized stream resolution logic that reduces unnecessary API calls and improves fallback performance.**
 
 [No sources needed since this section provides general guidance]
 
@@ -410,6 +492,9 @@ Common issues and resolutions:
 - Network errors: Automatic retries are attempted; if persistent, check network connectivity and backend proxy availability.
 - No HLS support: Ensure browser supports HLS or use Chrome/Firefox; iOS Safari uses native HLS.
 - Subtitles not showing: Toggle CC button and verify subtitle tracks are present.
+- **External player issues**: Try toggling the ad-shield sandbox mode to improve compatibility with different streaming providers.
+
+**Updated** Enhanced troubleshooting for the new ad-shield system and improved error handling.
 
 **Section sources**
 - [MoviePlexPlayerView.jsx:151-187](file://src/features/movie/components/MoviePlexPlayerView.jsx#L151-L187)
@@ -419,6 +504,8 @@ Common issues and resolutions:
 ## Conclusion
 The Movie Watch View and Plex Player integration provide a robust, user-friendly video playback experience with adaptive bitrate streaming, subtitle support, customizable controls, and resilient error handling. Progress tracking enables seamless resumption, while server-side proxies ensure reliable streaming across browsers and devices. The modular design allows easy extension and customization for different video sources and formats.
 
+**Enhanced** Recent improvements include significantly better stream resolution logic, enhanced external player compatibility modes, a sophisticated ad-shield sandbox system for improved security, and more robust error handling across multiple streaming providers. These enhancements make the playback experience more reliable and user-friendly across diverse streaming sources and network conditions.
+
 [No sources needed since this section summarizes without analyzing specific files]
 
 ## Appendices
@@ -427,5 +514,23 @@ The Movie Watch View and Plex Player integration provide a robust, user-friendly
 - Desktop: Chrome/Firefox benefit from hls.js; iOS Safari uses native HLS.
 - Mobile: Touch gestures and orientation lock improve playback experience.
 - PiP and fullscreen: Supported with appropriate browser APIs and fallbacks.
+- **Enhanced with improved compatibility for external players through adaptive sandbox configuration.**
 
 [No sources needed since this section provides general guidance]
+
+### Ad-Shield Security Configuration
+**New Section** The ad-shield system provides configurable security levels for external player usage.
+
+Security Levels:
+- **Restricted Mode (Shield ON)**: Blocks popups and limits iframe capabilities for maximum security
+- **Compatible Mode (Shield OFF)**: Allows full iframe functionality for maximum video host compatibility
+- **Automatic Detection**: Intelligently switches between modes based on streaming provider requirements
+
+Configuration Options:
+- Dynamic sandbox attribute manipulation
+- Visual feedback with shield icons and status indicators
+- User-controlled toggle with tooltips explaining current mode
+- Persistent state management for user preferences
+
+**Section sources**
+- [MoviePlexPlayerView.jsx:231-249](file://src/features/movie/components/MoviePlexPlayerView.jsx#L231-L249)

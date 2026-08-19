@@ -1,1 +1,0 @@
-Node.js + axios for HTTP, cheerio for HTML parsing of NetMirror's `/mobile/home`, crypto.randomUUID for fake captcha values, and TMDB public API for movie metadata; frontend uses React with lucide-react icons.

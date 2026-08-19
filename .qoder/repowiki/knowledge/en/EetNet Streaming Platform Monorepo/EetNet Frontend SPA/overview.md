@@ -1,0 +1,1 @@
+React/Vite single-page application that boots a shared App shell routing anime, drama, movie, manhwa, manga and Hindi YouTube features over a runtime-resolved backend URL with Supabase-backed user state.

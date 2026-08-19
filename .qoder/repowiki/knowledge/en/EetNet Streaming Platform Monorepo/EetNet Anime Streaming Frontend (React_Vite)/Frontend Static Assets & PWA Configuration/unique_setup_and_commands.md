@@ -1,1 +1,0 @@
-Service worker cache versioning is controlled via the `CACHE_NAME = 'eetnet-pwa-v2'` constant in `sw.js`; bumping this string forces clients to re-cache assets on next activation.

@@ -1,0 +1,1 @@
+Web App Manifest v2 + native Service Worker (Cache API) for PWA; asset formats include PNG, WebP, GIF, SVG, and JSON.

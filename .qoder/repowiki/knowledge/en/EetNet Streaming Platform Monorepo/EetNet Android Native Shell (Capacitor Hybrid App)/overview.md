@@ -1,1 +1,1 @@
-Android native shell for the EetNet hybrid app, wrapping a prebuilt web application in a Capacitor BridgeActivity and wiring Cordova plugins.
+Android Gradle project that wraps the prebuilt EetNet web app in a Capacitor BridgeActivity, wiring Cordova plugins and native capabilities via Capacitor core modules.

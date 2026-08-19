@@ -2,438 +2,461 @@
 
 <cite>
 **Referenced Files in This Document**
-- [server.js](file://server.js)
-- [api/index.js](file://api/index.js)
-- [proxy.py](file://proxy.py)
-- [package.json](file://package.json)
+- [services/anime/server.js](file://services/anime/server.js)
+- [services/drama/server.js](file://services/drama/server.js)
+- [services/comics/server.js](file://services/comics/server.js)
+- [services/movies/server.js](file://services/movies/server.js)
+- [services/anime/README.md](file://services/anime/README.md)
+- [services/drama/README.md](file://services/drama/README.md)
+- [services/comics/README.md](file://services/comics/README.md)
+- [services/movies/README.md](file://services/movies/README.md)
+- [scripts/compile_monolith.js](file://scripts/compile_monolith.js)
+- [the compilation/server.js](file://the compilation/server.js)
+- [scripts/audit_services.js](file://scripts/audit_services.js)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Complete microservices architecture transformation from monolithic server to four independent services
+- Added comprehensive service documentation with individual README files for each service
+- Implemented compilation system to create unified monolith from modular services
+- Updated all sections to reflect the new microservices structure and deployment options
 
 ## Table of Contents
 1. [Introduction](#introduction)
-2. [Project Structure](#project-structure)
-3. [Core Components](#core-components)
-4. [Architecture Overview](#architecture-overview)
-5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Dependency Analysis](#dependency-analysis)
-7. [Performance Considerations](#performance-considerations)
-8. [Troubleshooting Guide](#troubleshooting-guide)
-9. [Conclusion](#conclusion)
-10. [Appendices](#appendices)
+2. [Microservices Architecture](#microservices-architecture)
+3. [Service Overview](#service-overview)
+4. [Compilation System](#compilation-system)
+5. [Individual Service Documentation](#individual-service-documentation)
+6. [API Endpoints Structure](#api-endpoints-structure)
+7. [Caching Strategy](#caching-strategy)
+8. [Proxy Services](#proxy-services)
+9. [Deployment Options](#deployment-options)
+10. [Performance Considerations](#performance-considerations)
+11. [Troubleshooting Guide](#troubleshooting-guide)
+12. [Conclusion](#conclusion)
 
 ## Introduction
-This document describes the backend services for Project Anime’s Express.js server. It covers middleware configuration, route handlers, error handling strategies, proxy services for CORS bypass and stream protection, API endpoints that integrate with external content providers via @consumet/extensions, caching strategy using in-memory caches with TTL, authentication and rate limiting considerations, logging practices, and extension points for adding new content providers or processing pipelines.
+This document describes the backend services for Project Anime's microservices architecture. The system has been completely transformed from a monolithic Express.js server into four independent, specialized microservices: Anime, Drama, Comics, and Movies. Each service operates independently with its own dependencies, configuration, and API endpoints while maintaining consistent patterns for streaming, caching, and proxy functionality.
 
-## Project Structure
-The backend is implemented as a single Express application with a modular layout:
-- Entry point exports the configured Express app for both Node and Vercel serverless usage.
-- A small Python helper serves as an optional relay to bypass provider-side IP restrictions.
-- The main server file contains all routes, middleware, proxies, and integrations.
+The architecture supports both standalone microservice deployment and unified monolith compilation through an automated build system that combines all services into a single executable.
 
-```mermaid
-graph TB
-Client["Client App"] --> Express["Express App (server.js)"]
-Express --> Providers["@consumet/extensions<br/>HiAnime / AnimeUnity"]
-Express --> External["External APIs<br/>AniList, Jikan, KissKH, NetMirror, ComicKz, MoviePlex"]
-Express --> Proxies["Proxies<br/>m3u8-proxy, ts-proxy, subtitle-proxy, img-proxy"]
-Express --> Cache["In-Memory Caches<br/>Map-based with TTL"]
-ProxyPy["proxy.py (optional relay)"] --> External
-```
-
-**Diagram sources**
-- [server.js:1-28](file://server.js#L1-L28)
-- [server.js:235-393](file://server.js#L235-L393)
-- [proxy.py:1-36](file://proxy.py#L1-L36)
-
-**Section sources**
-- [server.js:1-28](file://server.js#L1-L28)
-- [api/index.js:1-4](file://api/index.js#L1-L4)
-- [package.json:14-35](file://package.json#L14-L35)
-
-## Core Components
-- Express app initialization and global middleware:
-  - Trusts proxy headers for correct public URL resolution.
-  - Enables CORS based on environment configuration.
-  - Parses JSON bodies.
-  - Normalizes URLs to always route under /api for serverless environments.
-- Streaming proxies:
-  - m3u8-proxy rewrites HLS manifests and segments to go through the backend, preserving referer/origin and enabling range requests.
-  - ts-proxy streams video/audio segments with Range header forwarding for efficient playback.
-  - subtitle-proxy fetches VTT subtitles with proper headers and CORS.
-  - image-proxy fetches images from providers with hotlink protection bypass and sets cache headers.
-- Provider integrations:
-  - Anime via @consumet/extensions (HiAnime, AnimeUnity) and AniList metadata.
-  - Drama via KissKH and enc-dec.app key exchange.
-  - Manga/Webtoon via ComicKz and AniList curated data.
-  - Movies via MoviePlex WordPress REST API and poster enrichment via TMDB/OMDb.
-- In-memory caching:
-  - Map-based caches keyed by request identifiers with TTLs per domain (anime episodes, stream results, drama lists, manga catalogs).
-- Health and status endpoints:
-  - /api/health returns service status and configuration.
-  - /api/status probes external dependencies and reports degraded states.
-
-**Section sources**
-- [server.js:10-28](file://server.js#L10-L28)
-- [server.js:152-199](file://server.js#L152-L199)
-- [server.js:235-393](file://server.js#L235-L393)
-- [server.js:662-735](file://server.js#L662-L735)
-- [server.js:1164-1208](file://server.js#L1164-L1208)
-- [server.js:1304-1336](file://server.js#L1304-L1336)
-
-## Architecture Overview
-The server acts as a centralized gateway that:
-- Normalizes client requests and applies CORS.
-- Routes to specialized handlers for anime, drama, manga/webtoon, and movies.
-- Proxies streaming assets to bypass CORS and enforce referer/origin requirements.
-- Integrates with multiple external providers and caches responses to reduce latency and external calls.
-
-```mermaid
-sequenceDiagram
-participant Client as "Client"
-participant Express as "Express App"
-participant M3U8 as "m3u8-proxy"
-participant TS as "ts-proxy"
-participant CDN as "Upstream CDN"
-Client->>Express : GET /api/m3u8-proxy?url=...&referer=...
-Express->>M3U8 : Parse & rewrite manifest
-M3U8->>CDN : Fetch original .m3u8 with Referer/Origin
-CDN-->>M3U8 : Manifest text
-M3U8->>M3U8 : Rewrite sub-playlists & segment URLs
-M3U8-->>Client : Rewritten manifest (CORS enabled)
-Client->>TS : GET /api/ts-proxy?url=...&Range=bytes=...
-TS->>CDN : Stream segment with Range
-CDN-->>TS : Partial content
-TS-->>Client : Byte-range stream (CORS enabled)
-```
-
-**Diagram sources**
-- [server.js:263-345](file://server.js#L263-L345)
-- [server.js:354-393](file://server.js#L354-L393)
-
-## Detailed Component Analysis
-
-### Middleware Configuration
-- CORS: Enabled globally with configurable origin; allows cross-origin access for frontend clients.
-- JSON parsing: Body parser applied to all routes.
-- URL normalization: Ensures all routes are prefixed with /api when deployed behind serverless platforms.
-- Public host resolution: Derives protocol and host from forwarded headers for generating absolute URLs in proxies.
-
-```mermaid
-flowchart TD
-Start(["Request Received"]) --> Normalize["Normalize URL to /api/*"]
-Normalize --> CORS["Apply CORS policy"]
-CORS --> JSON["Parse JSON body"]
-JSON --> Route["Route to handler"]
-Route --> End(["Response Sent"])
-```
-
-**Diagram sources**
-- [server.js:20-28](file://server.js#L20-L28)
-- [server.js:32-36](file://server.js#L32-L36)
-
-**Section sources**
-- [server.js:10-28](file://server.js#L10-L28)
-- [server.js:32-36](file://server.js#L32-L36)
-
-### Proxy Service Implementation (CORS Bypass and Stream Protection)
-- m3u8-proxy:
-  - Fetches upstream playlists with browser-like headers and referer/origin.
-  - Rewrites playlist entries to route through backend proxies.
-  - Handles malformed URIs and special relays (e.g., StreamIndia relay).
-  - Sets CORS headers and appropriate content types.
-- ts-proxy:
-  - Streams segments with Range header forwarding for byte-range playback.
-  - Preserves upstream headers like Accept-Ranges, Content-Type, Content-Length, Content-Range.
-  - Uses retry logic for protected streams returning transient errors.
-- subtitle-proxy:
-  - Fetches VTT files with referer and sets CORS and cache headers.
-- image-proxy:
-  - Fetches images with provider-specific referers and sets long-lived cache headers.
-  - Redirects to original URL if fetching fails for direct links.
-
-```mermaid
-sequenceDiagram
-participant Client as "Client"
-participant Server as "Express"
-participant Upstream as "Provider CDN"
-Client->>Server : GET /api/m3u8-proxy?url=...&referer=...
-Server->>Upstream : GET with Referer/Origin/User-Agent
-Upstream-->>Server : Playlist text
-Server->>Server : Rewrite URLs to /api/m3u8-proxy and /api/ts-proxy
-Server-->>Client : Rewritten manifest (CORS)
-Client->>Server : GET /api/ts-proxy?url=...&Range=...
-Server->>Upstream : GET with Range
-Upstream-->>Server : Partial content
-Server-->>Client : Streamed bytes (CORS)
-```
-
-**Diagram sources**
-- [server.js:263-345](file://server.js#L263-L345)
-- [server.js:354-393](file://server.js#L354-L393)
-
-**Section sources**
-- [server.js:235-256](file://server.js#L235-L256)
-- [server.js:263-345](file://server.js#L263-L345)
-- [server.js:354-393](file://server.js#L354-L393)
-- [server.js:152-199](file://server.js#L152-L199)
-
-### API Endpoints Structure and Provider Integration
-- Anime:
-  - /api/info/:anilistId — details and episode list via META.Anilist + Consumet.
-  - /api/gogoanime/watch — AnimeKai scraper with title search and season-aware matching; returns proxied HLS stream.
-  - /api/watch/:episodeId — fallback via AnimeUnity (Consumet).
-  - /api/animerulz/watch, /api/animerulz/episodes, /api/animerulz/availability, /api/animerulz/catalog — Indian language streams via AnimeRulz ecosystem.
-  - /api/hianime/watch — primary HiAnime stream via Consumet with AniList ID.
-  - /api/search — AnimeKai search endpoint.
-- Drama:
-  - /api/drama/home, /api/drama/list, /api/drama/search, /api/drama/info/:dramaId, /api/drama/stream/:episodeId, /api/drama/subtitle — KissKH integration with enc-dec.app keys and subtitle decoding.
-- Manga/Webtoon:
-  - /api/manga/home, /api/manga/category/:type, /api/manga/search, /api/manga/info/:id, /api/manga/read/:chapterId — ComicKz scraping with AniList curated data and cover proxying.
-  - /api/webtoon/home, /api/webtoon/category/:type — hybrid webtoon endpoints combining AniList and ComicKz.
-- Movies:
-  - /api/movieplex/catalog, /api/movieplex/stream, /api/movieplex/post-info, /api/movieplex/catalog/status, /api/movies/home — MoviePlex WordPress catalog with TMDB/OMDb poster enrichment and LuluStream/StreamTape extraction.
-- Utilities:
-  - /api/anilist — cached GraphQL proxy with rate-limit retries.
-  - /api/episodes/mal/:malId — Jikan episode metadata proxy with caching.
-  - /api/health, /api/status — health checks and dependency probes.
-
-```mermaid
-classDiagram
-class AnimeEndpoints {
-+GET /api/info/ : anilistId
-+GET /api/gogoanime/watch
-+GET /api/watch/ : episodeId
-+GET /api/animerulz/watch
-+GET /api/animerulz/episodes
-+GET /api/animerulz/availability
-+GET /api/animerulz/catalog
-+GET /api/hianime/watch
-+GET /api/search
-}
-class DramaEndpoints {
-+GET /api/drama/home
-+GET /api/drama/list
-+GET /api/drama/search
-+GET /api/drama/info/ : dramaId
-+GET /api/drama/stream/ : episodeId
-+GET /api/drama/subtitle
-}
-class MangaEndpoints {
-+GET /api/manga/home
-+GET /api/manga/category/ : type
-+GET /api/manga/search
-+GET /api/manga/info/ : id
-+GET /api/manga/read/ : chapterId
-}
-class WebtoonEndpoints {
-+GET /api/webtoon/home
-+GET /api/webtoon/category/ : type
-}
-class MovieEndpoints {
-+GET /api/movieplex/catalog
-+GET /api/movieplex/stream
-+GET /api/movieplex/post-info
-+GET /api/movieplex/catalog/status
-+GET /api/movies/home
-}
-class UtilityEndpoints {
-+POST /api/anilist
-+GET /api/episodes/mal/ : malId
-+GET /api/health
-+GET /api/status
-}
-```
-
-**Diagram sources**
-- [server.js:1210-1278](file://server.js#L1210-L1278)
-- [server.js:1382-1559](file://server.js#L1382-L1559)
-- [server.js:1564-1601](file://server.js#L1564-L1601)
-- [server.js:1606-1617](file://server.js#L1606-L1617)
-- [server.js:1863-2043](file://server.js#L1863-L2043)
-- [server.js:2321-2465](file://server.js#L2321-L2465)
-- [server.js:2611-2688](file://server.js#L2611-L2688)
-- [server.js:3402-3608](file://server.js#L3402-L3608)
-- [server.js:1164-1208](file://server.js#L1164-L1208)
-- [server.js:662-710](file://server.js#L662-L710)
-- [server.js:715-735](file://server.js#L715-L735)
-- [server.js:1304-1336](file://server.js#L1304-L1336)
-
-**Section sources**
-- [server.js:1210-1278](file://server.js#L1210-L1278)
-- [server.js:1382-1559](file://server.js#L1382-L1559)
-- [server.js:1564-1601](file://server.js#L1564-L1601)
-- [server.js:1606-1617](file://server.js#L1606-L1617)
-- [server.js:1863-2043](file://server.js#L1863-L2043)
-- [server.js:2321-2465](file://server.js#L2321-L2465)
-- [server.js:2611-2688](file://server.js#L2611-L2688)
-- [server.js:3402-3608](file://server.js#L3402-L3608)
-- [server.js:1164-1208](file://server.js#L1164-L1208)
-- [server.js:662-710](file://server.js#L662-L710)
-- [server.js:715-735](file://server.js#L715-L735)
-- [server.js:1304-1336](file://server.js#L1304-L1336)
-
-### Caching Strategy Using In-Memory Caches with TTL
-- Anime episode list cache (HiAnime): keyed by anilistId+subOrDub with 30-minute TTL.
-- Stream result cache (AnimeKai): keyed by slug+episode+language with 20-minute TTL.
-- Jikan episode cache: keyed by malId+page with 1-hour TTL.
-- AniList GraphQL cache: payload-keyed with 1-hour TTL and retry on 429.
-- Drama caches: home, list, info, stream with 30-minute to 2-hour TTLs.
-- Manga genre catalog cache: page-batched with max items and refresh intervals.
-- MoviePlex catalog cache: built once and refreshed hourly; includes poster enrichment.
-
-```mermaid
-flowchart TD
-Request["Incoming Request"] --> CheckCache["Check In-Memory Cache"]
-CheckCache --> |Hit| ReturnCached["Return Cached Response"]
-CheckCache --> |Miss| Fetch["Fetch from Provider"]
-Fetch --> Store["Store in Cache with TTL"]
-Store --> ReturnFresh["Return Fresh Response"]
-```
-
-**Diagram sources**
-- [server.js:227-228](file://server.js#L227-L228)
-- [server.js:413-419](file://server.js#L413-L419)
-- [server.js:424-425](file://server.js#L424-L425)
-- [server.js:1161-1162](file://server.js#L1161-L1162)
-- [server.js:1628-1633](file://server.js#L1628-L1633)
-- [server.js:2218-2219](file://server.js#L2218-L2219)
-- [server.js:2953-2954](file://server.js#L2953-L2954)
-
-**Section sources**
-- [server.js:227-228](file://server.js#L227-L228)
-- [server.js:413-419](file://server.js#L413-L419)
-- [server.js:424-425](file://server.js#L424-L425)
-- [server.js:1161-1162](file://server.js#L1161-L1162)
-- [server.js:1628-1633](file://server.js#L1628-L1633)
-- [server.js:2218-2219](file://server.js#L2218-L2219)
-- [server.js:2953-2954](file://server.js#L2953-L2954)
-
-### Authentication Middleware, Rate Limiting, and Logging
-- Authentication:
-  - No explicit authentication middleware is implemented in the server code. Access control is not enforced at the API layer.
-- Rate Limiting:
-  - No global rate limiter is configured. Some endpoints implement provider-side retry/backoff (e.g., AniList 429 handling, image proxy exponential backoff).
-- Logging:
-  - Console logging throughout handlers for debugging and observability. Logs include provider names, cache hits/misses, errors, and performance metrics.
-
-Recommendations:
-- Add JWT or session-based authentication middleware for protected endpoints.
-- Integrate a rate limiter (e.g., express-rate-limit) to protect against abuse.
-- Centralize structured logging (e.g., Winston or Pino) for better observability and log aggregation.
-
-**Section sources**
-- [server.js:1172-1199](file://server.js#L1172-L1199)
-- [server.js:2878-2930](file://server.js#L2878-L2930)
-
-### Custom Middleware Creation and Extension Points
-- URL normalizer middleware: Demonstrates how to transform incoming paths before routing.
-- Proxy utilities: streamProxyHeaders and streamProxyReferers encapsulate provider-specific header strategies.
-- Provider abstraction: Each provider (AnimeKai, AnimeRulz, KissKH, ComicKz, MoviePlex) has dedicated functions and caches, making it straightforward to add new providers by following the same pattern.
-- Extension points:
-  - New content providers can be added by defining a provider instance, implementing search/detail/stream functions, and registering routes.
-  - Processing pipelines can be extended by adding middleware between URL normalization and route handlers.
-
-Example patterns:
-- Adding a new provider:
-  - Create provider instance and configure base URLs/headers.
-  - Implement fetch functions with caching and error handling.
-  - Register routes with validation and response transformation.
-- Adding pipeline steps:
-  - Insert middleware after JSON parsing to modify requests/responses (e.g., audit logging, request signing).
-
-**Section sources**
-- [server.js:23-28](file://server.js#L23-L28)
-- [server.js:74-92](file://server.js#L74-L92)
-- [server.js:94-106](file://server.js#L94-L106)
-- [server.js:108-148](file://server.js#L108-L148)
-
-## Dependency Analysis
-Key dependencies and their roles:
-- express: HTTP server framework.
-- cors: Cross-origin resource sharing.
-- axios: HTTP client for external requests.
-- cheerio: HTML parsing for scrapers.
-- @consumet/extensions: Provider abstractions for anime content.
-- https-proxy-agent: Optional HTTPS proxy support.
-- hls.js: Frontend HLS player (not used server-side but relevant for streaming).
+## Microservices Architecture
+The backend now consists of four specialized microservices, each handling specific content types:
 
 ```mermaid
 graph TB
-Express["Express"] --> CORS["cors"]
-Express --> Axios["axios"]
-Axios --> Providers["@consumet/extensions"]
-Axios --> External["External APIs"]
-Cheerio["cheerio"] --> Scrapers["Scrapers"]
-Express --> Scrapers
+Client["Client App"] --> LoadBalancer["Load Balancer / API Gateway"]
+LoadBalancer --> Anime["Anime Service<br/>Port 8080"]
+LoadBalancer --> Drama["Drama Service<br/>Port 8081"]
+LoadBalancer --> Comics["Comics Service<br/>Port 8082"]
+LoadBalancer --> Movies["Movies Service<br/>Port 8083"]
+Anime --> AnimeProviders["@consumet/extensions<br/>HiAnime / AnimeUnity"]
+Drama --> DramaProviders["KissKH<br/>EncDec Resolver"]
+Comics --> ComicsProviders["ComicKz<br/>AniList GraphQL"]
+Movies --> MovieProviders["MoviePlex<br/>NetMirror<br/>TMDB/OMDb"]
+Anime --> Proxies["HLS & Asset Proxies"]
+Drama --> Proxies
+Comics --> Proxies
+Movies --> Proxies
+Proxies --> ExternalCDN["External CDNs<br/>Stream Providers"]
 ```
 
 **Diagram sources**
-- [package.json:14-35](file://package.json#L14-L35)
-- [server.js:1-8](file://server.js#L1-L8)
+- [services/anime/server.js:1-18](file://services/anime/server.js#L1-L18)
+- [services/drama/server.js:1-18](file://services/drama/server.js#L1-L18)
+- [services/comics/server.js:1-18](file://services/comics/server.js#L1-L18)
+- [services/movies/server.js:1-18](file://services/movies/server.js#L1-L18)
+
+Each microservice is designed as a self-contained Express.js application with:
+- Independent package.json with specific dependencies
+- Dedicated port assignments (8080-8083)
+- Consistent middleware patterns (CORS, JSON parsing, URL normalization)
+- Service-specific caching strategies
+- Provider integrations tailored to content type
+
+## Service Overview
+
+### Anime Service (Port 8080)
+Specialized for anime streaming with support for English Sub/Dub, Japanese Sub, Hindi Dub, Tamil Dub, and Telugu Dub content. Integrates with HiAnime, AnimeKai, Consumet, AnimeRulz, and AniList GraphQL.
+
+### Drama Service (Port 8081)
+Handles Asian drama streaming (Korean, Chinese, Japanese, Thai) powered by KissKH and EncDec resolver. Provides curated home sections, search functionality, and episode streaming with subtitle support.
+
+### Comics Service (Port 8082)
+Manages Manga, Korean Manhwa, Chinese Manhua, and Webtoons through ComicKz, AniList GraphQL, and Hivetoons integration. Features bento grid layouts, genre filtering, and chapter reading capabilities.
+
+### Movies Service (Port 8083)
+Supports Bollywood, Hollywood, South Indian, Hindi Dubbed Movies and Web Series via MoviePlex, NetMirror, TMDB, and OMDb. Includes catalog management, stream resolution, and poster enrichment.
 
 **Section sources**
-- [package.json:14-35](file://package.json#L14-L35)
-- [server.js:1-8](file://server.js#L1-L8)
+- [services/anime/README.md:1-12](file://services/anime/README.md#L1-L12)
+- [services/drama/README.md:1-12](file://services/drama/README.md#L1-L12)
+- [services/comics/README.md:1-12](file://services/comics/README.md#L1-L12)
+- [services/movies/README.md:1-12](file://services/movies/README.md#L1-L12)
+
+## Compilation System
+The project includes an automated compilation system that transforms the modular microservices into a unified monolith server for simplified deployment scenarios.
+
+### Monolith Compiler
+The `compile_monolith.js` script performs the following operations:
+- Reads all four service files from the `services/` directory
+- Extracts and deduplicates imports across services
+- Cleans boilerplate code (Express initialization, middleware setup)
+- Combines services with clear module boundaries
+- Generates a unified health and status endpoint
+- Validates syntax before writing output
+
+```mermaid
+flowchart TD
+Start["Start Compilation"] --> ReadServices["Read Service Files"]
+ReadServices --> ExtractImports["Extract Unique Imports"]
+ExtractImports --> CleanCode["Clean Boilerplate Code"]
+CleanCode --> CombineModules["Combine Service Modules"]
+CombineModules --> AddHeaderFooter["Add Unified Header/Footer"]
+AddHeaderFooter --> ValidateSyntax["Validate Syntax"]
+ValidateSyntax --> WriteOutput["Write Compiled Server"]
+WriteOutput --> Success["Compilation Complete"]
+```
+
+**Diagram sources**
+- [scripts/compile_monolith.js:24-43](file://scripts/compile_monolith.js#L24-L43)
+- [scripts/compile_monolith.js:45-122](file://scripts/compile_monolith.js#L45-L122)
+- [scripts/compile_monolith.js:193-246](file://scripts/compile_monolith.js#L193-L246)
+
+### Generated Output
+The compilation produces `the compilation/server.js`, which contains:
+- All four services combined into a single Express application
+- Shared global helpers and middleware
+- Unified health check and status endpoints
+- Consolidated error handling
+- Single port deployment (default 8080)
+
+**Section sources**
+- [scripts/compile_monolith.js:124-191](file://scripts/compile_monolith.js#L124-L191)
+- [scripts/compile_monolith.js:199-244](file://scripts/compile_monolith.js#L199-L244)
+- [the compilation/server.js:1-74](file://the compilation/server.js#L1-L74)
+
+## Individual Service Documentation
+
+### Anime Service Details
+The Anime service provides comprehensive anime streaming capabilities with multiple provider support:
+
+**Key Features:**
+- Multi-provider streaming (HiAnime, AnimeKai, AnimeUnity, AnimeRulz)
+- Language support (English Sub/Dub, Japanese Sub, Hindi/Tamil/Telugu Dub)
+- Advanced search with season-aware matching
+- HLS streaming with CORS bypass proxies
+- AniList GraphQL integration for metadata
+
+**Provider Integration:**
+- @consumet/extensions for standardized anime data access
+- Custom AnimeKai scraper with title matching algorithms
+- AnimeRulz ecosystem for Indian language dubs
+- AniList metadata enrichment
+
+**Section sources**
+- [services/anime/server.js:128-158](file://services/anime/server.js#L128-L158)
+- [services/anime/server.js:248-324](file://services/anime/server.js#L248-L324)
+- [services/anime/server.js:505-593](file://services/anime/server.js#L505-L593)
+
+### Drama Service Details
+The Drama service specializes in Asian drama content with KissKH integration:
+
+**Core Functionality:**
+- Curated home sections (Featured, Korean, Chinese, Top Rating, Last Update)
+- Search and filter capabilities by country/type
+- Episode streaming with subtitle support
+- EncDec key exchange for secure stream access
+
+**Subtitle Processing:**
+- Automatic SRT to WebVTT conversion
+- CORS-enabled subtitle streaming
+- Default subtitle detection based on language
+
+**Section sources**
+- [services/drama/server.js:95-125](file://services/drama/server.js#L95-L125)
+- [services/drama/server.js:181-272](file://services/drama/server.js#L181-L272)
+- [services/drama/server.js:274-298](file://services/drama/server.js#L274-L298)
+
+### Comics Service Details
+The Comics service handles diverse comic content formats:
+
+**Content Types:**
+- Japanese Manga (via ComicKz)
+- Korean Manhwa (via ComicKz and Hivetoons)
+- Chinese Manhua (via ComicKz)
+- Webtoons (via AniList GraphQL)
+
+**Advanced Features:**
+- Bento grid layout support for top content
+- Genre-based filtering with pagination
+- Chapter reading with image proxy support
+- AniList integration for webtoon scheduling
+
+**Image Proxy:**
+- Hotlink protection bypass
+- Exponential backoff for rate limiting
+- Cache headers for performance optimization
+
+**Section sources**
+- [services/comics/server.js:285-347](file://services/comics/server.js#L285-L347)
+- [services/comics/server.js:509-614](file://services/comics/server.js#L509-L614)
+- [services/comics/server.js:715-771](file://services/comics/server.js#L715-L771)
+
+### Movies Service Details
+The Movies service provides comprehensive movie and series streaming:
+
+**Content Sources:**
+- MoviePlex WordPress REST API for catalog management
+- NetMirror integration for OTT platform content
+- TMDB and OMDb for poster enrichment
+
+**Stream Resolution:**
+- LuluStream HLS extraction with JavaScript evaluation
+- StreamTape URL resolution
+- Fallback iframe support when direct streaming fails
+
+**Catalog Management:**
+- Automated catalog building with caching
+- Category-based organization
+- 18+ content filtering and control
+
+**Section sources**
+- [services/movies/server.js:131-183](file://services/movies/server.js#L131-L183)
+- [services/movies/server.js:295-395](file://services/movies/server.js#L295-L395)
+- [services/movies/server.js:397-530](file://services/movies/server.js#L397-L530)
+
+## API Endpoints Structure
+Each service maintains consistent API patterns while providing domain-specific endpoints:
+
+### Common Patterns
+- Health checks: `/api/health` returns service status and uptime
+- CORS enabled globally with configurable origins
+- JSON body parsing for all routes
+- URL normalization for flexible routing
+
+### Service-Specific Endpoints
+
+**Anime Service:**
+- `/api/info/:anilistId` - Anime metadata and episodes
+- `/api/gogoanime/watch` - AnimeKai streaming
+- `/api/hianime/watch` - HiAnime streaming
+- `/api/animerulz/*` - Indian language dub support
+- `/api/search` - Title search functionality
+
+**Drama Service:**
+- `/api/drama/home` - Curated drama sections
+- `/api/drama/list` - Filterable drama catalog
+- `/api/drama/stream/:episodeId` - Episode streaming
+- `/api/drama/subtitle` - Subtitle processing
+
+**Comics Service:**
+- `/api/manga/home` - Bento grid and previews
+- `/api/manga/category/:type` - Genre filtering
+- `/api/webtoon/home` - AniList webtoon schedule
+- `/api/manga/read/:chapterId` - Chapter reading
+
+**Movies Service:**
+- `/api/movies/home` - Curated movie rows
+- `/api/movieplex/catalog` - Paginated catalog
+- `/api/movieplex/stream` - Stream resolution
+- `/api/netmirror/*` - OTT platform integration
+
+**Section sources**
+- [services/anime/README.md:15-84](file://services/anime/README.md#L15-L84)
+- [services/drama/README.md:15-122](file://services/drama/README.md#L15-L122)
+- [services/comics/README.md:15-116](file://services/comics/README.md#L15-L116)
+- [services/movies/README.md:15-90](file://services/movies/README.md#L15-L90)
+
+## Caching Strategy
+Each service implements intelligent caching strategies optimized for their specific content types and access patterns:
+
+### In-Memory Caches
+- **Anime Service**: Episode lists (30min TTL), stream results (20min TTL), AniList queries (1hr TTL)
+- **Drama Service**: Home catalog (30min TTL), episode streams (2hr TTL), search results (30min TTL)
+- **Comics Service**: Genre catalogs (15min TTL, max 240 items), chapter pages (1hr TTL)
+- **Movies Service**: MoviePlex catalog (24hr TTL), poster enrichment (cached per item)
+
+### Cache Implementation Patterns
+```javascript
+// Standard cache pattern used across services
+const cache = new Map();
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+function getOrSetCache(key, fetchFn) {
+    const cached = cache.get(key);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+        return cached.data;
+    }
+    const data = await fetchFn();
+    cache.set(key, { data, timestamp: Date.now() });
+    return data;
+}
+```
+
+### Performance Optimizations
+- Batch requests where possible (drama home catalog)
+- Parallel fetching with Promise.all/Promise.any
+- Exponential backoff for rate-limited providers
+- Smart cache invalidation based on content freshness
+
+**Section sources**
+- [services/anime/server.js:134-157](file://services/anime/server.js#L134-L157)
+- [services/drama/server.js:54-63](file://services/drama/server.js#L54-L63)
+- [services/comics/server.js:59-64](file://services/comics/server.js#L59-L64)
+- [services/movies/server.js:143-144](file://services/movies/server.js#L143-L144)
+
+## Proxy Services
+All services implement robust proxy infrastructure for CORS bypass and stream protection:
+
+### HLS Streaming Proxies
+- **m3u8-proxy**: Rewrites HLS manifests to route segments through backend
+- **ts-proxy**: Streams video segments with Range header forwarding
+- **subtitle-proxy**: Converts and serves subtitles with proper CORS headers
+- **image-proxy**: Handles hotlink protection and rate limiting
+
+### Provider-Specific Headers
+Each service configures appropriate headers for different providers:
+- User-Agent spoofing to match browser requests
+- Referer and Origin headers for protected streams
+- Custom headers for specific provider requirements
+
+### Error Handling and Retries
+- Exponential backoff for rate-limited responses (429 errors)
+- Fallback providers when primary sources fail
+- Graceful degradation with informative error messages
+
+**Section sources**
+- [services/anime/server.js:71-123](file://services/anime/server.js#L71-L123)
+- [services/drama/server.js:303-397](file://services/drama/server.js#L303-L397)
+- [services/comics/server.js:715-771](file://services/comics/server.js#L715-L771)
+- [services/movies/server.js:44-52](file://services/movies/server.js#L44-L52)
+
+## Deployment Options
+The system supports two primary deployment strategies:
+
+### Standalone Microservices
+Each service runs independently with dedicated resources:
+```bash
+# Run individual services
+cd services/anime && npm start      # Port 8080
+cd services/drama && npm start      # Port 8081
+cd services/comics && npm start     # Port 8082
+cd services/movies && npm start     # Port 8083
+```
+
+**Advantages:**
+- Independent scaling and resource allocation
+- Fault isolation between services
+- Technology flexibility per service needs
+- Easier maintenance and updates
+
+### Unified Monolith
+Compiled single-server deployment:
+```bash
+# Compile and run monolith
+node scripts/compile_monolith.js
+node "the compilation/server.js"
+```
+
+**Advantages:**
+- Simplified deployment and monitoring
+- Shared resources and memory efficiency
+- Single point of failure (trade-off)
+- Easier development workflow
+
+### Service Audit and Validation
+Automated validation ensures all services are properly configured:
+```bash
+node scripts/audit_services.js
+```
+
+This script verifies:
+- Package.json existence and validity
+- Server file presence and size
+- README documentation completeness
+
+**Section sources**
+- [scripts/compile_monolith.js:24-43](file://scripts/compile_monolith.js#L24-L43)
+- [scripts/audit_services.js:1-25](file://scripts/audit_services.js#L1-L25)
+- [the compilation/server.js:236-243](file://the compilation/server.js#L236-L243)
 
 ## Performance Considerations
-- Streaming optimization:
-  - Range header forwarding enables byte-range playback, reducing bandwidth and startup time.
-  - Manifest rewriting ensures only necessary segments are fetched.
-- Caching:
-  - In-memory caches reduce external API calls and improve response times.
-  - TTLs balance freshness and performance.
-- Parallelism:
-  - Promise.all/Promise.any used for parallel provider probing and candidate selection.
-- Error resilience:
-  - Retry logic and fallback providers handle transient failures.
-- Proxy overhead:
-  - Proxies add latency; consider deploying closer to users or using edge caching where possible.
+The microservices architecture provides several performance benefits:
 
-[No sources needed since this section provides general guidance]
+### Resource Isolation
+- Each service can be scaled independently based on demand
+- Memory leaks in one service don't affect others
+- CPU-intensive operations (stream extraction) isolated per service
+
+### Caching Optimization
+- Service-specific cache sizes and TTLs
+- Reduced external API calls through intelligent caching
+- Parallel request processing within services
+
+### Network Efficiency
+- Local inter-service communication when needed
+- Optimized provider connections per service
+- Connection pooling and reuse
+
+### Monitoring and Observability
+- Individual service health checks
+- Granular error tracking per service
+- Performance metrics per content type
 
 ## Troubleshooting Guide
-Common issues and resolutions:
-- CORS errors:
-  - Ensure CORS is enabled and origins match client domains.
-  - Use image and subtitle proxies to bypass provider restrictions.
-- Stream playback failures:
-  - Verify referer/origin headers are set correctly for protected streams.
-  - Check m3u8-proxy and ts-proxy logs for upstream errors.
-- Provider rate limits:
-  - AniList proxy handles 429 with retries; monitor logs for repeated throttling.
-- Image loading:
-  - Use image-proxy for hotlink-protected images; check referer settings.
-- Health checks:
-  - Use /api/health and /api/status to verify service and dependency health.
+
+### Service-Specific Issues
+
+**Anime Service Problems:**
+- Provider rate limits: Check AniList 429 handling and retry logic
+- Stream extraction failures: Verify referer headers and provider availability
+- Search accuracy: Review title matching algorithms and season detection
+
+**Drama Service Issues:**
+- EncDec key failures: Verify enc-dec.app availability and response format
+- Subtitle conversion: Check SRT to WebVTT conversion logic
+- Stream resolution: Validate KissKH API responses and episode IDs
+
+**Comics Service Challenges:**
+- Image loading failures: Review image proxy fallback mechanisms
+- Chapter parsing: Verify HTML structure changes in source sites
+- AniList integration: Check GraphQL query formatting and rate limits
+
+**Movies Service Complications:**
+- Stream extraction: Debug JavaScript evaluation for obfuscated players
+- Catalog building: Monitor MoviePlex API responses and pagination
+- Poster enrichment: Validate TMDB/OMDb API keys and search queries
+
+### Common Solutions
+- **CORS Errors**: Verify CORS_ORIGIN environment variable and client domains
+- **Timeout Issues**: Adjust timeout values in axios configurations
+- **Memory Leaks**: Monitor service memory usage and implement cache cleanup
+- **Provider Changes**: Regularly update scraping logic for source site changes
+
+### Diagnostic Tools
+- Health endpoints: `/api/health` for each service
+- Status monitoring: Service-specific status information
+- Log analysis: Console logging throughout all handlers
+- Network debugging: Proxy logs for upstream connectivity
 
 **Section sources**
-- [server.js:1172-1199](file://server.js#L1172-L1199)
-- [server.js:2878-2930](file://server.js#L2878-L2930)
-- [server.js:715-735](file://server.js#L715-L735)
-- [server.js:1304-1336](file://server.js#L1304-L1336)
+- [services/anime/server.js:505-513](file://services/anime/server.js#L505-L513)
+- [services/drama/server.js:85-93](file://services/drama/server.js#L85-L93)
+- [services/comics/server.js:275-283](file://services/comics/server.js#L275-L283)
+- [services/movies/server.js:536-544](file://services/movies/server.js#L536-L544)
 
 ## Conclusion
-The backend provides a robust, multi-provider media aggregation service with strong streaming capabilities, comprehensive caching, and flexible proxy infrastructure. While authentication and rate limiting are not currently implemented, the architecture supports easy extension points for adding security controls and new content providers. The use of in-memory caches and efficient streaming techniques ensures good performance and reliability across diverse external sources.
+The transformation to a microservices architecture provides significant advantages for Project Anime's backend infrastructure. The four specialized services (Anime, Drama, Comics, Movies) offer improved scalability, maintainability, and fault isolation while maintaining consistent patterns and APIs.
 
-[No sources needed since this section summarizes without analyzing specific files]
+The dual deployment strategy (standalone microservices vs. compiled monolith) provides flexibility for different operational requirements. The automated compilation system ensures consistency between deployment modes, while the comprehensive caching and proxy infrastructure delivers reliable performance across diverse content providers.
 
-## Appendices
+Future enhancements could include:
+- Container orchestration with Docker/Kubernetes
+- Distributed caching with Redis/Memcached
+- Advanced load balancing and service discovery
+- Enhanced monitoring and alerting systems
+- Database integration for persistent caching
 
-### Environment Variables and Configuration
-- PORT: Server port (default 8080).
-- CORS_ORIGIN: Allowed CORS origin (default wildcard).
-- KISSKH_BASE, ENCDEC_BASE, HIVETOONS_BASE: Provider base URLs.
-- ANIMERULZ_*: AnimeRulz ecosystem endpoints.
-- NETMIRROR_BASE: NetMirror aggregator base URL.
-- TMDB_API_KEY, OMDB_API_KEY: Poster enrichment API keys.
-
-**Section sources**
-- [server.js:15-18](file://server.js#L15-L18)
-- [server.js:748-753](file://server.js#L748-L753)
-- [server.js:1699-1701](file://server.js#L1699-L1701)
-- [server.js:3036-3037](file://server.js#L3036-L3037)
-
-### Optional Relay Proxy
-A Python script provides a simple HTTP relay to bypass provider IP restrictions when running behind cloud platforms. It forwards requests to kisskh.co with appropriate headers and disables SSL verification for compatibility.
-
-**Section sources**
-- [proxy.py:1-36](file://proxy.py#L1-L36)
+The architecture successfully balances modularity with simplicity, providing a solid foundation for continued growth and feature development.
