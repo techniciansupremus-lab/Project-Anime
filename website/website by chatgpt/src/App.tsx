@@ -91,11 +91,12 @@ export default function App() {
 
   return (
     <main id="top" className="min-h-screen bg-ink-950 text-paper-100">
-      {/* SiteNav is hidden on full immersion pages */}
+      {/* SiteNav is hidden on full immersion pages (drama has its own Netflix navbar) */}
       {view !== "movies" &&
         view !== "comics" &&
         view !== "comic-series" &&
-        view !== "comic-reader" && (
+        view !== "comic-reader" &&
+        view !== "drama" && (
           <SiteNav activePage={activePage} onNavigate={navigate} />
         )}
 
