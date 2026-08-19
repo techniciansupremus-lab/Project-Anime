@@ -180,8 +180,30 @@ app.get('/api/drama/info/:dramaId', async (req, res) => {
 
 // GET /api/drama/stream/:episodeId
 app.get('/api/drama/stream/:episodeId', async (req, res) => {
-  const { episodeId } = req.params;
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  let { episodeId } = req.params;
+  const { title, episode } = req.query;
   const host = publicHost(req);
+
+  // If episodeId is not a numeric KissKH ID, try resolving via title search
+  if (!/^\d+$/.test(String(episodeId)) && (title || episodeId.includes('-'))) {
+    const searchTitle = title || episodeId.replace(/-ep-\d+.*$/i, '').replace(/-\d+.*$/, '');
+    const targetEpNum = parseInt(episode) || parseInt((episodeId.match(/ep-(\d+)/i) || [])[1]) || 1;
+    try {
+      const searchData = await kissKhFetch(`${KISSKH_BASE}/api/DramaList/Search?q=${encodeURIComponent(searchTitle)}&type=0`);
+      const results = searchData?.data || (Array.isArray(searchData) ? searchData : []);
+      if (results.length > 0) {
+        const dramaDetail = await kissKhFetch(`${KISSKH_BASE}/api/DramaList/Drama/${results[0].id}?isq=false`);
+        const epList = dramaDetail?.episodes || [];
+        const found = epList.find(e => Number(e.number) === targetEpNum) || epList[0];
+        if (found && found.id) {
+          episodeId = String(found.id);
+        }
+      }
+    } catch (resolveErr) {
+      console.warn('[DRAMA STREAM] Title resolution warning:', resolveErr.message);
+    }
+  }
 
   const cached = dramaStreamCache.get(episodeId);
   if (cached && Date.now() - cached.timestamp < STREAM_TTL) {

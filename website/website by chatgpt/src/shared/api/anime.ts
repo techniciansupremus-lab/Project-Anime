@@ -262,37 +262,15 @@ export async function fetchAnimeStream(params: {
       );
       if (res.ok) {
         const data = await res.json();
-        if (data.sources && data.sources.length > 0) {
-          return {
-            sources: data.sources,
-            subtitles: data.subtitles || [],
-            intro: data.intro,
-            outro: data.outro,
-            provider: "AnimeRulz (Hindi)",
-          };
-        }
+        const normalized = normalizeStreamResponse(data, "AnimeRulz (Hindi)");
+        if (normalized) return normalized;
       }
     } catch (e) {
       console.warn("AnimeRulz Hindi fetch failed:", e);
     }
   }
 
-  // 2. Primary: Try HiAnime endpoint
-  try {
-    const res = await fetch(
-      `${config.ANIME_API}/api/hianime/watch?anilistId=${anilistId}&episode=${episode}&dub=${dub}`
-    );
-    if (res.ok) {
-      const data = await res.json();
-      const normalized = normalizeStreamResponse(data, "HiAnime");
-      if (normalized) return normalized;
-    }
-  } catch (e) {
-    console.warn("HiAnime fetch failed:", e);
-  }
-
-  // 3. Fallback: Try AnimeKai / Gogoanime endpoint
-  // The server returns { streamUrl, subtitleUrl } NOT { sources: [] }
+  // 2. Primary: Try fast AnimeKai / Gogoanime endpoint when title is present
   if (title) {
     try {
       const res = await fetch(
@@ -304,8 +282,22 @@ export async function fetchAnimeStream(params: {
         if (normalized) return normalized;
       }
     } catch (e) {
-      console.warn("AnimeKai fallback failed:", e);
+      console.warn("AnimeKai fetch failed:", e);
     }
+  }
+
+  // 3. Fallback: Try HiAnime endpoint
+  try {
+    const res = await fetch(
+      `${config.ANIME_API}/api/hianime/watch?anilistId=${anilistId}&episode=${episode}&dub=${dub}`
+    );
+    if (res.ok) {
+      const data = await res.json();
+      const normalized = normalizeStreamResponse(data, "HiAnime");
+      if (normalized) return normalized;
+    }
+  } catch (e) {
+    console.warn("HiAnime fallback failed:", e);
   }
 
   throw new Error(`No stream sources found for episode ${episode}`);

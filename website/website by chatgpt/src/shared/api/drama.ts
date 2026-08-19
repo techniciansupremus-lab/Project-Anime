@@ -90,11 +90,50 @@ export async function fetchDramaInfo(dramaId: number | string): Promise<DramaDet
   return await res.json();
 }
 
-export async function fetchDramaStream(episodeId: number | string): Promise<DramaStreamResult> {
+export async function fetchDramaStream(
+  episodeId: number | string,
+  title?: string,
+  episodeNum?: number
+): Promise<DramaStreamResult> {
   const config = await getApiConfig();
-  const res = await fetch(`${config.DRAMA_API}/api/drama/stream/${episodeId}`);
-  if (!res.ok) {
-    throw new Error(`Failed to load drama stream for episode ${episodeId}`);
+  const isNumeric = /^\d+$/.test(String(episodeId));
+
+  // 1. Direct KissKH ID lookup
+  if (isNumeric) {
+    try {
+      const res = await fetch(`${config.DRAMA_API}/api/drama/stream/${episodeId}`);
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn("Direct drama stream fetch failed:", e);
+    }
   }
-  return await res.json();
+
+  // 2. Title search fallback (for TMDB items or named queries)
+  if (title) {
+    try {
+      const searchResults = await searchDramas(title);
+      if (searchResults.length > 0) {
+        const bestMatch = searchResults[0];
+        const info = await fetchDramaInfo(bestMatch.id);
+        if (info.episodes && info.episodes.length > 0) {
+          const targetEpNum = episodeNum || 1;
+          const matchedEp =
+            info.episodes.find((e) => Number(e.number) === Number(targetEpNum)) ||
+            info.episodes[0];
+          if (matchedEp && matchedEp.id) {
+            const streamRes = await fetch(`${config.DRAMA_API}/api/drama/stream/${matchedEp.id}`);
+            if (streamRes.ok) {
+              return await streamRes.json();
+            }
+          }
+        }
+      }
+    } catch (searchErr) {
+      console.warn("Drama title resolution failed:", searchErr);
+    }
+  }
+
+  throw new Error(`Failed to load drama stream for episode ${episodeId}`);
 }

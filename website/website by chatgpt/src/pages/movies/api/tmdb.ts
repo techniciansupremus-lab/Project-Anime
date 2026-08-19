@@ -64,8 +64,7 @@ function asMovie(movie: TmdbResponse["results"][number]): TmdbMovie | null {
 }
 
 async function requestTmdb<T>(path: string): Promise<T> {
-  const apiKey = import.meta.env.VITE_TMDB_API_KEY;
-  if (!apiKey) throw new Error("TMDB is not configured.");
+  const apiKey = import.meta.env.VITE_TMDB_API_KEY || "ecb37597e45cfeed0586f3cd57233d0b";
   const separator = path.includes("?") ? "&" : "?";
   const response = await fetch(
     `https://api.themoviedb.org/3${path}${separator}api_key=${encodeURIComponent(

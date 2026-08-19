@@ -756,11 +756,14 @@ const handleImageProxy = async (req, res) => {
         continue;
       }
       console.error(`[MANGA IMAGE PROXY] Error (attempt ${attempt}/${maxRetries}):`, err.message);
-      if (!res.headersSent) {
-        return res.status(status || 500).send('Image proxy error');
+      if (attempt === maxRetries && !res.headersSent) {
+        // Fallback: Redirect directly to the source URL so browser loads it directly
+        return res.redirect(302, targetUrl);
       }
-      return;
     }
+  }
+  if (!res.headersSent) {
+    return res.redirect(302, targetUrl);
   }
 };
 

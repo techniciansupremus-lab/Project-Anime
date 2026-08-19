@@ -727,7 +727,7 @@ export function DramaPage({ onBack }: { onBack?: () => void; onOpen?: () => void
     setStreamError(null);
     setStreamResult(null);
     try {
-      const stream = await fetchDramaStream(ep.id);
+      const stream = await fetchDramaStream(ep.id, popupDrama?.title, ep.number);
       setStreamResult(stream);
     } catch (err: any) {
       setStreamError(err.message || "Stream unavailable.");
