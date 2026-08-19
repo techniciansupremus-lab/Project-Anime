@@ -37,12 +37,12 @@ function MoviePlexPlayerView({ movie, onBack }) {
   const [postInfo, setPostInfo] = React.useState(null);
   const [moreMovies, setMoreMovies] = React.useState([]);
 
-  const slug = movie.movieplexSlug || movie.slug;
+  const slug = movie.dcSlug || movie.movieplexSlug || movie.slug;
   const displayTitle = cleanMovieDisplayTitle(movie.title || postInfo?.title || '');
 
   React.useEffect(() => {
     if (!slug) return;
-    fetch(apiUrl(`/api/movieplex/post-info?slug=${encodeURIComponent(slug)}`))
+    fetch(apiUrl(`/api/desicinemas/post-info?slug=${encodeURIComponent(slug)}`))
       .then(r => r.json())
       .then(data => { setPostInfo(data); })
       .catch(() => {});
@@ -51,13 +51,13 @@ function MoviePlexPlayerView({ movie, onBack }) {
   React.useEffect(() => {
     if (!slug) { setError('No slug provided'); setLoading(false); return; }
     setLoading(true); setError(null); setUseFallback(false);
-    fetch(apiUrl(`/api/movieplex/stream?slug=${encodeURIComponent(slug)}`))
+    fetch(apiUrl(`/api/desicinemas/stream?slug=${encodeURIComponent(slug)}`))
       .then(r => r.json())
       .then(data => {
         setStreamData(data);
         setLoading(false);
-        // If direct stream URL is not available or source is streamtape, automatically use the external player
-        if ((!data.streamUrl && data.fallbackIframe) || data.source === 'streamtape') {
+        // If direct stream URL is not available, automatically use the external player
+        if (!data.streamUrl && data.fallbackIframe) {
           setUseFallback(true);
         }
       })
@@ -66,7 +66,7 @@ function MoviePlexPlayerView({ movie, onBack }) {
 
   // Fetch recommendations for below player
   React.useEffect(() => {
-    fetch(apiUrl('/api/movieplex/catalog?page=1&limit=12'))
+    fetch(apiUrl('/api/desicinemas/catalog?category=movies&page=1&limit=12'))
       .then(r => r.json())
       .then(res => {
         if (Array.isArray(res.movies)) setMoreMovies(res.movies.slice(0, 10));
@@ -75,7 +75,7 @@ function MoviePlexPlayerView({ movie, onBack }) {
   }, []);
 
   const thumbnail = postInfo?.thumbnail || movie.thumbnail || movie.coverImage || '';
-  const isHLS = (streamData?.source === 'lulustream' || streamData?.directHls) && !!streamData?.streamUrl;
+  const isHLS = (streamData?.isHls || streamData?.directHls || streamData?.source === 'desicinemas' || streamData?.source === 'lulustream') && !!streamData?.streamUrl;
   const extractionFailed = !loading && streamData && !streamData.streamUrl && !streamData.fallbackIframe;
 
   return (

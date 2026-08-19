@@ -2,28 +2,29 @@ import React from 'react';
 import { apiUrl } from '../../../runtimeConfig';
 
 function MovieCard({ movie, onClick }) {
-  const [imgSrc, setImgSrc] = React.useState(movie.coverImage || movie.thumbnail || null);
+  const [imgSrc, setImgSrc] = React.useState(movie.coverImage || movie.thumbnail || movie.poster || null);
   const [imgErr, setImgErr] = React.useState(false);
   const [fetchedPoster, setFetchedPoster] = React.useState(null);
 
-  // Sync src when parent updates the movie object (e.g. after background enrichment)
+  // Sync src when parent updates the movie object
   React.useEffect(() => {
-    const src = movie.coverImage || movie.thumbnail || null;
+    const src = movie.coverImage || movie.thumbnail || movie.poster || null;
     if (src && src !== imgSrc) { setImgSrc(src); setImgErr(false); }
-  }, [movie.coverImage, movie.thumbnail]);
+  }, [movie.coverImage, movie.thumbnail, movie.poster]);
 
   // If img failed or no poster at all, try fetching from backend on-demand
   const handleImgErr = React.useCallback(() => {
     setImgErr(true);
-    if (movie.movieplexSlug && !fetchedPoster) {
-      fetch(apiUrl('/api/movieplex/post-info?slug=' + encodeURIComponent(movie.movieplexSlug)))
+    const slug = movie.dcSlug || movie.movieplexSlug || movie.slug;
+    if (slug && !fetchedPoster) {
+      fetch(apiUrl('/api/desicinemas/post-info?slug=' + encodeURIComponent(slug)))
         .then(r => r.json())
         .then(d => {
           if (d.thumbnail) { setFetchedPoster(d.thumbnail); setImgErr(false); }
         })
         .catch(() => {});
     }
-  }, [movie.movieplexSlug, fetchedPoster]);
+  }, [movie.dcSlug, movie.movieplexSlug, movie.slug, fetchedPoster]);
 
   const activeSrc = fetchedPoster || imgSrc;
 
@@ -158,7 +159,6 @@ function MovieCard({ movie, onClick }) {
         </small>
       </span>
     </button>
-
   );
 }
 

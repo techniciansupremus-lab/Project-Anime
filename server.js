@@ -3247,16 +3247,17 @@ async function buildMpThumbnails(maxPosts) {
   console.log('[MoviePlex] Poster enrichment complete! Total with images: ' + (tmdbFetched + fallbackFetched) + '/' + targetPosts.length);
 }
 
-setImmediate(function() {
-  buildMpCatalog()
-    .then(function() { return buildMpThumbnails(300); })
-    .catch(function() {});
-  setInterval(function() {
-    if (Date.now() - mpCache.lastBuilt > MP_TTL) {
-      buildMpCatalog().then(function() { return buildMpThumbnails(300); }).catch(function() {});
-    }
-  }, 60 * 60 * 1000);
-});
+// [REPLACED] MoviePlex catalog builder disabled — DesiCinemas is now the active provider.
+// setImmediate(function() {
+//   buildMpCatalog()
+//     .then(function() { return buildMpThumbnails(300); })
+//     .catch(function() {});
+//   setInterval(function() {
+//     if (Date.now() - mpCache.lastBuilt > MP_TTL) {
+//       buildMpCatalog().then(function() { return buildMpThumbnails(300); }).catch(function() {});
+//     }
+//   }, 60 * 60 * 1000);
+// });
 
 async function scrapeMoviePlexPost(slug) {
   const res = await axios.get(`${MOVIEPLEX_BASE}/${slug}/`, {
@@ -3511,99 +3512,520 @@ app.get('/api/movieplex/catalog/status', function(req, res) {
   res.json({ total: mpCache.posts.length, built: mpCache.lastBuilt > 0, building: mpCache.building, lastRefresh: new Date(mpCache.lastBuilt).toISOString(), categoryCount: Object.keys(mpCache.categoryMap).length });
 });
 
-const moviesHomeCache = { data: null, builtAt: 0 };
-app.get('/api/movies/home', async function(req, res) {
-  // If mpCache has built posts, use them directly so thumbnails are included!
-  if (mpCache.posts.length > 0) {
-    const getCatPosts = function(catId, limit, isHotCat = false) {
-      limit = limit || 24;
-      let posts = mpCache.byCategory[catId] || [];
-      if (!isHotCat) {
-        posts = posts.filter(function(p) { return !p.is18Plus; });
-      }
-      return posts.slice(0, limit).map(function(p) {
-        return Object.assign({}, p, {
-          categories: (p.categoryIds || []).map(function(id) { return mpCache.categoryMap[id] && mpCache.categoryMap[id].name; }).filter(Boolean)
-        });
-      });
-    };
+// ============================================================================
+// DESICINEMAS INTEGRATION (Primary Movies Provider)
+// Source: desicinemas.pk (WordPress Toroflix theme + TMDB images)
+// Direct master HLS (.m3u8) extraction from Morencius & Vidmoly
+// ============================================================================
 
-    const trending = getCatPosts(MP_CATS.trending);
-    const hot = getCatPosts(MP_CATS.hot, 24, true);
-    const webSeries = getCatPosts(MP_CATS.web_series);
-    const hindiDubbed = getCatPosts(MP_CATS.hindi_dubbed);
-    const bollywood = getCatPosts(MP_CATS.bollywood);
-    const hollywood = getCatPosts(MP_CATS.hollywood);
-    const action = getCatPosts(MP_CATS.action);
-    const shortFilm = getCatPosts(MP_CATS.short_film);
-    const thriller = getCatPosts(MP_CATS.thriller);
-    const romance = getCatPosts(MP_CATS.romance);
+const DC_BASE = 'https://desicinemas.pk';
+const DC_DEFAULT_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Referer': `${DC_BASE}/`,
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9'
+};
 
-    // Live on-the-fly TMDB poster enrichment for homepage row items missing a thumbnail
-    const topRowItems = [
-      ...trending.slice(0, 12),
-      ...hindiDubbed.slice(0, 12),
-      ...bollywood.slice(0, 12),
-      ...hollywood.slice(0, 12),
-      ...webSeries.slice(0, 12),
-      ...action.slice(0, 12),
-    ];
-    await Promise.allSettled(topRowItems.map(async function(p) {
-      if (!p.thumbnail) {
-        const clean = mpCleanTitle(p.title);
-        const tmdb = await mpTmdbPoster(clean);
-        if (tmdb && tmdb.poster) {
-          p.thumbnail = tmdb.poster;
-          p.coverImage = tmdb.poster;
-          p.bannerImage = tmdb.backdrop || tmdb.poster;
-          if (tmdb.rating) p.rating = tmdb.rating;
-        }
-      }
-    }));
+const DC_CATEGORIES = {
+  movies: 'bmovies1',
+  trending: 'bmovies1',
+  hindi_dubbed: 'hindidubbed',
+  hollywood: 'hollywoodmovies',
+  desi_cinema: '1desicinema',
+  bollywood: '1desicinema',
+  series: 'series',
+  action: 'all-action-movie',
+  comedy: 'com-edyy',
+  drama: 'dr-ama',
+  romance: 'romance3',
+  thriller: 'thriller-moviez',
+  horror: 'hor-ror',
+  crime: 'all-crime',
+  punjabi: 'bmovies1/1punjabi',
+  tamil: 'bmovies1/tamil-cinemaa',
+  telugu: 'bmovies1/telu-gu',
+  bengali: 'bengali',
+  gujarati: 'bmovies1/gujarati',
+  marathi: 'bmovies1/marathi2',
+  malayalam: 'bmovies1/malayalam',
+  kannada: 'bmovies1/kannada'
+};
 
-    // Pick a featured title with a valid image if possible (excluding 18+)
-    const withThumb = mpCache.posts.filter(function(p) { return !!p.thumbnail && !p.is18Plus; });
-    const featured = withThumb[0] || trending[0] || hindiDubbed[0] || bollywood[0] || mpCache.posts.find(function(p) { return !p.is18Plus; }) || null;
+function dcParseMovieCard($, el) {
+  const $el = $(el);
+  const idAttr = $el.attr('id') || '';
+  const postId = idAttr.replace('post-', '');
+  const linkEl = $el.find('a').first();
+  const rawHref = linkEl.attr('href') || '';
+  const title = $el.find('.Title').first().text().trim() || linkEl.text().trim();
 
-    const data = {
-      featured: featured, bollywood: bollywood, popular: trending, trending: trending,
-      hollywood: hollywood, action: action, classics: [], topRated: [],
-      netmirror: { trending: [], netflix: [], prime: [], hotstar: [] },
-      movieplex: { trending, hot, webSeries, hindiDubbed, bollywood, hollywood, action, shortFilm, thriller, romance },
-    };
-    return res.json(data);
+  let slug = '';
+  let type = 'movie';
+  if (rawHref.includes('/movies/')) {
+    slug = rawHref.split('/movies/')[1].replace(/\/$/, '');
+    type = 'movie';
+  } else if (rawHref.includes('/series/')) {
+    slug = rawHref.split('/series/')[1].replace(/\/$/, '');
+    type = 'series';
+  } else if (rawHref.includes('/episode/')) {
+    slug = rawHref.split('/episode/')[1].replace(/\/$/, '');
+    type = 'episode';
   }
 
-  if (moviesHomeCache.data && Date.now() - moviesHomeCache.builtAt < 30 * 60 * 1000) {
-    return res.json(moviesHomeCache.data);
+  const imgEl = $el.find('img');
+  let poster = imgEl.attr('data-src') || imgEl.attr('src') || '';
+  if (poster.startsWith('//')) poster = 'https:' + poster;
+
+  const quality = $el.find('.Qlty').first().text().trim() || 'HD';
+  const year = $el.find('.Yr').first().text().trim() || $el.find('.Date').first().text().trim();
+  const language = $el.find('.Lng').first().text().trim();
+  const duration = $el.find('.Time').first().text().trim();
+  const rating = $el.find('.post-ratings span').text().trim();
+
+  return {
+    id: `dc-${postId || slug}`,
+    postId,
+    slug,
+    dcSlug: slug,
+    movieplexSlug: slug, // for backwards compatibility
+    title,
+    type,
+    url: rawHref,
+    poster,
+    thumbnail: poster,
+    coverImage: poster,
+    bannerImage: poster,
+    quality,
+    year,
+    releaseDate: year,
+    language,
+    duration,
+    rating,
+    source: 'desicinemas'
+  };
+}
+
+async function dcGetCatalog(categoryKey = 'movies', page = 1) {
+  const catPath = DC_CATEGORIES[categoryKey] || categoryKey || 'bmovies1';
+  const pageUrl = page > 1
+    ? `${DC_BASE}/${catPath}/page/${page}/`
+    : `${DC_BASE}/${catPath}/`;
+
+  const res = await axios.get(pageUrl, { headers: DC_DEFAULT_HEADERS, timeout: 12000 });
+  const $ = cheerio.load(res.data);
+  const items = [];
+
+  $('.MovieList > li').each((_, el) => {
+    const item = dcParseMovieCard($, el);
+    if (item.slug) items.push(item);
+  });
+
+  const hasNextPage = $('.wp-pagenavi .nextpostslink, .nav-links .next').length > 0;
+
+  return {
+    category: categoryKey,
+    page,
+    hasNextPage,
+    total: items.length,
+    totalPages: hasNextPage ? page + 1 : page,
+    movies: items,
+    results: items
+  };
+}
+
+async function dcSearch(query, page = 1) {
+  const pageUrl = page > 1
+    ? `${DC_BASE}/page/${page}/?s=${encodeURIComponent(query)}`
+    : `${DC_BASE}/?s=${encodeURIComponent(query)}`;
+
+  const res = await axios.get(pageUrl, { headers: DC_DEFAULT_HEADERS, timeout: 12000 });
+  const $ = cheerio.load(res.data);
+  const items = [];
+
+  $('.MovieList > li').each((_, el) => {
+    const item = dcParseMovieCard($, el);
+    if (item.slug) items.push(item);
+  });
+
+  return {
+    query,
+    page,
+    total: items.length,
+    totalPages: 1,
+    movies: items,
+    results: items
+  };
+}
+
+async function dcGetMovieDetail(slug) {
+  const movieUrl = `${DC_BASE}/movies/${slug}/`;
+  const res = await axios.get(movieUrl, { headers: DC_DEFAULT_HEADERS, timeout: 12000 });
+  const $ = cheerio.load(res.data);
+
+  const title = $('article.TPost h1, h1').first().text().trim();
+  const description = $('article.TPost .Description p, .Description p').first().text().trim();
+
+  let backdrop = $('img.TPostBg, .TPostBg').first().attr('data-src') || $('img.TPostBg, .TPostBg').first().attr('src') || '';
+  if (backdrop.startsWith('//')) backdrop = 'https:' + backdrop;
+
+  const year = $('article.TPost .Date, .Date').first().text().trim();
+  const duration = $('article.TPost .Time, .Time').first().text().trim();
+  const quality = $('article.TPost .Qlty, .Qlty').first().text().trim();
+  const rating = $('.post-ratings span').first().text().trim();
+
+  const genres = [];
+  $('.Description .Genre a').each((_, a) => genres.push($(a).text().trim()));
+
+  const options = [];
+  $('.ListOptions li').each((_, optEl) => {
+    const $opt = $(optEl);
+    options.push({
+      key: $opt.attr('data-key') || '0',
+      id: $opt.attr('data-id') || '',
+      typ: $opt.attr('data-typ') || 'movie',
+      server: $opt.find('.AAIco-dns').text().trim() || 'Server',
+      quality: $opt.find('.AAIco-equalizer').text().trim() || 'HD',
+      lang: $opt.find('.AAIco-language').text().trim() || ''
+    });
+  });
+
+  return {
+    id: `dc-${slug}`,
+    slug,
+    dcSlug: slug,
+    title,
+    description,
+    thumbnail: backdrop,
+    banner: backdrop,
+    backdrop,
+    coverImage: backdrop,
+    bannerImage: backdrop,
+    year,
+    duration,
+    quality,
+    rating,
+    genres,
+    options,
+    type: 'movie',
+    source: 'desicinemas'
+  };
+}
+
+async function dcExtractMorenciusStream(embedUrl) {
+  try {
+    const res = await axios.get(embedUrl, {
+      headers: {
+        'User-Agent': DC_DEFAULT_HEADERS['User-Agent'],
+        'Referer': `${DC_BASE}/`
+      },
+      timeout: 10000
+    });
+
+    const html = res.data;
+    const evalMatch = html.match(/eval\s*\(\s*function\s*\(\s*p\s*,\s*a\s*,\s*c\s*,\s*k\s*,\s*e\s*,\s*d\s*\)[\s\S]*?\.split\('\|'\)\)\s*\)/i);
+    if (!evalMatch) return null;
+
+    let capturedSources = [];
+    const mockEl = () => ({
+      style: {},
+      setAttribute: () => {},
+      getAttribute: () => '',
+      appendChild: () => {},
+      removeChild: () => {},
+      parentNode: { removeChild: () => {} },
+      classList: { add: () => {}, remove: () => {} }
+    });
+
+    const mock$ = () => ({
+      insertAfter: () => {}, detach: () => {}, remove: () => {},
+      hide: () => {}, show: () => {}, on: () => {}, ready: () => {},
+      addClass: () => {}, removeClass: () => {}, toggleClass: () => {},
+      attr: () => '', html: () => '', text: () => ''
+    });
+    mock$.ajaxSetup = () => {};
+    mock$.cookie = () => {};
+    mock$.post = () => {};
+    mock$.get = () => {};
+
+    const sandbox = {
+      window: { location: { protocol: 'https:', host: 'morencius.com', href: embedUrl } },
+      document: { getElementById: mockEl, createElement: mockEl, querySelector: mockEl, body: { appendChild: () => {} } },
+      $: mock$,
+      jQuery: mock$,
+      localStorage: { getItem: () => null, setItem: () => {} },
+      jwplayer: () => ({
+        setup: (cfg) => {
+          capturedSources = cfg.sources || [];
+          return { on: () => {}, addButton: () => {}, getAudioTracks: () => [], getPosition: () => 0, seek: () => {}, play: () => {}, pause: () => {}, stop: () => {}, load: () => {}, once: () => {} };
+        },
+        key: '', on: () => {}, addButton: () => {}
+      }),
+      console: { log: () => {} }
+    };
+
+    vm.createContext(sandbox);
+    vm.runInContext(evalMatch[0], sandbox);
+
+    if (capturedSources.length > 0 && capturedSources[0].file) {
+      let file = capturedSources[0].file;
+      if (file.startsWith('/')) file = 'https://morencius.com' + file;
+      return file;
+    }
+    return null;
+  } catch (e) {
+    console.error('[EXTRACTOR] Morencius unpack error:', e.message);
+    return null;
+  }
+}
+
+async function dcExtractVidmolyStream(embedUrl) {
+  try {
+    const res = await axios.get(embedUrl, {
+      headers: {
+        'User-Agent': DC_DEFAULT_HEADERS['User-Agent'],
+        'Referer': `${DC_BASE}/`
+      },
+      timeout: 10000
+    });
+
+    const html = res.data;
+    const fileMatch = html.match(/file\s*:\s*['"](https?:\/\/[^'"]+\.m3u8[^'"]*)['"]/i) ||
+                      html.match(/sources\s*:\s*\[\s*\{\s*file\s*:\s*['"](https?:\/\/[^'"]+)['"]/i);
+
+    if (fileMatch) {
+      return fileMatch[1];
+    }
+    return null;
+  } catch (e) {
+    console.error('[EXTRACTOR] Vidmoly extraction error:', e.message);
+    return null;
+  }
+}
+
+async function dcResolveStream({ postId, optionKey = '0', type = '1', slug = null }) {
+  let targetId = postId;
+  let targetType = type;
+  let detailInfo = null;
+
+  if (!targetId && slug) {
+    const pageUrl = type === '2' ? `${DC_BASE}/episode/${slug}/` : `${DC_BASE}/movies/${slug}/`;
+    const pageRes = await axios.get(pageUrl, { headers: DC_DEFAULT_HEADERS, timeout: 12000 });
+    const $ = cheerio.load(pageRes.data);
+    const optEl = $('.ListOptions li').first();
+    targetId = optEl.attr('data-id') || ($('body').attr('class') || '').match(/postid-(\d+)/)?.[1];
+    if (!targetId) {
+      targetId = ($('body').attr('class') || '').match(/term-(\d+)/)?.[1];
+    }
+    const title = $('article.TPost h1, h1').first().text().trim();
+    let backdrop = $('img.TPostBg, .TPostBg').first().attr('data-src') || $('img.TPostBg, .TPostBg').first().attr('src') || '';
+    if (backdrop.startsWith('//')) backdrop = 'https:' + backdrop;
+    detailInfo = { title, thumbnail: backdrop };
+  }
+
+  if (!targetId) {
+    throw new Error('Unable to resolve post ID for stream');
+  }
+
+  const embedRouterUrl = `${DC_BASE}/?trembed=${optionKey}&trid=${targetId}&trtype=${targetType}`;
+  const embedRes = await axios.get(embedRouterUrl, { headers: DC_DEFAULT_HEADERS, timeout: 12000 });
+  const $emb = cheerio.load(embedRes.data);
+  const iframeSrc = $emb('iframe').attr('src') || $emb('IFRAME').attr('SRC') || '';
+
+  if (!iframeSrc) {
+    throw new Error('No iframe found in embed response');
+  }
+
+  let streamUrl = null;
+  let host = 'iframe';
+
+  if (iframeSrc.includes('morencius.com')) {
+    host = 'morencius';
+    streamUrl = await dcExtractMorenciusStream(iframeSrc);
+  } else if (iframeSrc.includes('vidmoly.org') || iframeSrc.includes('vidmoly.me')) {
+    host = 'vidmoly';
+    streamUrl = await dcExtractVidmolyStream(iframeSrc);
+  }
+
+  return {
+    targetId,
+    optionKey,
+    type: targetType,
+    embedRouterUrl,
+    iframeUrl: iframeSrc,
+    fallbackIframe: iframeSrc,
+    streamUrl: streamUrl || null,
+    isHls: !!streamUrl,
+    directHls: !!streamUrl,
+    source: 'desicinemas',
+    host,
+    title: detailInfo?.title || '',
+    thumbnail: detailInfo?.thumbnail || ''
+  };
+}
+
+// DesiCinemas API Routes
+app.get('/api/desicinemas/catalog', async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page || '1'));
+    const category = req.query.category || 'movies';
+    const search = (req.query.search || '').trim();
+
+    if (search) {
+      const results = await dcSearch(search, page);
+      return res.json(results);
+    }
+
+    const catalog = await dcGetCatalog(category, page);
+    return res.json(catalog);
+  } catch (err) {
+    console.error('[DC Catalog] Error:', err.message);
+    return res.status(500).json({ error: 'Catalog fetch failed', message: err.message, movies: [] });
+  }
+});
+
+app.get('/api/desicinemas/stream', async (req, res) => {
+  const slug = req.query.slug;
+  const postId = req.query.postId;
+  const option = req.query.option || req.query.optionKey || '0';
+  const type = req.query.type || '1';
+
+  if (!slug && !postId) return res.status(400).json({ error: 'Missing slug or postId' });
+  try {
+    const result = await dcResolveStream({ slug, postId, optionKey: option, type });
+    return res.json(result);
+  } catch (err) {
+    console.error(`[DC Stream] Failed for ${slug || postId}:`, err.message);
+    return res.status(502).json({ error: 'Stream resolution failed', message: err.message });
+  }
+});
+
+app.get('/api/desicinemas/post-info', async (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: 'Missing slug' });
+  try {
+    const detail = await dcGetMovieDetail(slug);
+    return res.json({
+      thumbnail: detail.thumbnail || detail.backdrop,
+      title: detail.title,
+      description: detail.description,
+      quality: detail.quality,
+      year: detail.year,
+      options: detail.options
+    });
+  } catch (err) {
+    console.error(`[DC Post-Info] Failed for ${slug}:`, err.message);
+    return res.status(502).json({ error: err.message });
+  }
+});
+
+// Backwards-compatible /api/movieplex aliases (pointing directly to DesiCinemas)
+app.get('/api/movieplex/catalog', async (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page || '1'));
+  const category = req.query.category || 'movies';
+  const search = (req.query.search || '').trim();
+  try {
+    if (search) {
+      const r = await dcSearch(search, page);
+      return res.json(r);
+    }
+    const r = await dcGetCatalog(category, page);
+    return res.json(r);
+  } catch (err) {
+    return res.status(500).json({ error: 'Catalog fetch failed', movies: [] });
+  }
+});
+
+app.get('/api/movieplex/stream', async (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: 'Missing slug' });
+  try {
+    const r = await dcResolveStream({ slug, optionKey: '0', type: '1' });
+    return res.json(r);
+  } catch (err) {
+    return res.status(502).json({ error: 'Stream resolution failed', message: err.message });
+  }
+});
+
+app.get('/api/movieplex/post-info', async (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: 'Missing slug' });
+  try {
+    const d = await dcGetMovieDetail(slug);
+    return res.json({ thumbnail: d.thumbnail, title: d.title });
+  } catch (err) {
+    return res.status(502).json({ error: err.message });
+  }
+});
+
+// Primary Movies Home Endpoint powered by DesiCinemas
+const dcMoviesHomeCache = { data: null, builtAt: 0 };
+app.get('/api/movies/home', async (req, res) => {
+  if (dcMoviesHomeCache.data && Date.now() - dcMoviesHomeCache.builtAt < 15 * 60 * 1000) {
+    return res.json(dcMoviesHomeCache.data);
   }
   try {
-    const fetchCat = async function(catId, limit) {
-      limit = limit || 24;
-      try {
-        const r = await mpWpApi(`posts?categories=${catId}&per_page=${limit}&_fields=id,title,slug,date,categories&orderby=date&order=desc`);
-        return (Array.isArray(r.data) ? r.data : []).map(mpNormalizePost);
-      } catch(e) { return []; }
-    };
-    const results = await Promise.all([
-      fetchCat(MP_CATS.trending), fetchCat(MP_CATS.hot), fetchCat(MP_CATS.web_series),
-      fetchCat(MP_CATS.hindi_dubbed), fetchCat(MP_CATS.bollywood), fetchCat(MP_CATS.hollywood),
-      fetchCat(MP_CATS.action), fetchCat(MP_CATS.short_film), fetchCat(MP_CATS.thriller), fetchCat(MP_CATS.romance),
+    const [trendingRes, seriesRes, hindiDubRes, bollywoodRes, hollywoodRes, actionRes, thrillerRes, romanceRes] = await Promise.allSettled([
+      dcGetCatalog('movies', 1),
+      dcGetCatalog('series', 1),
+      dcGetCatalog('hindi_dubbed', 1),
+      dcGetCatalog('desi_cinema', 1),
+      dcGetCatalog('hollywood', 1),
+      dcGetCatalog('action', 1),
+      dcGetCatalog('thriller', 1),
+      dcGetCatalog('romance', 1)
     ]);
-    const [trending, hot, webSeries, hindiDubbed, bollywood, hollywood, action, shortFilm, thriller, romance] = results;
+
+    const trending = trendingRes.status === 'fulfilled' ? trendingRes.value.movies : [];
+    const webSeries = seriesRes.status === 'fulfilled' ? seriesRes.value.movies : [];
+    const hindiDubbed = hindiDubRes.status === 'fulfilled' ? hindiDubRes.value.movies : [];
+    const bollywood = bollywoodRes.status === 'fulfilled' ? bollywoodRes.value.movies : [];
+    const hollywood = hollywoodRes.status === 'fulfilled' ? hollywoodRes.value.movies : [];
+    const action = actionRes.status === 'fulfilled' ? actionRes.value.movies : [];
+    const thriller = thrillerRes.status === 'fulfilled' ? thrillerRes.value.movies : [];
+    const romance = romanceRes.status === 'fulfilled' ? romanceRes.value.movies : [];
+
     const featured = trending[0] || hindiDubbed[0] || bollywood[0] || null;
+
     const data = {
-      featured: featured, bollywood: bollywood, popular: trending, trending: trending,
-      hollywood: hollywood, action: action, classics: [], topRated: [],
+      featured,
+      bollywood,
+      popular: trending,
+      trending,
+      hollywood,
+      action,
+      classics: [],
+      topRated: [],
       netmirror: { trending: [], netflix: [], prime: [], hotstar: [] },
-      movieplex: { trending, hot, webSeries, hindiDubbed, bollywood, hollywood, action, shortFilm, thriller, romance },
+      movieplex: {
+        trending,
+        hot: [],
+        webSeries,
+        hindiDubbed,
+        bollywood,
+        hollywood,
+        action,
+        shortFilm: [],
+        thriller,
+        romance
+      },
+      desicinemas: {
+        trending,
+        webSeries,
+        hindiDubbed,
+        bollywood,
+        hollywood,
+        action,
+        thriller,
+        romance
+      }
     };
-    moviesHomeCache.data = data;
-    moviesHomeCache.builtAt = Date.now();
-    res.json(data);
+
+    dcMoviesHomeCache.data = data;
+    dcMoviesHomeCache.builtAt = Date.now();
+    return res.json(data);
   } catch (err) {
-    console.error('[Movies Home]', err.message);
-    res.status(502).json({ error: 'Movies home failed', message: err.message });
+    console.error('[DC Movies Home] Error:', err.message);
+    return res.status(502).json({ error: 'Movies home failed', message: err.message });
   }
 });
 

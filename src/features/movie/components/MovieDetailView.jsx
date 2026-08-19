@@ -35,13 +35,13 @@ function MovieDetailView({ movie, isLoading, onBack, onWatch }) {
 
   const displayTitle = cleanMovieDisplayTitle(movie.title);
   const yearMatch = (movie.title || '').match(/\b(19|20)\d{2}\b/);
-  const releaseYear = movie.releaseDate ? String(movie.releaseDate).split('-')[0] : (yearMatch ? yearMatch[0] : '2024');
-  const heroImage = movie.bannerImage || movie.coverImage || movie.thumbnail || '';
+  const releaseYear = movie.releaseDate ? String(movie.releaseDate).split('-')[0] : (yearMatch ? yearMatch[0] : '2026');
+  const heroImage = movie.bannerImage || movie.coverImage || movie.thumbnail || movie.poster || '';
 
   // Fetch "More Like This" recommendations
   React.useEffect(() => {
     setRelatedLoading(true);
-    fetch(apiUrl('/api/movieplex/catalog?page=1&limit=12'))
+    fetch(apiUrl('/api/desicinemas/catalog?category=movies&page=1&limit=12'))
       .then(r => r.json())
       .then(res => {
         const items = Array.isArray(res.movies) ? res.movies.filter(m => m.id !== movie.id) : [];
@@ -80,130 +80,113 @@ function MovieDetailView({ movie, isLoading, onBack, onWatch }) {
           }}>← Back to Movies</button>
         </div>
 
-        {/* Hero Content */}
+        {/* Billboard Hero Content */}
         <div style={{
           position: 'absolute', bottom: 0, left: 0, right: 0,
-          padding: '3rem clamp(1rem, 4vw, 3rem) 3rem',
-          maxWidth: '850px', zIndex: 5
+          padding: '4rem clamp(1rem, 4vw, 3rem) 3rem', maxWidth: '850px'
         }}>
-          {/* Netflix Quality & Language Badges */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.9rem', flexWrap: 'wrap' }}>
-            <span style={{ background: '#E50914', color: '#fff', padding: '0.2rem 0.6rem', borderRadius: '3px', fontSize: '0.72rem', fontWeight: 800, letterSpacing: '1px', textTransform: 'uppercase' }}>Movie</span>
-            <span style={{ color: '#46d369', fontWeight: 800, fontSize: '0.88rem' }}>98% Match</span>
+          {/* Quality badge & Release year */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.8rem', flexWrap: 'wrap' }}>
+            <span style={{
+              background: '#e50914', color: '#fff', fontSize: '0.72rem', fontWeight: 800,
+              padding: '0.2rem 0.6rem', borderRadius: '3px', letterSpacing: '0.5px'
+            }}>CINEMA HD</span>
             <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.85rem', fontWeight: 600 }}>{releaseYear}</span>
-            <span style={{ border: '1px solid rgba(255,255,255,0.4)', padding: '1px 5px', borderRadius: '2px', fontSize: '0.7rem', color: 'rgba(255,255,255,0.8)', fontWeight: 700 }}>16+</span>
-            <span style={{ border: '1px solid rgba(255,255,255,0.4)', padding: '1px 5px', borderRadius: '2px', fontSize: '0.7rem', color: 'rgba(255,255,255,0.8)', fontWeight: 700 }}>4K Ultra HD</span>
-            <span style={{ background: 'rgba(255,255,255,0.15)', padding: '2px 7px', borderRadius: '3px', fontSize: '0.72rem', color: '#fff', fontWeight: 600 }}>Hindi Dubbed</span>
-            {movie.rating && <span style={{ color: '#facc15', fontWeight: 700, fontSize: '0.85rem' }}>★ {movie.rating}</span>}
+            {movie.rating && (
+              <span style={{ color: '#facc15', fontSize: '0.85rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                <Star size={14} fill="#facc15" /> {movie.rating}
+              </span>
+            )}
+            {movie.duration && (
+              <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.85rem' }}>{movie.duration}</span>
+            )}
           </div>
 
           <h1 style={{
-            fontSize: 'clamp(2rem, 5vw, 3.4rem)', margin: '0 0 1rem',
-            fontWeight: 800, letterSpacing: '-0.5px', lineHeight: 1.12,
-            textShadow: '0 2px 24px rgba(0,0,0,0.95)'
+            fontSize: 'clamp(2rem, 5vw, 3.2rem)', fontWeight: 800, margin: '0 0 1rem',
+            lineHeight: 1.15, textShadow: '0 2px 20px rgba(0,0,0,0.9)'
           }}>{displayTitle}</h1>
 
-          {/* Action Buttons */}
-          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '1.8rem' }}>
+          {movie.description && (
+            <p style={{
+              color: 'rgba(255,255,255,0.75)', fontSize: '0.95rem', lineHeight: 1.6,
+              margin: '0 0 1.8rem', maxWidth: '600px',
+              textShadow: '0 1px 4px rgba(0,0,0,0.8)'
+            }}>
+              {movie.description.substring(0, 200)}{movie.description.length > 200 ? '…' : ''}
+            </p>
+          )}
+
+          {/* Action buttons */}
+          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
             <button
-              onClick={onWatch}
+              onClick={() => onWatch(movie)}
               style={{
-                background: '#E50914', color: '#fff',
-                border: 'none', padding: '0.85rem 2.5rem',
-                borderRadius: '6px', fontSize: '1.05rem', fontWeight: 800,
-                cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.6rem',
-                transition: 'all 0.18s ease',
-                boxShadow: '0 6px 20px rgba(229,9,20,0.5)'
+                display: 'inline-flex', alignItems: 'center', gap: '0.6rem',
+                background: '#e50914', color: '#fff', padding: '0.85rem 2.4rem',
+                borderRadius: '6px', border: 'none', fontSize: '1.05rem', fontWeight: 700,
+                cursor: 'pointer', boxShadow: '0 6px 24px rgba(229,9,20,0.5)',
+                transition: 'all 0.18s'
               }}
-              onMouseEnter={e => e.currentTarget.style.background = '#F6121D'}
-              onMouseLeave={e => e.currentTarget.style.background = '#E50914'}
+              onMouseEnter={e => e.currentTarget.style.background = '#f6121d'}
+              onMouseLeave={e => e.currentTarget.style.background = '#e50914'}
             >
-              ▶ Play Movie
+              <Play size={20} fill="#fff" /> Watch Now
             </button>
 
             <button
-              onClick={() => setInWatchlist(!inWatchlist)}
+              onClick={() => setInWatchlist(v => !v)}
               style={{
-                background: inWatchlist ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.12)',
-                color: '#fff', border: '1px solid rgba(255,255,255,0.25)',
-                padding: '0.85rem 1.8rem', borderRadius: '6px', fontSize: '0.95rem', fontWeight: 600,
+                display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
+                background: inWatchlist ? 'rgba(229,9,20,0.2)' : 'rgba(255,255,255,0.12)',
+                color: inWatchlist ? '#e50914' : '#fff',
+                border: `1px solid ${inWatchlist ? '#e50914' : 'rgba(255,255,255,0.2)'}`,
+                padding: '0.85rem 1.6rem', borderRadius: '6px', fontSize: '0.95rem', fontWeight: 600,
                 cursor: 'pointer', backdropFilter: 'blur(8px)', transition: 'all 0.18s'
               }}
             >
-              {inWatchlist ? '✓ In My List' : '+ Add to My List'}
+              <Bookmark size={18} fill={inWatchlist ? '#e50914' : 'none'} />
+              {inWatchlist ? 'In Watchlist' : 'Watchlist'}
             </button>
           </div>
         </div>
       </div>
 
-      {/* Netflix 2-Column Info & Overview Section */}
-      <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '2.5rem clamp(1rem, 4vw, 3rem) 4rem' }}>
-        <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-          gap: '2.5rem', marginBottom: '3.5rem'
-        }}>
-          {/* Left Column: Synopsis */}
-          <div>
-            <h3 style={{ margin: '0 0 0.8rem', color: '#fff', fontSize: '1.1rem', fontWeight: 700 }}>Storyline</h3>
-            <p style={{ margin: 0, color: 'rgba(255,255,255,0.78)', lineHeight: 1.7, fontSize: '0.95rem' }}>
-              {movie.description || `${displayTitle} is a gripping high-stakes cinematic release featuring high quality dual audio, intense drama, and suspenseful twists. Stream in full HD resolution with CORS-enabled fast playback on EetNet.`}
+      {/* Main Details Body */}
+      <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '2rem clamp(1rem, 4vw, 3rem) 5rem' }}>
+        {/* Full Overview */}
+        {movie.description && (
+          <div style={{ marginBottom: '3rem' }}>
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 0.8rem', color: '#fff' }}>Overview</h3>
+            <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.95rem', lineHeight: 1.7, margin: 0, maxWidth: '800px' }}>
+              {movie.description}
             </p>
           </div>
+        )}
 
-          {/* Right Column: Metadata Sidebar */}
-          <div style={{
-            background: 'rgba(255,255,255,0.03)', borderRadius: '12px',
-            padding: '1.5rem', border: '1px solid rgba(255,255,255,0.08)'
-          }}>
-            <div style={{ marginBottom: '1rem' }}>
-              <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.8rem', display: 'block', marginBottom: '0.3rem' }}>Audio & Dubbing</span>
-              <span style={{ color: '#fff', fontSize: '0.9rem', fontWeight: 600 }}>Hindi Dubbed, Original Audio (Dual Audio)</span>
-            </div>
-
-            <div style={{ marginBottom: '1rem' }}>
-              <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.8rem', display: 'block', marginBottom: '0.3rem' }}>Genres</span>
-              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                {(movie.genres || ['Action', 'Thriller', 'Drama']).map(g => (
-                  <span key={g} style={{
-                    padding: '0.2rem 0.7rem', background: 'rgba(255,255,255,0.08)',
-                    borderRadius: '12px', fontSize: '0.78rem', color: 'rgba(255,255,255,0.85)'
-                  }}>{g}</span>
+        {/* More Like This */}
+        {relatedMovies.length > 0 && (
+          <div>
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 1.2rem', color: '#fff' }}>
+              More Like This
+            </h3>
+            {relatedLoading ? (
+              <div style={{ padding: '2rem 0', display: 'flex', justifyContent: 'center' }}>
+                <InlineLoader />
+              </div>
+            ) : (
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                gap: '1.2rem 1rem'
+              }}>
+                {relatedMovies.map((m, idx) => (
+                  <MovieCard key={m.id + '-' + idx} movie={m} onClick={() => onWatch(m)} />
                 ))}
               </div>
-            </div>
-
-            <div>
-              <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.8rem', display: 'block', marginBottom: '0.3rem' }}>Quality & Format</span>
-              <span style={{ color: '#fff', fontSize: '0.9rem', fontWeight: 600 }}>1080p Full HD (HLS CORS Stream)</span>
-            </div>
+            )}
           </div>
-        </div>
-
-        {/* "More Like This" Recommendation Grid */}
-        <div>
-          <h2 style={{ fontSize: '1.3rem', fontWeight: 800, margin: '0 0 1.2rem', color: '#fff' }}>
-            More Like This
-          </h2>
-
-          {relatedLoading ? (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '1rem' }}>
-              {[1,2,3,4,5,6].map(i => <div key={i} className="mp-skeleton-card" />)}
-            </div>
-          ) : (
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-              gap: '1.2rem 1rem'
-            }}>
-              {relatedMovies.map((m, idx) => (
-                <MovieCard key={m.id + '-' + idx} movie={m} onClick={() => {
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                  onWatch(m);
-                }} />
-              ))}
-            </div>
-          )}
-        </div>
+        )}
       </div>
     </div>
   );

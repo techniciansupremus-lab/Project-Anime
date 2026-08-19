@@ -29,15 +29,15 @@ function cleanMovieDisplayTitle(raw) {
 }
 
 function MovieWatchView({ movie, onBack, onProgress }) {
-  const isMoviePlex = !!(movie.movieplexSlug || movie.source === 'movieplex');
+  const isDesiCinemasOrMp = !!(movie.dcSlug || movie.source === 'desicinemas' || movie.movieplexSlug || movie.source === 'movieplex' || (movie.slug && !movie.netmirrorId && !movie.imdbId));
 
   // All hooks must be declared unconditionally (Rules of Hooks)
   const [movieData, setMovieData] = React.useState(movie);
   const [activeServerId, setActiveServerId] = React.useState('vidlink-pro');
   const [resolving, setResolving] = React.useState(false);
 
-  // If it's a MoviePlex movie, delegate to MoviePlexPlayerView.
-  if (isMoviePlex) {
+  // If it's a DesiCinemas / MoviePlex movie, delegate to MoviePlexPlayerView.
+  if (isDesiCinemasOrMp) {
     return <MoviePlexPlayerView movie={movie} onBack={onBack} />;
   }
 

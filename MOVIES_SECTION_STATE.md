@@ -1,71 +1,63 @@
 # Movies Section — Current State (Aug 2026)
 
-## Provider: MoviePlex (movieplex.co.in)
-The entire movies section is powered by MoviePlex. Previous providers (NetMirror, TMDB) were removed by a prior AI session.
+## Primary Provider: DesiCinemas (desicinemas.pk)
+The movies section has been fully upgraded to **DesiCinemas.pk**, replacing MoviePlex.
 
-## Backend Architecture (server.js)
+## Backend Architecture (`server.js`)
 
-### MoviePlex Engine (lines ~2739-3046)
-- **Source**: WordPress REST API at `movieplex.co.in/wp-json/wp/v2/`
-- **Catalog**: Paginated WP API fetch (100/page, 5 parallel), cached in `mpCache` in memory, rebuilt every 24h via `setImmediate`
-- **Categories**: 14 WP category IDs mapped in `MP_CATS` (trending=29, hot=21, bollywood=10, hollywood=19, action=6, web_series=33, hindi_dubbed=17, short_film=26, thriller=28, romance=24, drama=14, comedy=11, horror=20, bengali=9, south_indian=27)
-- **Post normalization**: `mpNormalizePost()` creates `{ id: "mp-{id}", movieplexSlug: slug, source: "movieplex" }` — thumbnails are EMPTY initially
+### DesiCinemas Engine
+- **Source**: `https://desicinemas.pk` (WordPress CMS with Toroflix Theme)
+- **Thumbnails & Posters**: Official TMDB CDN (`//image.tmdb.org/t/p/...`), pre-attached with high clarity directly from catalog HTML.
+- **Post Normalization**: `dcParseMovieCard()` creates:
+  ```json
+  {
+    "id": "dc-{postId}",
+    "slug": "{slug}",
+    "dcSlug": "{slug}",
+    "title": "{title}",
+    "thumbnail": "{tmdbUrl}",
+    "coverImage": "{tmdbUrl}",
+    "bannerImage": "{tmdbUrl}",
+    "quality": "HD",
+    "year": "2026",
+    "language": "Hindi",
+    "type": "movie|series|episode",
+    "source": "desicinemas"
+  }
+  ```
 
 ### Stream Extraction Pipeline
-1. `scrapeMoviePlexPost(slug)` → fetches post HTML, extracts iframe URLs from `#tab1/#tab2/#tab3`
-2. `extractLuluHLS(embedUrl)` → fetches bfmovies.online embed, finds `eval(function(p,a,c,k)...)` packed JS, runs in `node:vm` sandbox with mocked `jwplayer()` to capture m3u8 URL
-3. `extractStreamTapeUrl(embedUrl)` → regex-based token concatenation for split StreamTape tokens
-4. `resolveMoviePlexStream(slug)` → chains LuluStream → StreamTape → fallback iframe
+1. `dcGetMovieDetail(slug)` → Fetches movie page, extracts title, backdrop, and server options (`.ListOptions li`).
+2. `dcResolveStream({ postId, optionKey, type, slug })` → Calls embed router `https://desicinemas.pk/?trembed={key}&trid={id}&trtype={1_for_movie|2_for_episode}` and extracts `<iframe>`.
+3. **Morencius Host (`morencius.com`)**: Unpacks obfuscated JavaScript (`node:vm` sandbox) and extracts direct multi-bitrate HLS master `.m3u8` playlist.
+4. **Vidmoly Host (`vidmoly.org` / `vidmoly.me`)**: Extracts direct `.m3u8` master playlist via regex.
+5. Direct HLS streams play natively in `VideoPlayer.jsx` without requiring iframe ad popups.
 
 ### API Routes
 | Route | Purpose |
 |---|---|
-| `GET /api/movies/home` | 10 MoviePlex category rows + featured, cached 30min in `moviesHomeCache` |
-| `GET /api/movieplex/catalog` | Paginated catalog with category/search filters |
-| `GET /api/movieplex/stream?slug=` | On-demand stream resolution |
-| `GET /api/movieplex/post-info?slug=` | Fast thumbnail + iframe scraper |
-| `GET /api/movieplex/catalog/status` | Cache status (post count, last refresh) |
+| `GET /api/movies/home` | Aggregates DesiCinemas catalog categories (Trending, Web Series, Hindi Dubbed, Bollywood, Hollywood, Action, Thriller, Romance) + Featured Billboard |
+| `GET /api/desicinemas/catalog` | Paginated catalog browsing by category or search query |
+| `GET /api/desicinemas/stream` | Direct master HLS `.m3u8` stream resolution |
+| `GET /api/desicinemas/post-info` | Detail metadata scraper (title, backdrop, quality, options) |
+| `GET /api/movieplex/*` | Maintained as backwards-compatible aliases pointing to DesiCinemas |
 
-### Deleted Endpoints (removed by prior AI)
-- `GET /api/movies/search` — TMDB search, GONE
-- `GET /api/movies/info/:id` — TMDB movie detail, GONE
-- The functions `mapTmdbMovie()`, `mapTmdbMovieDetail()`, `getTmdbUrl()` still exist (~lines 2151-2181) but are orphaned
+## Frontend Architecture
 
-## Frontend Architecture (src/App.jsx)
+### `MovieHomeView.jsx`
+- Category filter pills: `All`, `Trending`, `Hindi Dubbed`, `Bollywood`, `Hollywood`, `Web Series`, `Action`, `Drama`, `Thriller`, `Romance`, `Horror`, `Tamil`, `Telugu`, `Punjabi`.
+- Paginated grid loading for individual categories.
+- Featured billboard carousel auto-rotating top titles.
+- Curated "Random Picks" powered by Supabase.
 
-### MovieHomeView (~lines 5066-5298)
-- Dark theme (#000 bg, #06b900 green accent)
-- Expects `data.movieplex.*` arrays (trending, hot, webSeries, hindiDubbed, bollywood, hollywood, action, shortFilm, thriller, romance)
-- Falls back to `data.trending`, `data.bollywood` etc. for compat
-- 11 category filter pills: All, Trending, Hot, Web Series, Hindi Dubbed, Bollywood, Hollywood, Action, Short Film, Thriller, Romance
-- Featured hero at top with Play button
+### `MoviePlexPlayerView.jsx` (Cinema Player)
+- Fetches metadata via `/api/desicinemas/post-info?slug=`.
+- Fetches streams via `/api/desicinemas/stream?slug=`.
+- Plays master HLS streams natively via `VideoPlayer.jsx` (`hls.js`).
+- Includes iframe external player fallback and popup shield controls.
 
-### MoviePlexPlayerView (~lines 5401-5522)
-- Dedicated player for MoviePlex content
-- Fetches `/api/movieplex/post-info?slug=` for thumbnail
-- Fetches `/api/movieplex/stream?slug=` for stream
-- If HLS extracted → uses own `VideoPlayer` component
-- If extraction fails → iframe fallback with toggle buttons
+### `MovieWatchView.jsx`
+- Routes all DesiCinemas items (`movie.dcSlug || movie.source === 'desicinemas'`) directly to the cinema player.
 
-### MovieWatchView (~line 5525)
-- Routing layer: detects MoviePlex by `movie.movieplexSlug || movie.source === 'movieplex'`
-- Routes MoviePlex → `MoviePlexPlayerView`
-- Non-MoviePlex branch exists but calls deleted endpoints (broken for non-MoviePlex)
-
-### handleMovieClick (~lines 1826-1867)
-- MoviePlex: fetches post-info for thumbnail
-- Default: called deleted `/api/movies/info` — user says they fixed this
-
-### handleMovieSearch (~lines 1869-1880)
-- Called deleted `/api/movies/search` — user says they fixed this
-
-## Key Design Decisions
-- **Streams are NEVER cached** — LuluCDN URLs contain expiry tokens, always extracted fresh
-- **Catalog IS cached** — in-memory, rebuilt every 24h
-- **Thumbnails fetched lazily** — populated on detail click via post-info scrape
-- **Fallback chain**: LuluStream HLS → StreamTape MP4 → Original iframe
-
-## Infrastructure
-- Frontend: Vite SPA on Vercel (eetnnet.ooguy.com)
-- Backend: Express on Android phone via Termux, tunneled via Cloudflare Tunnel
-- Static config: `public/eetnet-config.json` contains current tunnel URL
+### `MovieCard.jsx`
+- Renders TMDB posters with smooth gradient hover animations and rating badges.

@@ -19,15 +19,15 @@ function MovieHomeView({
   onMovieClick,
   user
 }) {
-  const mpTrending   = data?.movieplex?.trending    || data?.trending  || [];
-  const mpWebSeries  = data?.movieplex?.webSeries   || [];
-  const mpHindiDub   = data?.movieplex?.hindiDubbed || [];
-  const mpBollywood  = data?.movieplex?.bollywood   || data?.bollywood || [];
-  const mpHollywood  = data?.movieplex?.hollywood   || data?.hollywood || [];
-  const mpAction     = data?.movieplex?.action      || data?.action    || [];
+  const mpTrending   = data?.desicinemas?.trending   || data?.movieplex?.trending    || data?.trending  || [];
+  const mpWebSeries  = data?.desicinemas?.webSeries  || data?.movieplex?.webSeries   || [];
+  const mpHindiDub   = data?.desicinemas?.hindiDubbed || data?.movieplex?.hindiDubbed || [];
+  const mpBollywood  = data?.desicinemas?.bollywood  || data?.movieplex?.bollywood   || data?.bollywood || [];
+  const mpHollywood  = data?.desicinemas?.hollywood  || data?.movieplex?.hollywood   || data?.hollywood || [];
+  const mpAction     = data?.desicinemas?.action     || data?.movieplex?.action      || data?.action    || [];
+  const mpThriller   = data?.desicinemas?.thriller   || data?.movieplex?.thriller    || [];
+  const mpRomance    = data?.desicinemas?.romance    || data?.movieplex?.romance     || [];
   const mpShortFilm  = data?.movieplex?.shortFilm   || [];
-  const mpThriller   = data?.movieplex?.thriller    || [];
-  const mpRomance    = data?.movieplex?.romance     || [];
   const mpHot        = data?.movieplex?.hot         || [];
 
   // Hero carousel auto-rotate
@@ -47,19 +47,22 @@ function MovieHomeView({
 
   const featured = featuredPool[heroIdx] || data?.featured || mpTrending[0] || null;
 
-  const categories = ['All', 'Trending', 'Hindi Dubbed', 'Bollywood', 'Hollywood', 'Web Series', 'Action', 'Short Film', 'Thriller', 'Romance', '🔞 18+'];
+  const categories = ['All', 'Trending', 'Hindi Dubbed', 'Bollywood', 'Hollywood', 'Web Series', 'Action', 'Drama', 'Thriller', 'Romance', 'Horror', 'Tamil', 'Telugu', 'Punjabi'];
 
   const CAT_MAP = {
-    'Trending': { id: 29 },
-    'Hindi Dubbed': { id: 17 },
-    'Bollywood': { id: 10 },
-    'Hollywood': { id: 19 },
-    'Web Series': { id: 33 },
-    'Action': { id: 6 },
-    'Short Film': { id: 26 },
-    'Thriller': { id: 28 },
-    'Romance': { id: 24 },
-    '🔞 18+': { id: 21, is18: true }
+    'Trending': { key: 'movies' },
+    'Hindi Dubbed': { key: 'hindi_dubbed' },
+    'Bollywood': { key: 'desi_cinema' },
+    'Hollywood': { key: 'hollywood' },
+    'Web Series': { key: 'series' },
+    'Action': { key: 'action' },
+    'Drama': { key: 'drama' },
+    'Thriller': { key: 'thriller' },
+    'Romance': { key: 'romance' },
+    'Horror': { key: 'horror' },
+    'Tamil': { key: 'tamil' },
+    'Telugu': { key: 'telugu' },
+    'Punjabi': { key: 'punjabi' }
   };
 
   // ─── Admin identity (only this user can see Dev Options and push picks) ───
@@ -144,35 +147,13 @@ function MovieHomeView({
     setShowPushPopup(false);
   };
 
-  // State for category grid view (paginated loading for 200+ movies per category)
+  // State for category grid view (paginated loading for movies per category)
   const [catMovies, setCatMovies] = React.useState([]);
   const [catPage, setCatPage] = React.useState(1);
   const [catTotalPages, setCatTotalPages] = React.useState(1);
   const [catTotalCount, setCatTotalCount] = React.useState(0);
   const [catLoading, setCatLoading] = React.useState(false);
   const [loadingMore, setLoadingMore] = React.useState(false);
-
-  // Filter out any movies that have been pushed to Random Picks from the 18+ category view
-  const randomPickIds = React.useMemo(() => {
-    const set = new Set();
-    randomPicks.forEach(p => {
-      if (p.id) set.add(String(p.id));
-      if (p.slug) set.add(String(p.slug));
-      if (p.movieplexSlug) set.add(String(p.movieplexSlug));
-    });
-    return set;
-  }, [randomPicks]);
-
-  const displayCatMovies = React.useMemo(() => {
-    if (activeCategory === '🔞 18+') {
-      return catMovies.filter(m => 
-        !randomPickIds.has(String(m.id)) && 
-        !randomPickIds.has(String(m.slug || '')) && 
-        !randomPickIds.has(String(m.movieplexSlug || ''))
-      );
-    }
-    return catMovies;
-  }, [catMovies, activeCategory, randomPickIds]);
 
   // Fetch paginated category movies whenever activeCategory changes
   React.useEffect(() => {
@@ -189,10 +170,9 @@ function MovieHomeView({
     setCatPage(1);
 
     const queryParams = new URLSearchParams({ page: 1, limit: 36 });
-    if (config.id) queryParams.set('category', config.id);
-    if (config.is18) queryParams.set('is18', 'true');
+    if (config.key || config.id) queryParams.set('category', config.key || config.id);
 
-    fetch(apiUrl(`/api/movieplex/catalog?${queryParams.toString()}`))
+    fetch(apiUrl(`/api/desicinemas/catalog?${queryParams.toString()}`))
       .then(r => r.json())
       .then(res => {
         setCatMovies(Array.isArray(res.movies) ? res.movies : []);
@@ -213,10 +193,9 @@ function MovieHomeView({
 
     const config = CAT_MAP[activeCategory] || {};
     const queryParams = new URLSearchParams({ page: nextPage, limit: 36 });
-    if (config.id) queryParams.set('category', config.id);
-    if (config.is18) queryParams.set('is18', 'true');
+    if (config.key || config.id) queryParams.set('category', config.key || config.id);
 
-    fetch(apiUrl(`/api/movieplex/catalog?${queryParams.toString()}`))
+    fetch(apiUrl(`/api/desicinemas/catalog?${queryParams.toString()}`))
       .then(r => r.json())
       .then(res => {
         if (Array.isArray(res.movies)) {
@@ -252,7 +231,7 @@ function MovieHomeView({
         <div style={{ padding: '2rem', display: 'flex', gap: '1rem', overflow: 'hidden' }}>
           {[1,2,3,4,5,6].map(i => <div key={i} className="mp-skeleton-card" style={{ flex: '0 0 148px' }} />)}
         </div>
-      ) : !data || (!Array.isArray(data.popular) && !Array.isArray(data.bollywood) && !data.movieplex) ? (
+      ) : !data || (!Array.isArray(data.popular) && !Array.isArray(data.bollywood) && !data.movieplex && !data.desicinemas) ? (
         <div style={{ minHeight: '60vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.2rem' }}>
           <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '1rem', textAlign: 'center', maxWidth: '520px' }}>
             {error || 'Could not load movie catalog.'}
@@ -375,7 +354,7 @@ function MovieHomeView({
                     padding: '0.45rem 1.2rem', borderRadius: '20px', border: 'none',
                     cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600,
                     whiteSpace: 'nowrap', flexShrink: 0,
-                    background: activeCategory === c ? (c.includes('18+') ? '#dc2626' : '#E50914') : '#1e1e22',
+                    background: activeCategory === c ? '#E50914' : '#1e1e22',
                     color: activeCategory === c ? '#fff' : '#b3b3b3',
                     transition: 'all 0.18s ease',
                     boxShadow: activeCategory === c ? '0 4px 14px rgba(229,9,20,0.35)' : 'none'
@@ -410,9 +389,6 @@ function MovieHomeView({
               {mpThriller.length > 0 && (
                 <MovieRow title="Thriller" icon={<Zap size={20} style={{ color: '#ef4444' }} />} movies={mpThriller} onMovieClick={onMovieClick} />
               )}
-              {mpShortFilm.length > 0 && (
-                <MovieRow title="Short Films" icon={<Sparkles size={20} style={{ color: '#06b900' }} />} movies={mpShortFilm} onMovieClick={onMovieClick} />
-              )}
               {mpRomance.length > 0 && (
                 <MovieRow title="Romance" icon={<Star size={20} style={{ color: '#ec4899' }} />} movies={mpRomance} onMovieClick={onMovieClick} />
               )}
@@ -441,29 +417,13 @@ function MovieHomeView({
               )}
             </div>
           ) : (
-            /* DEDICATED CATEGORY GRID VIEW (Full paginated catalog of 200+ movies) */
+            /* DEDICATED CATEGORY GRID VIEW (Full paginated catalog of movies) */
             <div style={{ padding: '1.5rem clamp(1rem, 4vw, 3rem) 4rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.8rem', marginBottom: '1.5rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap' }}>
                   <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0, color: '#fff' }}>
-                    {activeCategory} Movies {displayCatMovies.length > 0 && <span style={{ fontSize: '0.9rem', color: '#b3b3b3', fontWeight: 400 }}>({displayCatMovies.length} items)</span>}
+                    {activeCategory} Movies {catMovies.length > 0 && <span style={{ fontSize: '0.9rem', color: '#b3b3b3', fontWeight: 400 }}>({catMovies.length} items)</span>}
                   </h2>
-                  {/* Developer mode toggle – only shown to admin godkiller in 18+ category */}
-                  {activeCategory === '🔞 18+' && isAdmin && (
-                    <button
-                      onClick={() => { setDevModeActive(v => !v); setSelectedMovieIds(new Set()); setShowPushPopup(false); }}
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
-                        background: devModeActive ? 'rgba(139,92,246,0.25)' : 'rgba(255,255,255,0.07)',
-                        border: `1px solid ${devModeActive ? '#8b5cf6' : 'rgba(255,255,255,0.15)'}`,
-                        color: devModeActive ? '#c4b5fd' : 'rgba(255,255,255,0.5)',
-                        padding: '0.3rem 0.9rem', borderRadius: '20px', cursor: 'pointer',
-                        fontSize: '0.75rem', fontWeight: 700, transition: 'all 0.18s',
-                      }}
-                    >
-                      🛠️ {devModeActive ? 'Dev Mode ON – tap to select' : 'Developer Options'}
-                    </button>
-                  )}
                 </div>
                 <button
                   onClick={() => { setActiveCategory('All'); setDevModeActive(false); setSelectedMovieIds(new Set()); setShowPushPopup(false); }}
@@ -475,38 +435,20 @@ function MovieHomeView({
                 >← All Categories</button>
               </div>
 
-              {/* Dev mode instruction banner */}
-              {devModeActive && activeCategory === '🔞 18+' && (
-                <div style={{
-                  background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.35)',
-                  borderRadius: '10px', padding: '0.8rem 1.2rem', marginBottom: '1.2rem',
-                  display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap',
-                }}>
-                  <span style={{ fontSize: '1.2rem' }}>🛠️</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ color: '#c4b5fd', fontWeight: 700, fontSize: '0.88rem' }}>Developer Selection Mode Active</div>
-                    <div style={{ color: 'rgba(196,181,253,0.7)', fontSize: '0.75rem', marginTop: '2px' }}>Tap any movie card to select it. Selected movies will be pushed to the <strong>🎲 Random Picks!</strong> row on the homepage.</div>
-                  </div>
-                  {selectedMovieIds.size > 0 && (
-                    <span style={{ background: '#8b5cf6', color: '#fff', padding: '4px 12px', borderRadius: '20px', fontWeight: 700, fontSize: '0.78rem' }}>{selectedMovieIds.size} selected</span>
-                  )}
-                </div>
-              )}
-
               {catLoading ? (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '1rem' }}>
                   {[1,2,3,4,5,6,7,8,9,10,11,12].map(i => (
                     <div key={i} className="mp-skeleton-card" />
                   ))}
                 </div>
-              ) : displayCatMovies.length > 0 ? (
+              ) : catMovies.length > 0 ? (
                 <>
                   <div style={{
                     display: 'grid',
                     gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
                     gap: '1.2rem 1rem'
                   }}>
-                    {displayCatMovies.map((m, idx) => (
+                    {catMovies.map((m, idx) => (
                       <div key={m.id + '-' + idx} style={{ position: 'relative' }}
                         onClick={devModeActive ? (e) => { e.stopPropagation(); toggleMovieSelection(m); } : undefined}
                       >

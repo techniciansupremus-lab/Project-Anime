@@ -1914,10 +1914,10 @@ function App() {
       return;
     }
 
-    // MoviePlex catalog items don't need TMDB info — skip the fetch
-    // MoviePlex items: fetch thumbnail via post-info (fast scrape)
-    if (movie.movieplexSlug || movie.source === 'movieplex') {
-      fetch(apiUrl(`/api/movieplex/post-info?slug=${encodeURIComponent(movie.movieplexSlug || movie.slug)}`))
+    // DesiCinemas / MoviePlex catalog items: fetch thumbnail via post-info
+    if (movie.dcSlug || movie.source === 'desicinemas' || movie.movieplexSlug || movie.source === 'movieplex' || movie.slug) {
+      const slug = movie.dcSlug || movie.movieplexSlug || movie.slug;
+      fetch(apiUrl(`/api/desicinemas/post-info?slug=${encodeURIComponent(slug)}`))
         .then(r => r.json())
         .then(info => {
           setSelectedMovie(prev => ({
@@ -1948,7 +1948,7 @@ function App() {
     setMovieSearchQuery(q);
     if (!q.trim()) { setMovieSearchResults([]); return; }
     setMovieSearchLoading(true);
-    fetch(apiUrl(`/api/movieplex/catalog?search=${encodeURIComponent(q)}`))
+    fetch(apiUrl(`/api/desicinemas/catalog?search=${encodeURIComponent(q)}`))
       .then(r => r.json())
       .then(data => {
         setMovieSearchResults(Array.isArray(data.movies) ? data.movies : []);
@@ -1982,7 +1982,7 @@ function App() {
           return Array.isArray(data) ? data : (Array.isArray(data?.value) ? data.value : []);
         })
         .catch(() => []);
-      const moviePromise = fetch(`/api/movieplex/catalog?search=${encodeURIComponent(query)}`)
+      const moviePromise = fetch(apiUrl(`/api/desicinemas/catalog?search=${encodeURIComponent(query)}`))
         .then(r => r.json())
         .then(data => Array.isArray(data.movies) ? data.movies : [])
         .catch(() => []);
