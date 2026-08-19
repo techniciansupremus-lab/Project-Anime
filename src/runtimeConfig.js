@@ -49,7 +49,7 @@ function readQueryOverride() {
   return value;
 }
 
-const FALLBACK_TUNNEL = 'https://hardcover-hide-fabulous-bid.trycloudflare.com';
+const FALLBACK_TUNNEL = 'https://nylon-overhead-sodium-warm.trycloudflare.com';
 
 async function fetchJson(url) {
   const isNativeCapacitor = typeof window !== 'undefined' && Boolean(window.Capacitor?.isNativePlatform?.());
