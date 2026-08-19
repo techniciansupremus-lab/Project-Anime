@@ -45,7 +45,7 @@ export function DiscoveryCard({
           className="absolute inset-0 grid place-items-center opacity-0 transition-opacity duration-200 group-hover:opacity-100 motion-reduce:transition-none"
           aria-hidden
         >
-          <span className="grid h-10 w-10 place-items-center rounded-full border border-paper-100 bg-paper-100 text-ink-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_4px_0_#56616A,0_8px_14px_rgba(0,0,0,0.34)] transition-[transform,box-shadow] duration-200 group-hover:-translate-y-px group-hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_5px_0_#56616A,0_9px_15px_rgba(0,0,0,0.36)] group-active:translate-y-[3px] group-active:shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_1px_0_#56616A]">
+          <span className="grid h-10 w-10 place-items-center rounded-full border border-white bg-white text-black shadow-[inset_0_1px_0_#ffffff,0_4px_0_#cbd5e1,0_8px_14px_rgba(0,0,0,0.34)] transition-[transform,box-shadow] duration-200 group-hover:-translate-y-px group-hover:shadow-[inset_0_1px_0_#ffffff,0_5px_0_#cbd5e1,0_9px_15px_rgba(0,0,0,0.36)] group-active:translate-y-[3px] group-active:shadow-[inset_0_1px_0_#ffffff,0_1px_0_#cbd5e1]">
             <Play size={16} strokeWidth={1.7} fill="currentColor" />
           </span>
         </span>

@@ -9,7 +9,7 @@ const buttonVariants = cva(
     variants: {
       variant: {
         primary:
-          "border border-paper-100 bg-paper-100 text-ink-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_4px_0_#56616A,0_8px_14px_rgba(0,0,0,0.34)] hover:translate-y-px hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_3px_0_#56616A,0_6px_11px_rgba(0,0,0,0.30)] active:translate-y-[3px] active:shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_1px_0_#56616A]",
+          "border border-white bg-white text-black font-semibold shadow-[inset_0_1px_0_#ffffff,0_4px_0_#cbd5e1,0_8px_14px_rgba(0,0,0,0.30)] hover:translate-y-px hover:bg-zinc-100 hover:shadow-[inset_0_1px_0_#ffffff,0_3px_0_#cbd5e1,0_6px_11px_rgba(0,0,0,0.25)] active:translate-y-[3px] active:shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_1px_0_#cbd5e1]",
         secondary:
           "border border-[#35414A] bg-ink-800 text-fog-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_3px_0_#0A0C0E,0_6px_10px_rgba(0,0,0,0.26)] hover:-translate-y-px hover:border-fog-500 hover:text-paper-100 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_4px_0_#0A0C0E,0_7px_12px_rgba(0,0,0,0.3)] active:translate-y-[2px] active:shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_1px_0_#0A0C0E]",
       },

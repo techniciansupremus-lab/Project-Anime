@@ -101,7 +101,7 @@ export function AnimePage({ onBack, onOpen }: AnimePageProps) {
               aria-label="Search Anime"
             />
             <Button
-              className="mb-1 h-10 rounded-full border border-paper-100 bg-paper-100 px-5 text-ink-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_4px_0_#56616A,0_8px_14px_rgba(0,0,0,0.34)] transition-[transform,box-shadow,opacity] hover:translate-y-px hover:bg-paper-100 hover:opacity-90 active:translate-y-[3px]"
+              className="h-10 rounded-full border border-white bg-white px-6 font-bold text-black shadow-[inset_0_1px_0_#ffffff,0_4px_0_#cbd5e1,0_8px_14px_rgba(0,0,0,0.30)] transition-[transform,box-shadow,background-color] hover:translate-y-px hover:bg-zinc-100 active:translate-y-[3px] active:shadow-[inset_0_1px_0_#ffffff,0_1px_0_#cbd5e1]"
               type="submit"
             >
               Search
@@ -125,9 +125,9 @@ export function AnimePage({ onBack, onOpen }: AnimePageProps) {
               return (
                 <button
                   key={genre}
-                  className={`mb-1 rounded-full border px-4 py-2 font-body text-sm transition-[transform,box-shadow,background-color,color] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-500 ${
+                  className={`rounded-full border px-4 py-2 font-body text-sm font-semibold transition-[transform,box-shadow,background-color,color] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-500 ${
                     active
-                      ? "border-paper-100 bg-paper-100 text-ink-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_4px_0_#56616A,0_8px_14px_rgba(0,0,0,0.34)] hover:translate-y-px"
+                      ? "border-white bg-white text-black shadow-[inset_0_1px_0_#ffffff,0_4px_0_#cbd5e1,0_8px_14px_rgba(0,0,0,0.30)] hover:translate-y-px hover:bg-zinc-100 active:translate-y-[3px] active:shadow-[inset_0_1px_0_#ffffff,0_1px_0_#cbd5e1]"
                       : "border-[#35414A] bg-ink-800 text-fog-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_3px_0_#0A0C0E,0_6px_10px_rgba(0,0,0,0.26)] hover:-translate-y-px hover:border-fog-500 hover:text-paper-100"
                   }`}
                   onClick={() => {
