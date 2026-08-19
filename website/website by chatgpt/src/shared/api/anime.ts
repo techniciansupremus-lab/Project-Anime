@@ -284,21 +284,15 @@ export async function fetchAnimeStream(params: {
     );
     if (res.ok) {
       const data = await res.json();
-      if (data.sources && data.sources.length > 0) {
-        return {
-          sources: data.sources,
-          subtitles: data.subtitles || [],
-          intro: data.intro,
-          outro: data.outro,
-          provider: "HiAnime",
-        };
-      }
+      const normalized = normalizeStreamResponse(data, "HiAnime");
+      if (normalized) return normalized;
     }
   } catch (e) {
     console.warn("HiAnime fetch failed:", e);
   }
 
   // 3. Fallback: Try AnimeKai / Gogoanime endpoint
+  // The server returns { streamUrl, subtitleUrl } NOT { sources: [] }
   if (title) {
     try {
       const res = await fetch(
@@ -306,15 +300,8 @@ export async function fetchAnimeStream(params: {
       );
       if (res.ok) {
         const data = await res.json();
-        if (data.sources && data.sources.length > 0) {
-          return {
-            sources: data.sources,
-            subtitles: data.subtitles || [],
-            intro: data.intro,
-            outro: data.outro,
-            provider: "AnimeKai",
-          };
-        }
+        const normalized = normalizeStreamResponse(data, "AnimeKai");
+        if (normalized) return normalized;
       }
     } catch (e) {
       console.warn("AnimeKai fallback failed:", e);
@@ -322,4 +309,40 @@ export async function fetchAnimeStream(params: {
   }
 
   throw new Error(`No stream sources found for episode ${episode}`);
+}
+
+/**
+ * Normalize server stream responses into the shared AnimeStreamResult shape.
+ *
+ * Consumet/HiAnime shape:  { sources: [{url,isM3U8}], subtitles: [{url,lang}] }
+ * AnimeKai scraper shape:  { streamUrl: "...", subtitleUrl: "...", headers: {} }
+ */
+function normalizeStreamResponse(
+  data: Record<string, unknown>,
+  provider: string
+): AnimeStreamResult | null {
+  // Shape A — Consumet style
+  if (Array.isArray(data.sources) && (data.sources as unknown[]).length > 0) {
+    return {
+      sources: data.sources as AnimeStreamSource[],
+      subtitles: (data.subtitles as AnimeSubtitle[]) || [],
+      intro: data.intro as AnimeStreamResult["intro"],
+      outro: data.outro as AnimeStreamResult["outro"],
+      provider,
+    };
+  }
+  // Shape B — AnimeKai scraper style
+  if (typeof data.streamUrl === "string" && data.streamUrl) {
+    const subtitles: AnimeSubtitle[] = [];
+    if (typeof data.subtitleUrl === "string" && data.subtitleUrl) {
+      subtitles.push({ url: data.subtitleUrl, lang: "English" });
+    }
+    return {
+      sources: [{ url: data.streamUrl, isM3U8: true, quality: "HD" }],
+      subtitles,
+      headers: data.headers as Record<string, string> | undefined,
+      provider,
+    };
+  }
+  return null;
 }
