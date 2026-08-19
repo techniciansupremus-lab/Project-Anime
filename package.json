@@ -6,10 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:server": "node scripts/compile_monolith.js",
     "lint": "oxlint",
     "preview": "vite preview",
-    "server": "node server.js",
-    "start": "node server.js"
+    "server": "node \"the compilation/server.js\"",
+    "start": "node \"the compilation/server.js\""
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",
