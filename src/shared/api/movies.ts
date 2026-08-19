@@ -4,26 +4,25 @@ export type MovieSummary = {
   id: string | number;
   slug?: string;
   title: string;
-  poster?: string;
-  backdrop?: string;
-  year?: string | number;
-  rating?: number | string;
-  genre?: string;
+  poster: string;
+  backdrop: string;
+  year: string | number;
+  rating: number;
+  genre: string;
   category?: string;
-  synopsis?: string;
+  synopsis: string;
 };
 
 export type MoviesHomeData = {
   featured?: MovieSummary;
-  movieplex?: {
-    trending?: MovieSummary[];
-    hindiDubbed?: MovieSummary[];
-    bollywood?: MovieSummary[];
-    hollywood?: MovieSummary[];
-    webSeries?: MovieSummary[];
-    action?: MovieSummary[];
-    romance?: MovieSummary[];
-  };
+  trending: MovieSummary[];
+  bollywood: MovieSummary[];
+  hollywood: MovieSummary[];
+  hindiDubbed: MovieSummary[];
+  action: MovieSummary[];
+  webSeries: MovieSummary[];
+  romance: MovieSummary[];
+  thriller: MovieSummary[];
 };
 
 export type MovieStreamResult = {
@@ -32,40 +31,161 @@ export type MovieStreamResult = {
   title?: string;
   source?: string;
   fallbackIframe?: string | null;
+  isHls?: boolean;
+  directHls?: boolean;
+  host?: string;
   error?: string;
 };
+
+/**
+ * Enhances low-resolution poster URLs from TMDB (e.g. w185 / w342) to crisp high-res w500
+ */
+export function enhancePosterUrl(url?: string): string {
+  if (!url) return "/img/apple-tv-rebuild/posters/napoleon.webp";
+  let clean = url.startsWith("//") ? `https:${url}` : url;
+  if (clean.includes("image.tmdb.org/t/p/")) {
+    clean = clean.replace(/\/t\/p\/(w185|w342|w92|w154|w45|w200)\//, "/t/p/w500/");
+    if (!clean.includes("/w500/") && !clean.includes("/w780/") && !clean.includes("/original/")) {
+      clean = clean.replace(/\/t\/p\/[^/]+\//, "/t/p/w500/");
+    }
+  }
+  return clean;
+}
+
+/**
+ * Enhances low-resolution backdrop URLs to high-res w1280 or original
+ */
+export function enhanceBackdropUrl(url?: string): string {
+  if (!url) return "/img/apple-tv-rebuild/posters/napoleon.webp";
+  let clean = url.startsWith("//") ? `https:${url}` : url;
+  if (clean.includes("image.tmdb.org/t/p/")) {
+    clean = clean.replace(/\/t\/p\/(w185|w342|w500|w780)\//, "/t/p/w1280/");
+  }
+  return clean;
+}
+
+/**
+ * Cleans release tags, dub labels, and audio quality stamps for a clean title display
+ */
+export function cleanDisplayTitle(raw?: string): string {
+  if (!raw) return "Untitled Movie";
+  const cleaned = raw
+    .replace(/\bWatch\s+Online\b/gi, "")
+    .replace(/\bFull\s+Movie\b/gi, "")
+    .replace(/\bFull\s+Web\s+Series\b/gi, "")
+    .replace(/\bDownload\s+Now\b/gi, "")
+    .replace(/\(\d{4}\)/g, "")
+    .replace(/\[.*?\]/g, "")
+    .replace(/\b(Hindi\s+Dubbed|Hindi\s+Dub|Hindi|Bengali|Malayalam|Tamil|Telugu|Kannada|Marathi|Punjabi|Gujarati|English)\b/gi, "")
+    .replace(/\b(HDRip|BluRay|WEB-DL|WEBRip|UNCUT|HDTS|HDTC|HDCam|CAMRip|DVDScr|HD|4K|1080p|720p|480p|360p)\b/gi, "")
+    .replace(/\b(Bollywood|Hollywood|South\s+Indian)\b/gi, "")
+    .replace(/[-_:]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || raw;
+}
+
+export function normalizeMovieItem(item: any): MovieSummary {
+  if (!item) {
+    return {
+      id: "unknown",
+      title: "Movie",
+      poster: "/img/apple-tv-rebuild/posters/napoleon.webp",
+      backdrop: "/img/apple-tv-rebuild/posters/napoleon.webp",
+      genre: "Movie",
+      rating: 7.8,
+      year: "2026",
+      synopsis: "Stream in Full HD with high-speed playback.",
+    };
+  }
+
+  const rawPoster = item.thumbnail || item.coverImage || item.poster || item.bannerImage;
+  const poster = enhancePosterUrl(rawPoster);
+  const backdrop = enhanceBackdropUrl(item.bannerImage || item.backdrop || rawPoster);
+
+  const rawRating = item.rating ? parseFloat(String(item.rating)) : 7.8;
+  const rating = isNaN(rawRating) || rawRating <= 0 ? 7.8 : Math.min(10, rawRating);
+
+  let genre = "Movie";
+  if (Array.isArray(item.categories) && item.categories.length > 0) {
+    genre = item.categories.slice(0, 2).join(" · ");
+  } else if (item.language) {
+    genre = `${item.language} · ${item.type === "series" ? "Web Series" : "Cinema"}`;
+  } else if (item.genre) {
+    genre = item.genre;
+  }
+
+  const slug = item.slug || item.dcSlug || item.movieplexSlug || (typeof item.id === "string" ? item.id.replace(/^dc-|^mp-/, "") : undefined);
+
+  return {
+    id: item.id || slug || Math.random().toString(),
+    slug,
+    title: cleanDisplayTitle(item.title),
+    poster,
+    backdrop,
+    year: item.year || item.releaseDate || "2026",
+    rating,
+    genre,
+    category: item.category || (Array.isArray(item.categories) ? item.categories[0] : undefined),
+    synopsis: item.synopsis || item.description || "Stream in Full HD with high-speed playback powered by DesiCinemas.",
+  };
+}
 
 export async function fetchMoviesHome(): Promise<MoviesHomeData> {
   const config = await getApiConfig();
   try {
     const res = await fetch(`${config.MOVIES_API}/api/movies/home`);
     if (res.ok) {
-      return await res.json();
+      const data = await res.json();
+      const dc = data.desicinemas || data.movieplex || {};
+      return {
+        featured: data.featured ? normalizeMovieItem(data.featured) : undefined,
+        trending: (data.trending || dc.trending || []).map(normalizeMovieItem),
+        bollywood: (data.bollywood || dc.bollywood || []).map(normalizeMovieItem),
+        hollywood: (data.hollywood || dc.hollywood || []).map(normalizeMovieItem),
+        hindiDubbed: (data.hindiDubbed || dc.hindiDubbed || []).map(normalizeMovieItem),
+        action: (data.action || dc.action || []).map(normalizeMovieItem),
+        webSeries: (data.webSeries || dc.webSeries || []).map(normalizeMovieItem),
+        romance: (data.romance || dc.romance || []).map(normalizeMovieItem),
+        thriller: (data.thriller || dc.thriller || []).map(normalizeMovieItem),
+      };
     }
   } catch (err) {
     console.warn("Movies home fetch failed:", err);
   }
-  return {};
+  return {
+    trending: [],
+    bollywood: [],
+    hollywood: [],
+    hindiDubbed: [],
+    action: [],
+    webSeries: [],
+    romance: [],
+    thriller: [],
+  };
 }
 
 export async function fetchMovieCatalog(params: {
-  category?: number | string;
+  category?: string;
   search?: string;
   page?: number;
   limit?: number;
 }): Promise<MovieSummary[]> {
   const config = await getApiConfig();
   const query = new URLSearchParams();
-  if (params.category) query.set("category", String(params.category));
+  if (params.category) {
+    query.set("category", params.category);
+  }
   if (params.search) query.set("search", params.search);
   if (params.page) query.set("page", String(params.page));
   if (params.limit) query.set("limit", String(params.limit));
 
   try {
-    const res = await fetch(`${config.MOVIES_API}/api/movieplex/catalog?${query.toString()}`);
+    const res = await fetch(`${config.MOVIES_API}/api/desicinemas/catalog?${query.toString()}`);
     if (res.ok) {
       const data = await res.json();
-      return Array.isArray(data) ? data : data.items || [];
+      const rawMovies = Array.isArray(data) ? data : data.movies || data.results || [];
+      return rawMovies.map(normalizeMovieItem);
     }
   } catch (err) {
     console.warn("Movie catalog fetch failed:", err);
@@ -80,39 +200,58 @@ export async function resolveMovieStream(params: {
 }): Promise<MovieStreamResult> {
   const config = await getApiConfig();
 
-  // 1. Try MoviePlex stream resolver if slug exists
+  // 1. Try DesiCinemas stream resolver with slug
   if (params.slug) {
     try {
-      const res = await fetch(`${config.MOVIES_API}/api/movieplex/stream?slug=${encodeURIComponent(params.slug)}`);
+      const res = await fetch(`${config.MOVIES_API}/api/desicinemas/stream?slug=${encodeURIComponent(params.slug)}`);
       if (res.ok) {
         const data = await res.json();
         if (data.streamUrl || data.fallbackIframe) {
-          return data;
-        }
-      }
-    } catch (e) {
-      console.warn("MoviePlex stream resolve failed:", e);
-    }
-  }
-
-  // 2. Try NetMirror stream resolve if title exists
-  if (params.title) {
-    try {
-      const q = new URLSearchParams({ title: params.title });
-      if (params.year) q.set("year", String(params.year));
-      const res = await fetch(`${config.MOVIES_API}/api/netmirror/stream-resolve?${q.toString()}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.streamUrl) {
           return {
             streamUrl: data.streamUrl,
-            title: params.title,
-            source: "NetMirror",
+            fallbackIframe: data.fallbackIframe,
+            source: data.source || "desicinemas",
+            isHls: data.isHls ?? !!data.streamUrl,
+            directHls: data.directHls ?? !!data.streamUrl,
+            host: data.host,
+            title: data.title || params.title,
+            thumbnail: enhancePosterUrl(data.thumbnail),
           };
         }
       }
     } catch (e) {
-      console.warn("NetMirror stream resolve failed:", e);
+      console.warn("DesiCinemas stream resolve failed:", e);
+    }
+  }
+
+  // 2. Search DesiCinemas by title if slug is missing
+  if (params.title) {
+    try {
+      const catalogRes = await fetch(`${config.MOVIES_API}/api/desicinemas/catalog?search=${encodeURIComponent(params.title)}`);
+      if (catalogRes.ok) {
+        const catData = await catalogRes.json();
+        const firstMatch = (catData.movies || [])[0];
+        if (firstMatch?.slug) {
+          const streamRes = await fetch(`${config.MOVIES_API}/api/desicinemas/stream?slug=${encodeURIComponent(firstMatch.slug)}`);
+          if (streamRes.ok) {
+            const data = await streamRes.json();
+            if (data.streamUrl || data.fallbackIframe) {
+              return {
+                streamUrl: data.streamUrl,
+                fallbackIframe: data.fallbackIframe,
+                source: "desicinemas",
+                isHls: data.isHls ?? !!data.streamUrl,
+                directHls: data.directHls ?? !!data.streamUrl,
+                host: data.host,
+                title: data.title || params.title,
+                thumbnail: enhancePosterUrl(data.thumbnail || firstMatch.thumbnail),
+              };
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("DesiCinemas search fallback failed:", e);
     }
   }
 

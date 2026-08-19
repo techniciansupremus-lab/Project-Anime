@@ -67,14 +67,18 @@ export const MovieModal = ({
 
     let isMounted = true;
 
-    Promise.all([fetchTrailerKey(movie.id), fetchSimilarMovies(movie.id)])
-      .then(([key, similar]) => {
-        if (isMounted) {
-          setTrailerKey(key);
-          setSimilarMovies(similar.slice(0, 6));
-        }
-      })
-      .catch(() => {});
+    // If movie has a numeric TMDB ID, fetch trailer & similar
+    const numId = typeof movie.id === "number" ? movie.id : parseInt(String(movie.id).replace(/\D/g, ""), 10);
+    if (!isNaN(numId) && numId > 0 && !String(movie.id).startsWith("dc-")) {
+      Promise.all([fetchTrailerKey(numId), fetchSimilarMovies(numId)])
+        .then(([key, similar]) => {
+          if (isMounted) {
+            setTrailerKey(key);
+            setSimilarMovies(similar.slice(0, 6));
+          }
+        })
+        .catch(() => {});
+    }
 
     return () => {
       isMounted = false;
@@ -89,7 +93,12 @@ export const MovieModal = ({
     setStreamError(null);
 
     try {
-      const rawSlug = (movie as any)?.slug || (movie as any)?.movieplexSlug || (movie?.id ? String(movie.id).replace(/^mp-/, "") : undefined);
+      const rawSlug =
+        (movie as any)?.slug ||
+        (movie as any)?.dcSlug ||
+        (movie as any)?.movieplexSlug ||
+        (movie?.id ? String(movie.id).replace(/^dc-|^mp-/, "") : undefined);
+
       const res = await resolveMovieStream({
         slug: rawSlug,
         title: movie.title,
@@ -98,7 +107,7 @@ export const MovieModal = ({
       setStreamResult(res);
     } catch (err: any) {
       console.error("Movie stream resolution error:", err);
-      setStreamError("Unable to extract live HLS stream. You can still watch the trailer!");
+      setStreamError("Unable to extract live HLS stream. Please try another server or title.");
     } finally {
       setStreamLoading(false);
     }
@@ -126,8 +135,8 @@ export const MovieModal = ({
               streamLoading ? (
                 <div className="h-full w-full grid place-items-center bg-black">
                   <div className="text-center space-y-2">
-                    <Loader2 className="mx-auto h-10 w-10 animate-spin text-ember-500" />
-                    <p className="text-sm">Connecting to Movie stream resolver...</p>
+                    <Loader2 className="mx-auto h-10 w-10 animate-spin text-[#E50914]" />
+                    <p className="text-sm">Connecting to DesiCinemas master stream...</p>
                   </div>
                 </div>
               ) : streamResult?.streamUrl ? (
@@ -182,7 +191,7 @@ export const MovieModal = ({
 
                 <div className="absolute bottom-6 left-6 right-6 flex flex-wrap items-end justify-between gap-4">
                   <div className="max-w-xl">
-                    <p className="text-xs font-bold uppercase tracking-widest text-ember-500">
+                    <p className="text-xs font-bold uppercase tracking-widest text-[#E50914]">
                       {movie.genre}
                     </p>
                     <Dialog.Title className="text-2xl sm:text-4xl font-bold tracking-tight text-white drop-shadow-md">
@@ -193,7 +202,7 @@ export const MovieModal = ({
                   <div className="flex flex-wrap items-center gap-3">
                     <button
                       onClick={handleStartStream}
-                      className="inline-flex items-center gap-2 rounded-full bg-ember-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-ember-600 transition-transform active:scale-95 shadow-xl"
+                      className="inline-flex items-center gap-2 rounded-full bg-[#E50914] px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-700 transition-transform active:scale-95 shadow-xl shadow-red-600/40"
                     >
                       <Film size={16} />
                       <span>Stream Movie</span>
@@ -221,7 +230,7 @@ export const MovieModal = ({
                       title={isLiked ? "Unlike" : "Like"}
                     >
                       {isLiked ? (
-                        <Heart size={18} fill="currentColor" className="text-ember-500" />
+                        <Heart size={18} fill="currentColor" className="text-[#E50914]" />
                       ) : (
                         <ThumbsUp size={18} />
                       )}
@@ -236,17 +245,17 @@ export const MovieModal = ({
           <div className="p-6 sm:p-8 space-y-6">
             <div className="flex flex-wrap items-center gap-3 text-xs sm:text-sm text-fog-500">
               <div className="flex items-center gap-1 font-bold text-white bg-white/10 px-2 py-0.5 rounded">
-                <Star size={13} className="text-gold-500" fill="currentColor" />
-                <span>{movie.rating.toFixed(1)} Rating</span>
+                <Star size={13} className="text-amber-400" fill="currentColor" />
+                <span>{typeof movie.rating === "number" ? movie.rating.toFixed(1) : movie.rating} Rating</span>
               </div>
               <span>•</span>
               <span>{movie.year}</span>
               <span>•</span>
               <span className="border border-white/20 px-1.5 py-0.5 rounded text-[10px] text-white">
-                4K Ultra HD
+                Full HD Cinema
               </span>
               <span className="border border-white/20 px-1.5 py-0.5 rounded text-[10px] text-white">
-                Dolby Vision
+                Dolby 5.1
               </span>
             </div>
 
@@ -278,7 +287,7 @@ export const MovieModal = ({
                           {similar.title}
                         </p>
                         <p className="text-[10px] text-fog-500">
-                          ★ {similar.rating.toFixed(1)}
+                          ★ {typeof similar.rating === "number" ? similar.rating.toFixed(1) : similar.rating}
                         </p>
                       </div>
                     </div>

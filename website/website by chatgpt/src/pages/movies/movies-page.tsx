@@ -8,34 +8,45 @@ import { MovieModal } from "./components/movie-modal";
 import {
   fetchMoviesHome,
   fetchMovieCatalog,
-  type MovieSummary,
 } from "../../shared/api/movies";
-import type { TmdbMovie } from "./api/tmdb";
+import {
+  enrichMoviesList,
+  enrichMovieWithTmdb,
+  type TmdbMovie,
+} from "./api/tmdb";
 
 const GENRES = [
   "All",
   "Bollywood",
-  "Hollywood",
   "Hindi Dubbed",
-  "Action",
+  "Hollywood",
   "Web Series",
+  "Action",
+  "Drama",
   "Romance",
   "Thriller",
   "Comedy",
   "Horror",
+  "Punjabi",
+  "Tamil",
+  "Telugu",
 ];
 
-const categoryIdMap: Record<string, number | undefined> = {
+const categoryKeyMap: Record<string, string | undefined> = {
   All: undefined,
-  Bollywood: 10,
-  Hollywood: 19,
-  "Hindi Dubbed": 17,
-  Action: 6,
-  "Web Series": 33,
-  Romance: 24,
-  Thriller: 28,
-  Comedy: 11,
-  Horror: 20,
+  Bollywood: "desi_cinema",
+  "Hindi Dubbed": "hindi_dubbed",
+  Hollywood: "hollywood",
+  "Web Series": "series",
+  Action: "action",
+  Drama: "drama",
+  Romance: "romance",
+  Thriller: "thriller",
+  Comedy: "comedy",
+  Horror: "horror",
+  Punjabi: "punjabi",
+  Tamil: "tamil",
+  Telugu: "telugu",
 };
 
 const STORAGE_MY_LIST = "eetnet-movies-my-list";
@@ -88,23 +99,29 @@ export function MoviesPage({ onExit }: { onExit: () => void }) {
     let active = true;
 
     fetchMoviesHome()
-      .then((data: any) => {
+      .then(async (data) => {
         if (!active) return;
-        const trending = (data.trending || []) as unknown as TmdbMovie[];
-        const bollywood = (data.bollywood || []) as unknown as TmdbMovie[];
-        const hindiDubbed = (data.hindiDubbed || []) as unknown as TmdbMovie[];
-        const hollywood = (data.hollywood || []) as unknown as TmdbMovie[];
-        const featured = (data.featured || trending[0] || null) as unknown as TmdbMovie | null;
+        const [trending, bollywood, hindiDubbed, webSeries] = await Promise.all([
+          enrichMoviesList(data.trending || []),
+          enrichMoviesList(data.bollywood || []),
+          enrichMoviesList(data.hindiDubbed || []),
+          enrichMoviesList(data.webSeries || []),
+        ]);
+
+        if (!active) return;
+        const featured = data.featured
+          ? await enrichMovieWithTmdb(data.featured)
+          : trending[0] || null;
 
         setTrendingMovies(trending);
         setTopRatedMovies(bollywood);
         setActionMovies(hindiDubbed);
-        setSciFiMovies(hollywood);
+        setSciFiMovies(webSeries);
         setCatalogMovies(trending);
         setHeroMovie(featured);
       })
-      .catch((err: any) => {
-        console.error("Failed to load MoviePlex movies:", err);
+      .catch((err) => {
+        console.error("Failed to load DesiCinemas movies:", err);
       });
 
     return () => {
@@ -115,12 +132,19 @@ export function MoviesPage({ onExit }: { onExit: () => void }) {
   const handleGenreChange = async (genre: string) => {
     setActiveGenre(genre);
     setSearchQuery("");
-    const catId = categoryIdMap[genre];
+    const catKey = categoryKeyMap[genre];
     try {
-      const movies = await fetchMovieCatalog({ category: catId, limit: 36 });
-      setCatalogMovies(movies as unknown as TmdbMovie[]);
+      if (!catKey) {
+        const homeData = await fetchMoviesHome();
+        const enriched = await enrichMoviesList(homeData.trending || []);
+        setCatalogMovies(enriched);
+      } else {
+        const movies = await fetchMovieCatalog({ category: catKey, limit: 36 });
+        const enriched = await enrichMoviesList(movies);
+        setCatalogMovies(enriched);
+      }
     } catch (err) {
-      console.error("MoviePlex genre fetch error:", err);
+      console.error("DesiCinemas genre fetch error:", err);
     }
   };
 
@@ -132,9 +156,10 @@ export function MoviesPage({ onExit }: { onExit: () => void }) {
     }
     try {
       const results = await fetchMovieCatalog({ search: query.trim(), limit: 40 });
-      setCatalogMovies(results as unknown as TmdbMovie[]);
+      const enriched = await enrichMoviesList(results);
+      setCatalogMovies(enriched);
     } catch (err) {
-      console.error("MoviePlex search error:", err);
+      console.error("DesiCinemas search error:", err);
     }
   };
 
@@ -154,16 +179,16 @@ export function MoviesPage({ onExit }: { onExit: () => void }) {
 
   const handleToggleMyList = (movie: TmdbMovie) => {
     setMyList((prev) =>
-      prev.some((m) => m.id === movie.id)
-        ? prev.filter((m) => m.id !== movie.id)
+      prev.some((m) => String(m.id) === String(movie.id))
+        ? prev.filter((m) => String(m.id) !== String(movie.id))
         : [movie, ...prev]
     );
   };
 
   const handleToggleLiked = (movie: TmdbMovie) => {
     setLikedList((prev) =>
-      prev.some((m) => m.id === movie.id)
-        ? prev.filter((m) => m.id !== movie.id)
+      prev.some((m) => String(m.id) === String(movie.id))
+        ? prev.filter((m) => String(m.id) !== String(movie.id))
         : [movie, ...prev]
     );
   };
@@ -219,10 +244,10 @@ export function MoviesPage({ onExit }: { onExit: () => void }) {
         <footer className="border-t border-white/10 bg-backgroundContrast px-6 py-12 text-center text-xs text-fog-500">
           <div className="mx-auto max-w-[980px] space-y-4">
             <p className="text-sm font-semibold text-white">
-              EetNet Movies · Cinematic Entertainment Engine
+              EetNet Cinema · Powered by DesiCinemas & TMDB
             </p>
             <p>
-              This product uses the TMDB API but is not endorsed or certified by TMDB.
+              High-definition streaming engine for Bollywood, Hollywood, and regional blockbusters.
             </p>
             <div className="flex flex-wrap justify-center gap-6 text-white/60">
               <span>Privacy Policy</span>
@@ -244,8 +269,8 @@ export function MoviesPage({ onExit }: { onExit: () => void }) {
         onPlayMovie={handlePlayMovie}
         onToggleMyList={handleToggleMyList}
         onToggleLiked={handleToggleLiked}
-        isListed={selectedMovie ? myList.some((m) => m.id === selectedMovie.id) : false}
-        isLiked={selectedMovie ? likedList.some((m) => m.id === selectedMovie.id) : false}
+        isListed={selectedMovie ? myList.some((m) => String(m.id) === String(selectedMovie.id)) : false}
+        isLiked={selectedMovie ? likedList.some((m) => String(m.id) === String(selectedMovie.id)) : false}
         onSelectSimilar={(m) => setSelectedMovie(m)}
       />
     </div>
