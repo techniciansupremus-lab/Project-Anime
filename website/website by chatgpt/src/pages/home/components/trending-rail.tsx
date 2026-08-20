@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { SectionHeader } from "../../../shared/components/section-header";
 import { DiscoveryCard } from "./discovery-card";
 import { fetchTrendingAnime, type AnimeMedia } from "../../../shared/api/anime";
+import { isHindiDubbed } from "../../../shared/data/hindi-dubbed-ids";
 
 const containerVariants: Variants = {
   hidden: {},
@@ -82,6 +83,7 @@ export function TrendingRail({ onOpen }: { onOpen?: (anime: AnimeMedia) => void 
                   detail={detail}
                   image={cover}
                   imagePosition="center"
+                  isHindiDubbed={isHindiDubbed(anime.id)}
                   onOpen={() => onOpen?.(anime)}
                 />
               </motion.div>

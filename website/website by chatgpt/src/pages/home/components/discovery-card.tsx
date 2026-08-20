@@ -9,6 +9,7 @@ type DiscoveryCardProps = {
   onOpen?: () => void;
   className?: string;
   visualStyle?: "poster" | "gallery";
+  isHindiDubbed?: boolean;
 };
 
 export function DiscoveryCard({
@@ -19,6 +20,7 @@ export function DiscoveryCard({
   onOpen,
   className,
   visualStyle = "poster",
+  isHindiDubbed,
 }: DiscoveryCardProps) {
   const gallery = visualStyle === "gallery";
   return (
@@ -37,6 +39,19 @@ export function DiscoveryCard({
           style={{ objectPosition: imagePosition }}
           alt="Artwork"
         />
+
+        {isHindiDubbed && (
+          <div className="absolute left-2 top-2 z-10 flex items-center gap-1.5 rounded-full border border-amber-400/40 bg-ink-950/85 px-2.5 py-0.5 shadow-[0_2px_12px_rgba(245,158,11,0.35)] backdrop-blur-md transition-transform duration-200 group-hover:scale-105">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-500" />
+            </span>
+            <span className="font-body text-[10px] font-black tracking-wider text-amber-300 drop-shadow-sm">
+              HINDI DUB
+            </span>
+          </div>
+        )}
+
         <span
           className="absolute inset-0 bg-ink-950/35 opacity-0 transition-opacity duration-200 group-hover:opacity-100 motion-reduce:transition-none"
           aria-hidden

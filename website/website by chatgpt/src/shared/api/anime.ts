@@ -1,4 +1,5 @@
 import { getApiConfig } from "./config";
+import { HINDI_DUBBED_ANILIST_IDS } from "../data/hindi-dubbed-ids";
 
 export type AnimeMedia = {
   id: number;
@@ -122,9 +123,41 @@ export async function fetchPopularAnime(page = 1, perPage = 18): Promise<AnimeMe
   return result?.Page?.media || [];
 }
 
+export async function fetchHindiDubbedAnime(page = 1, perPage = 24): Promise<AnimeMedia[]> {
+  const start = (page - 1) * perPage;
+  const sliceIds = HINDI_DUBBED_ANILIST_IDS.slice(start, start + perPage);
+  if (sliceIds.length === 0) return [];
+
+  const query = `
+    query ($ids: [Int], $perPage: Int) {
+      Page(page: 1, perPage: $perPage) {
+        media(id_in: $ids, type: ANIME) {
+          id
+          title { english romaji native }
+          coverImage { extraLarge large }
+          bannerImage
+          description
+          episodes
+          averageScore
+          genres
+          seasonYear
+          format
+        }
+      }
+    }
+  `;
+  const result = await queryAniList(query, { ids: sliceIds, perPage });
+  const mediaList: AnimeMedia[] = result?.Page?.media || [];
+  const idIndexMap = new Map(sliceIds.map((id, index) => [id, index]));
+  return mediaList.sort((a, b) => (idIndexMap.get(a.id) ?? 999) - (idIndexMap.get(b.id) ?? 999));
+}
+
 export async function fetchAnimeByGenre(genre: string, page = 1, perPage = 18): Promise<AnimeMedia[]> {
   if (!genre || genre === "All") {
     return fetchTrendingAnime(page, perPage);
+  }
+  if (genre.toLowerCase() === "hindi") {
+    return fetchHindiDubbedAnime(page, perPage);
   }
   const query = `
     query ($genre: String, $page: Int, $perPage: Int) {

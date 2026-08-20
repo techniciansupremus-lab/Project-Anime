@@ -8,9 +8,11 @@ import {
   searchAnime,
   type AnimeMedia,
 } from "../../shared/api/anime";
+import { isHindiDubbed } from "../../shared/data/hindi-dubbed-ids";
 
 const animeGenres = [
   "All",
+  "Hindi",
   "Action",
   "Adventure",
   "Comedy",
@@ -173,6 +175,7 @@ export function AnimePage({ onBack, onOpen }: AnimePageProps) {
                   detail={details || "Japanese Animation"}
                   image={cover}
                   imagePosition="center"
+                  isHindiDubbed={isHindiDubbed(anime.id)}
                   onOpen={() => onOpen(anime)}
                 />
               );
