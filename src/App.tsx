@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { SiteNav, type NavigationPage } from "./shared/components/site-nav";
 import { HomePage } from "./pages/home/home-page";
 import { AnimePage } from "./pages/anime/anime-page";
@@ -11,21 +11,30 @@ import {
   ComicReaderPage,
   ComicSeriesPage,
 } from "./pages/comics/comic-reading-flow";
-import type { AnimeEpisode, AnimeMedia } from "./shared/api/anime";
-import type { ComicChapter, ComicSummary } from "./shared/api/comics";
-
-type View =
-  | NavigationPage
-  | "detail"
-  | "player"
-  | "comic-series"
-  | "comic-reader";
+import {
+  fetchAnimeDetails,
+  type AnimeEpisode,
+  type AnimeMedia,
+} from "./shared/api/anime";
+import {
+  fetchComicDetails,
+  type ComicChapter,
+  type ComicSummary,
+} from "./shared/api/comics";
+import {
+  parseLocation,
+  buildAnimeDetailUrl,
+  buildAnimeWatchUrl,
+  buildComicUrl,
+  buildComicReaderUrl,
+  slugify,
+  type AppRoute,
+} from "./shared/utils/router";
 
 export default function App() {
-  const [view, setView] = useState<View>("home");
-  const [returnView, setReturnView] = useState<
-    "home" | "anime" | "drama" | "movies"
-  >("home");
+  const [route, setRoute] = useState<AppRoute>(() =>
+    parseLocation(window.location.pathname, window.location.search)
+  );
 
   // Anime state
   const [selectedAnime, setSelectedAnime] = useState<AnimeMedia | null>(null);
@@ -39,17 +48,91 @@ export default function App() {
   const [chapterId, setChapterId] = useState<string>("");
   const [chapterNumber, setChapterNumber] = useState(1);
 
-  const activePage: NavigationPage =
-    view === "detail" || view === "player"
-      ? returnView
-      : view === "comic-series" || view === "comic-reader"
-      ? "comics"
-      : view;
+  // Listen to browser popstate (Back/Forward buttons)
+  useEffect(() => {
+    const handlePopState = () => {
+      const parsed = parseLocation(window.location.pathname, window.location.search);
+      setRoute(parsed);
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
-  const openAnimeDetail = (anime: AnimeMedia, from: "home" | "anime" = "anime") => {
+  // Smooth scroll to top on route change
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [route.type]);
+
+  // Handle direct visits / deep links / page refresh for Anime
+  useEffect(() => {
+    if (route.type === "anime-detail" || route.type === "anime-watch") {
+      const targetId = route.animeId;
+      if (!selectedAnime || selectedAnime.id !== targetId) {
+        fetchAnimeDetails(targetId)
+          .then((data) => {
+            if (data.anime) {
+              setSelectedAnime(data.anime);
+              setAnimeEpisodes(data.episodes || []);
+            }
+          })
+          .catch((err) => console.error("Could not fetch deep-linked anime:", err));
+      }
+      if (route.type === "anime-watch") {
+        setEpisode(route.episode);
+        setDub(route.dub);
+      }
+    }
+  }, [route]);
+
+  // Handle direct visits / deep links for Comics
+  useEffect(() => {
+    if (route.type === "comic-series" || route.type === "comic-reader") {
+      if (!comic || String(comic.id) !== route.comicId) {
+        fetchComicDetails(route.comicId)
+          .then((data) => {
+            if (data) {
+              setComic(data);
+              setComicChapters(data.chapters || []);
+            }
+          })
+          .catch((err) => console.error("Could not fetch deep-linked comic:", err));
+      }
+      if (route.type === "comic-reader") {
+        setChapterId(route.chapterId);
+        setChapterNumber(route.chapterNumber);
+      }
+    }
+  }, [route]);
+
+  const navigateTo = useCallback(
+    (newRoute: AppRoute, url: string, replace = false) => {
+      if (replace) {
+        window.history.replaceState({}, "", url);
+      } else {
+        window.history.pushState({}, "", url);
+      }
+      setRoute(newRoute);
+      window.scrollTo(0, 0);
+    },
+    []
+  );
+
+  const navigate = (page: NavigationPage) => {
+    const url = page === "home" ? "/" : `/${page}`;
+    navigateTo({ type: page }, url);
+  };
+
+  const openAnimeDetail = (anime: AnimeMedia) => {
     setSelectedAnime(anime);
-    setReturnView(from);
-    setView("detail");
+    const url = buildAnimeDetailUrl(anime);
+    navigateTo(
+      {
+        type: "anime-detail",
+        animeId: anime.id,
+        slug: slugify(anime.title?.english || anime.title?.romaji),
+      },
+      url
+    );
   };
 
   const openPlayer = (
@@ -58,16 +141,30 @@ export default function App() {
     anime?: AnimeMedia,
     episodes?: AnimeEpisode[]
   ) => {
-    setEpisode(selectedEpisode);
-    setDub(selectedDub);
-    if (anime) setSelectedAnime(anime);
-    if (episodes) setAnimeEpisodes(episodes);
-    setView("player");
+    const targetAnime = anime || selectedAnime;
+    if (targetAnime) {
+      setSelectedAnime(targetAnime);
+      if (episodes) setAnimeEpisodes(episodes);
+      setEpisode(selectedEpisode);
+      setDub(selectedDub);
+      const url = buildAnimeWatchUrl(targetAnime, selectedEpisode, selectedDub);
+      navigateTo(
+        {
+          type: "anime-watch",
+          animeId: targetAnime.id,
+          slug: slugify(targetAnime.title?.english || targetAnime.title?.romaji),
+          episode: selectedEpisode,
+          dub: selectedDub,
+        },
+        url
+      );
+    }
   };
 
   const openComic = (selectedComic: ComicSummary) => {
     setComic(selectedComic);
-    setView("comic-series");
+    const url = buildComicUrl(selectedComic.id);
+    navigateTo({ type: "comic-series", comicId: String(selectedComic.id) }, url);
   };
 
   const openComicReader = (
@@ -75,97 +172,154 @@ export default function App() {
     selectedChapterNumber: number,
     chapters: ComicChapter[]
   ) => {
-    setChapterId(selectedChapterId);
-    setChapterNumber(selectedChapterNumber);
-    setComicChapters(chapters);
-    setView("comic-reader");
+    if (comic) {
+      setChapterId(selectedChapterId);
+      setChapterNumber(selectedChapterNumber);
+      setComicChapters(chapters);
+      const url = buildComicReaderUrl(comic.id, selectedChapterId, selectedChapterNumber);
+      navigateTo(
+        {
+          type: "comic-reader",
+          comicId: String(comic.id),
+          chapterId: selectedChapterId,
+          chapterNumber: selectedChapterNumber,
+        },
+        url
+      );
+    }
   };
 
-  const navigate = (page: NavigationPage) => {
-    setView(page);
+  // In-app Back button handlers
+  const handleBackFromDetail = () => {
+    if (window.history.length > 1) {
+      window.history.back();
+    } else {
+      navigate("anime");
+    }
   };
 
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [view]);
+  const handleBackFromPlayer = () => {
+    if (selectedAnime) {
+      openAnimeDetail(selectedAnime);
+    } else {
+      navigate("anime");
+    }
+  };
+
+  const activeNavPage: NavigationPage =
+    route.type === "anime-detail" || route.type === "anime-watch"
+      ? "anime"
+      : route.type === "comic-series" || route.type === "comic-reader"
+      ? "comics"
+      : route.type;
 
   return (
-    <main id="top" className="min-h-screen bg-ink-950 text-paper-100">
-      {/* SiteNav is hidden on full immersion pages (drama has its own Netflix navbar) */}
-      {view !== "movies" &&
-        view !== "comics" &&
-        view !== "comic-series" &&
-        view !== "comic-reader" &&
-        view !== "drama" && (
-          <SiteNav activePage={activePage} onNavigate={navigate} />
+    <main id="top" className="min-h-screen bg-ink-950 text-paper-100 font-body">
+      {/* SiteNav is shown on top unless in immersive movie/drama/comic-reader mode */}
+      {route.type !== "movies" &&
+        route.type !== "drama" &&
+        route.type !== "comic-reader" && (
+          <SiteNav activePage={activeNavPage} onNavigate={navigate} />
         )}
 
-      {view === "home" && (
+      {route.type === "home" && (
         <HomePage
-          onOpen={() => setView("anime")}
-          onOpenAnime={(anime) => openAnimeDetail(anime, "home")}
-          onNavigateCategory={(category) => setView(category)}
+          onOpen={() => navigate("anime")}
+          onOpenAnime={(anime) => openAnimeDetail(anime)}
+          onNavigateCategory={(category) => navigate(category)}
         />
       )}
 
-      {view === "anime" && (
+      {route.type === "anime" && (
         <AnimePage
-          onBack={() => setView("home")}
-          onOpen={(anime) => openAnimeDetail(anime, "anime")}
+          onBack={() => navigate("home")}
+          onOpen={(anime) => openAnimeDetail(anime)}
         />
       )}
 
-      {view === "movies" && <MoviesPage onExit={() => setView("home")} />}
+      {route.type === "movies" && <MoviesPage onExit={() => navigate("home")} />}
 
-      {view === "drama" && (
-        <DramaPage
-          onBack={() => setView("home")}
-          onOpen={() => setView("drama")}
-        />
+      {route.type === "drama" && (
+        <DramaPage onBack={() => navigate("home")} onOpen={() => navigate("drama")} />
       )}
 
-      {view === "comics" && (
-        <ComicsPage onExit={() => setView("home")} onOpen={openComic} />
+      {route.type === "comics" && (
+        <ComicsPage onExit={() => navigate("home")} onOpen={openComic} />
       )}
 
-      {view === "comic-series" && comic && (
+      {route.type === "comic-series" && comic && (
         <ComicSeriesPage
           comic={comic}
-          onBack={() => setView("comics")}
+          onBack={() => navigate("comics")}
           onRead={openComicReader}
         />
       )}
 
-      {view === "comic-reader" && comic && (
+      {route.type === "comic-reader" && comic && (
         <ComicReaderPage
           comic={comic}
           chapterId={chapterId}
           chapterNumber={chapterNumber}
           chapters={comicChapters}
-          onBack={() => setView("comic-series")}
+          onBack={() => {
+            if (comic) {
+              const url = buildComicUrl(comic.id);
+              navigateTo({ type: "comic-series", comicId: String(comic.id) }, url);
+            } else {
+              navigate("comics");
+            }
+          }}
           onChangeChapter={(nextId, nextNum) => {
             setChapterId(nextId);
             setChapterNumber(nextNum);
+            if (comic) {
+              const url = buildComicReaderUrl(comic.id, nextId, nextNum);
+              navigateTo(
+                {
+                  type: "comic-reader",
+                  comicId: String(comic.id),
+                  chapterId: nextId,
+                  chapterNumber: nextNum,
+                },
+                url,
+                true
+              );
+            }
           }}
         />
       )}
 
-      {view === "detail" && (
+      {route.type === "anime-detail" && (
         <AnimeDetail
           anime={selectedAnime}
-          onBack={() => setView(returnView)}
+          onBack={handleBackFromDetail}
           onPlayEpisode={openPlayer}
         />
       )}
 
-      {view === "player" && (
+      {route.type === "anime-watch" && (
         <PlayerScreen
           anime={selectedAnime}
           episode={episode}
           dub={dub}
           episodes={animeEpisodes}
-          onBack={() => setView("detail")}
-          onSelectEpisode={(ep) => setEpisode(ep)}
+          onBack={handleBackFromPlayer}
+          onSelectEpisode={(ep) => {
+            setEpisode(ep);
+            if (selectedAnime) {
+              const url = buildAnimeWatchUrl(selectedAnime, ep, dub);
+              navigateTo(
+                {
+                  type: "anime-watch",
+                  animeId: selectedAnime.id,
+                  slug: slugify(selectedAnime.title?.english || selectedAnime.title?.romaji),
+                  episode: ep,
+                  dub,
+                },
+                url
+              );
+            }
+          }}
         />
       )}
     </main>
