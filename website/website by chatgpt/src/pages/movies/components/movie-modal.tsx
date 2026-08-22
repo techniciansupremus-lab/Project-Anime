@@ -181,14 +181,6 @@ export const MovieModal = ({
                   title={`${streamResult.title || movie.title} Stream`}
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                   allowFullScreen
-                  // Sandbox the third-party embed so it can no longer pop new tabs
-                  // or hijack a click to redirect the whole app to an ad. We keep
-                  // scripts + same-origin (the cross-origin host needs them to play
-                  // video) but DROP allow-popups / allow-top-navigation /
-                  // allow-top-navigation-by-user-activation — that last one is the
-                  // exact "click → ad tab" path. The Android WebView adds a
-                  // network-layer block on top of this.
-                  sandbox="allow-scripts allow-same-origin allow-presentation allow-fullscreen"
                 />
               ) : (
                 <div className="h-full w-full grid place-items-center bg-ink-900 p-6 text-center">
