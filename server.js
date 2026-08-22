@@ -3802,52 +3802,208 @@ async function dcExtractVidmolyStream(embedUrl) {
   }
 }
 
-async function dcResolveStream({ postId, optionKey = '0', type = '1', slug = null }) {
+// ── Series/episode support ────────────────────────────────────────────────────
+// DesiCinemas serves 3 different page types and the embed router needs the right
+// trtype: movies at /movies/{slug}/ (trtype=1) and episodes at /episode/{slug}/
+// (trtype=2). A series slug (/series/{slug}/) has NO .ListOptions of its own —
+// you must walk series → /seasen/{season}/ → /episode/{ep}/ to reach a player.
+async function dcFetchPage(url) {
+  const res = await axios.get(url, { headers: DC_DEFAULT_HEADERS, timeout: 12000 });
+  const finalUrl = res.request?.res?.responseUrl || res.request?.responseURL || url;
+  return { res, finalUrl, $: cheerio.load(res.data) };
+}
+
+function dcSlugOf(url) {
+  const m = String(url || '').match(/\/(?:movies|series|episode|seasen)\/([^/?#]+)/);
+  return m ? m[1] : null;
+}
+
+function dcReadOptions($) {
+  const opts = [];
+  $('.ListOptions li').each((_, el) => {
+    const $o = $(el);
+    const id = $o.attr('data-id');
+    if (id) {
+      opts.push({
+        key: $o.attr('data-key') || '0',
+        id,
+        typ: $o.attr('data-typ') || 'movie',
+        server: $o.find('.AAIco-dns').text().trim() || 'Server',
+      });
+    }
+  });
+  return opts;
+}
+
+/** Series → seasons → episodes. Returns { title, thumbnail, episodes:[{slug,url,number}] } */
+async function dcGetSeriesInfo(slug) {
+  const { $, finalUrl } = await dcFetchPage(`${DC_BASE}/series/${slug}/`);
+  if (dcSlugOf(finalUrl) !== slug) {
+    const err = new Error(`No DesiCinemas series for slug "${slug}"`);
+    err.code = 'DC_CATCHALL_REDIRECT';
+    err.finalSlug = dcSlugOf(finalUrl);
+    throw err;
+  }
+
+  const title = $('article.TPost h1, h1').first().text().trim();
+  let thumbnail = $('img.TPostBg, .TPostBg').first().attr('data-src') || $('img.TPostBg, .TPostBg').first().attr('src') || '';
+  if (thumbnail.startsWith('//')) thumbnail = 'https:' + thumbnail;
+
+  // Episodes may be linked straight from the series page, otherwise via season pages.
+  const epUrls = [];
+  const pushEp = (u) => { if (u && u.includes('/episode/') && !epUrls.includes(u)) epUrls.push(u); };
+  $('a[href*="/episode/"]').each((_, a) => pushEp($(a).attr('href')));
+
+  const seasonUrls = [];
+  $('a[href*="/seasen/"]').each((_, a) => {
+    const h = $(a).attr('href');
+    if (h && !seasonUrls.includes(h)) seasonUrls.push(h);
+  });
+
+  for (const seasonUrl of seasonUrls.slice(0, 6)) {
+    try {
+      const s = await dcFetchPage(seasonUrl);
+      s.$('a[href*="/episode/"]').each((_, a) => pushEp(s.$(a).attr('href')));
+    } catch (e) { /* skip unreachable season */ }
+  }
+
+  const episodes = epUrls.map((url, i) => {
+    const epSlug = dcSlugOf(url);
+    const numMatch = String(epSlug || '').match(/episode-(\d+)/i);
+    return { slug: epSlug, url, number: numMatch ? parseInt(numMatch[1]) : i + 1 };
+  }).filter(e => e.slug);
+  episodes.sort((a, b) => a.number - b.number);
+
+  return { slug, title, thumbnail, type: 'series', seasons: seasonUrls, episodes, source: 'desicinemas' };
+}
+
+/**
+ * Resolve a slug to a playable page: {options, type, title, thumbnail, pageSlug}.
+ * Tries /movies (trtype 1), then /episode (trtype 2), then /series → first episode.
+ */
+async function dcResolvePlayablePage(slug, { episode = null, preferType = null } = {}) {
+  const attempts = preferType === 'series'
+    ? ['series', 'movies', 'episode']
+    : ['movies', 'episode', 'series'];
+  let lastCatchAll = null;
+
+  for (const kind of attempts) {
+    try {
+      if (kind === 'series') {
+        const info = await dcGetSeriesInfo(slug);
+        if (!info.episodes.length) continue;
+        const wanted = episode
+          ? (info.episodes.find(e => String(e.number) === String(episode)) || info.episodes[0])
+          : info.episodes[0];
+        const ep = await dcFetchPage(wanted.url);
+        const opts = dcReadOptions(ep.$);
+        if (!opts.length) continue;
+        return {
+          options: opts, trtype: '2', title: info.title, thumbnail: info.thumbnail,
+          pageSlug: wanted.slug, kind: 'episode', seriesSlug: slug,
+          episodeNumber: wanted.number, episodeCount: info.episodes.length,
+        };
+      }
+
+      const url = kind === 'movies' ? `${DC_BASE}/movies/${slug}/` : `${DC_BASE}/episode/${slug}/`;
+      const { $, finalUrl } = await dcFetchPage(url);
+      if (dcSlugOf(finalUrl) !== slug) { lastCatchAll = dcSlugOf(finalUrl); continue; }
+      const opts = dcReadOptions($);
+      if (!opts.length) continue;
+      const title = $('article.TPost h1, h1').first().text().trim();
+      let thumbnail = $('img.TPostBg, .TPostBg').first().attr('data-src') || $('img.TPostBg, .TPostBg').first().attr('src') || '';
+      if (thumbnail.startsWith('//')) thumbnail = 'https:' + thumbnail;
+      // data-typ tells us which router type the page expects.
+      const isEpisode = kind === 'episode' || opts.some(o => /episode/i.test(o.typ));
+      return { options: opts, trtype: isEpisode ? '2' : '1', title, thumbnail, pageSlug: slug, kind };
+    } catch (e) {
+      if (e.code === 'DC_CATCHALL_REDIRECT') lastCatchAll = e.finalSlug;
+    }
+  }
+
+  const err = new Error(
+    lastCatchAll
+      ? `DesiCinemas has no matching title for slug "${slug}" (redirected to catch-all "${lastCatchAll}")`
+      : `No playable DesiCinemas page found for slug "${slug}"`
+  );
+  err.code = lastCatchAll ? 'DC_CATCHALL_REDIRECT' : 'DC_NO_PAGE';
+  err.finalSlug = lastCatchAll;
+  throw err;
+}
+
+// ── Decoy / ad-playlist detection ────────────────────────────────────────────
+// Some Morencius `/stream/...` masters return a child playlist whose "segments"
+// are ad IMAGES on tiktokcdn (…~tplv-…image). They download fine (HTTP 200) but
+// contain no video, so hls.js buffers forever => the UI spins on "infinite
+// loading". Detect and reject those so we fall back to a working iframe instead.
+const DC_AD_SEGMENT_HOSTS = /(tiktokcdn\.com|ad-site-sign|byteoversea|pstatp\.com|doubleclick|googlesyndication)/i;
+
+async function dcValidateHlsStream(masterUrl, referer) {
+  try {
+    const master = await axios.get(masterUrl, {
+      headers: { 'User-Agent': DC_DEFAULT_HEADERS['User-Agent'], Referer: referer },
+      responseType: 'text', timeout: 12000,
+    });
+    const masterBody = String(master.data || '');
+    if (!masterBody.trim().startsWith('#EXTM3U')) return { ok: false, reason: 'master-not-hls' };
+
+    const firstChild = masterBody.split('\n').map(l => l.trim())
+      .find(l => l && !l.startsWith('#'));
+    if (!firstChild) return { ok: true, reason: 'no-variant-assume-media-playlist' };
+
+    const childUrl = new URL(firstChild, masterUrl).toString();
+    const childRef = new URL(masterUrl).origin + '/';
+    const child = await axios.get(childUrl, {
+      headers: { 'User-Agent': DC_DEFAULT_HEADERS['User-Agent'], Referer: childRef },
+      responseType: 'text', timeout: 12000,
+    });
+    const childBody = String(child.data || '');
+    const segs = childBody.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+    if (!segs.length) return { ok: false, reason: 'no-segments' };
+
+    const adSegs = segs.filter(s => DC_AD_SEGMENT_HOSTS.test(s)).length;
+    if (adSegs / segs.length > 0.5) return { ok: false, reason: `ad-decoy-playlist (${adSegs}/${segs.length})` };
+
+    // Sniff the first segment's real content type — images mean a decoy.
+    const segUrl = new URL(segs[0], childUrl).toString();
+    try {
+      const probe = await axios.get(segUrl, {
+        headers: { 'User-Agent': DC_DEFAULT_HEADERS['User-Agent'], Referer: childRef, Range: 'bytes=0-1023' },
+        responseType: 'arraybuffer', timeout: 12000, validateStatus: () => true,
+      });
+      const ct = String(probe.headers['content-type'] || '');
+      if (probe.status >= 400) return { ok: false, reason: `segment-http-${probe.status}` };
+      if (/^image\//i.test(ct)) return { ok: false, reason: `segment-is-image (${ct})` };
+    } catch (e) {
+      return { ok: false, reason: 'segment-unreachable' };
+    }
+    return { ok: true, reason: 'validated' };
+  } catch (e) {
+    return { ok: false, reason: 'validate-error: ' + e.message };
+  }
+}
+
+async function dcResolveStream({ postId, optionKey = '0', type = '1', slug = null, episode = null, preferType = null }) {
   let targetId = postId;
   let targetType = type;
   let detailInfo = null;
   let pageOptions = [];
+  let seriesMeta = null;
 
   if (!targetId && slug) {
-    const pageUrl = type === '2' ? `${DC_BASE}/episode/${slug}/` : `${DC_BASE}/movies/${slug}/`;
-    const pageRes = await axios.get(pageUrl, { headers: DC_DEFAULT_HEADERS, timeout: 12000 });
-
-    // GUARD: DesiCinemas 302-redirects ANY unknown slug (e.g. a bare TMDB numeric
-    // id like "550") to ONE constant catch-all post ("vanvaas-movies-video").
-    // Without this check every unmatched title resolves to the same movie. If the
-    // final URL's slug differs from what we requested, this is NOT our title.
-    const finalUrl = pageRes.request?.res?.responseUrl || pageRes.request?.responseURL || '';
-    const finalSlugMatch = finalUrl.match(/\/(?:movies|episode)\/([^/?#]+)/);
-    const finalSlug = finalSlugMatch ? finalSlugMatch[1] : null;
-    if (finalSlug && slug && finalSlug !== slug) {
-      const err = new Error(`DesiCinemas has no matching title for slug "${slug}" (redirected to catch-all "${finalSlug}")`);
-      err.code = 'DC_CATCHALL_REDIRECT';
-      err.finalSlug = finalSlug;
-      throw err;
+    const page = await dcResolvePlayablePage(slug, { episode, preferType });
+    pageOptions = page.options;
+    targetType = page.trtype;
+    targetId = pageOptions[0]?.id;
+    detailInfo = { title: page.title, thumbnail: page.thumbnail };
+    if (page.kind === 'episode' && page.seriesSlug) {
+      seriesMeta = {
+        seriesSlug: page.seriesSlug,
+        episodeSlug: page.pageSlug,
+        episodeNumber: page.episodeNumber,
+        episodeCount: page.episodeCount,
+      };
     }
-
-    const $ = cheerio.load(pageRes.data);
-    // Collect ALL server options on the page (not just the first), so we can try
-    // multiple hosts and prefer one we can extract a direct HLS stream from.
-    $('.ListOptions li').each((_, el) => {
-      const $o = $(el);
-      const id = $o.attr('data-id');
-      if (id) {
-        pageOptions.push({
-          key: $o.attr('data-key') || '0',
-          id,
-          server: $o.find('.AAIco-dns').text().trim() || 'Server',
-        });
-      }
-    });
-    targetId = pageOptions[0]?.id || ($('body').attr('class') || '').match(/postid-(\d+)/)?.[1];
-    if (!targetId) {
-      targetId = ($('body').attr('class') || '').match(/term-(\d+)/)?.[1];
-    }
-    const title = $('article.TPost h1, h1').first().text().trim();
-    let backdrop = $('img.TPostBg, .TPostBg').first().attr('data-src') || $('img.TPostBg, .TPostBg').first().attr('src') || '';
-    if (backdrop.startsWith('//')) backdrop = 'https:' + backdrop;
-    detailInfo = { title, thumbnail: backdrop };
   }
 
   if (!targetId) {
@@ -3864,6 +4020,7 @@ async function dcResolveStream({ postId, optionKey = '0', type = '1', slug = nul
   let host = 'iframe';
   let chosenIframe = '';
   let firstIframe = '';
+  const rejected = [];
 
   for (const cand of candidates) {
     let iframeSrc = '';
@@ -3876,15 +4033,29 @@ async function dcResolveStream({ postId, optionKey = '0', type = '1', slug = nul
     if (!iframeSrc) continue;
     if (!firstIframe) firstIframe = iframeSrc;
 
+    let candidateUrl = null;
+    let candidateHost = null;
     if (iframeSrc.includes('morencius.com')) {
-      const m = await dcExtractMorenciusStream(iframeSrc);
-      if (m) { streamUrl = m; host = 'morencius'; chosenIframe = iframeSrc; break; }
+      candidateUrl = await dcExtractMorenciusStream(iframeSrc);
+      candidateHost = 'morencius';
     } else if (iframeSrc.includes('vidmoly.org') || iframeSrc.includes('vidmoly.me')) {
-      const v = await dcExtractVidmolyStream(iframeSrc);
-      if (v) { streamUrl = v; host = 'vidmoly'; chosenIframe = iframeSrc; break; }
+      candidateUrl = await dcExtractVidmolyStream(iframeSrc);
+      candidateHost = 'vidmoly';
     }
-    // Non-extractable host (vidsrc, movieshub, peytonepre, …): keep as a possible
-    // iframe fallback but keep trying other options for a directly-playable one.
+
+    if (candidateUrl) {
+      // Reject ad-decoy playlists so the player never spins forever.
+      const referer = candidateHost === 'vidmoly' ? 'https://vidmoly.org/' : 'https://morencius.com/';
+      const check = await dcValidateHlsStream(candidateUrl, referer);
+      if (check.ok) {
+        streamUrl = candidateUrl; host = candidateHost; chosenIframe = iframeSrc;
+        break;
+      }
+      rejected.push({ host: candidateHost, reason: check.reason });
+      console.warn(`[DC Stream] rejected ${candidateHost} stream for ${slug || targetId}: ${check.reason}`);
+    }
+    // Non-extractable host (vidsrc, movieshub, ok.ru, …): keep as iframe fallback
+    // but keep trying other options for a directly-playable one.
   }
 
   const iframeUrl = chosenIframe || firstIframe;
@@ -3905,7 +4076,9 @@ async function dcResolveStream({ postId, optionKey = '0', type = '1', slug = nul
     source: 'desicinemas',
     host,
     title: detailInfo?.title || '',
-    thumbnail: detailInfo?.thumbnail || ''
+    thumbnail: detailInfo?.thumbnail || '',
+    ...(seriesMeta || {}),
+    ...(rejected.length ? { rejectedStreams: rejected } : {}),
   };
 }
 
@@ -3935,6 +4108,8 @@ app.get('/api/desicinemas/stream', async (req, res) => {
   const option = req.query.option || req.query.optionKey || '0';
   const type = req.query.type || '1';
   const title = req.query.title;
+  const episode = req.query.episode || req.query.ep || null;
+  const preferType = req.query.contentType === 'series' ? 'series' : null;
 
   // Wrap a raw extracted HLS URL through our own m3u8-proxy so the browser can
   // play it: the CDN URLs are token/referer/IP-bound and CORS-locked, so a raw
@@ -3952,7 +4127,7 @@ app.get('/api/desicinemas/stream', async (req, res) => {
 
   if (!slug && !postId && !title) return res.status(400).json({ error: 'Missing slug, postId or title' });
   try {
-    const result = await dcResolveStream({ slug, postId, optionKey: option, type });
+    const result = await dcResolveStream({ slug, postId, optionKey: option, type, episode, preferType });
     return res.json(proxifyStream(result));
   } catch (err) {
     // If the slug didn't match a real DesiCinemas title (catch-all redirect) or
@@ -3960,14 +4135,23 @@ app.get('/api/desicinemas/stream', async (req, res) => {
     // the first real slug we find. This is what makes clicking an arbitrary
     // (e.g. TMDB-sourced) title actually resolve its own stream.
     const searchTitle = title || slug;
-    if ((err.code === 'DC_CATCHALL_REDIRECT' || !postId) && searchTitle) {
+    if (searchTitle) {
       try {
         const cleaned = String(searchTitle).replace(/-/g, ' ').replace(/\b(19|20)\d{2}\b/g, '').trim();
         const found = await dcSearch(cleaned, 1);
-        const first = (found.movies || []).find(m => m.slug && m.slug !== err.finalSlug) || (found.movies || [])[0];
-        if (first?.slug && first.slug !== slug) {
-          const recovered = await dcResolveStream({ slug: first.slug, optionKey: '0', type: first.type === 'series' ? '2' : '1' });
-          return res.json({ ...proxifyStream(recovered), recoveredVia: 'title-search', requestedSlug: slug || null });
+        const candidates = (found.movies || []).filter(m => m.slug && m.slug !== err.finalSlug && m.slug !== slug);
+        // Try up to 3 search hits — the first may itself be unplayable.
+        for (const cand of candidates.slice(0, 3)) {
+          try {
+            const recovered = await dcResolveStream({
+              slug: cand.slug,
+              optionKey: '0',
+              type: cand.type === 'series' || cand.type === 'episode' ? '2' : '1',
+              episode,
+              preferType: cand.type === 'series' ? 'series' : null,
+            });
+            return res.json({ ...proxifyStream(recovered), recoveredVia: 'title-search', requestedSlug: slug || null });
+          } catch (e3) { /* try next candidate */ }
         }
       } catch (e2) {
         console.warn('[DC Stream] Title-search recovery failed:', e2.message);
@@ -3975,6 +4159,17 @@ app.get('/api/desicinemas/stream', async (req, res) => {
     }
     console.error(`[DC Stream] Failed for ${slug || postId || title}:`, err.message);
     return res.status(502).json({ error: 'Stream resolution failed', message: err.message, code: err.code || null });
+  }
+});
+
+// Series info: seasons + full episode list (for a series slug)
+app.get('/api/desicinemas/series/:slug', async (req, res) => {
+  try {
+    const info = await dcGetSeriesInfo(req.params.slug);
+    return res.json(info);
+  } catch (err) {
+    console.error(`[DC Series] Failed for ${req.params.slug}:`, err.message);
+    return res.status(502).json({ error: 'Series lookup failed', message: err.message, code: err.code || null });
   }
 });
 

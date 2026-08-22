@@ -23,6 +23,8 @@ export type TmdbMovie = {
   backdrop: string;
   poster: string;
   rating: number;
+  /** DesiCinemas content type ("movie" | "series" | "episode") when the item came from our backend. */
+  contentType?: string;
 };
 
 const genreNames: Record<number, string> = {

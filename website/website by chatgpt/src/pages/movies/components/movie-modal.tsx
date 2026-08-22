@@ -54,6 +54,8 @@ export const MovieModal = ({
   const [streamResult, setStreamResult] = useState<MovieStreamResult | null>(null);
   const [streamLoading, setStreamLoading] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
+  // Set when the native HLS player gives up, so we fall back to the iframe.
+  const [nativeFailed, setNativeFailed] = useState(false);
 
   useEffect(() => {
     if (!movie || !isOpen) {
@@ -62,6 +64,7 @@ export const MovieModal = ({
       setTrailerKey(null);
       setStreamResult(null);
       setSimilarMovies([]);
+      setNativeFailed(false);
       return;
     }
 
@@ -91,6 +94,7 @@ export const MovieModal = ({
     setIsPlayingTrailer(false);
     setStreamLoading(true);
     setStreamError(null);
+    setNativeFailed(false);
 
     try {
       // Only pass a slug when it's a REAL DesiCinemas word-slug — never a bare
@@ -106,15 +110,30 @@ export const MovieModal = ({
           ? String(rawSlug)
           : undefined;
 
+      // Series/episodes live on different DesiCinemas page types and need
+      // series → season → episode routing, so pass the content type through.
+      const rawType = (movie as any)?.contentType || (movie as any)?.type;
+      const contentType =
+        rawType === "series" || rawType === "episode"
+          ? "series"
+          : /\b(season|series|web\s*series|episode)\b/i.test(String(movie.title || "") + " " + String(movie.genre || ""))
+          ? "series"
+          : undefined;
+
       const res = await resolveMovieStream({
         slug: realSlug,
         title: movie.title,
         year: movie.year,
+        contentType,
       });
       setStreamResult(res);
     } catch (err: any) {
       console.error("Movie stream resolution error:", err);
-      setStreamError("Unable to extract a playable stream. Please try another title.");
+      setStreamError(
+        err?.message?.includes("Timed out")
+          ? err.message
+          : "Unable to extract a playable stream. Please try another title."
+      );
     } finally {
       setStreamLoading(false);
     }
@@ -143,20 +162,23 @@ export const MovieModal = ({
                 <div className="h-full w-full grid place-items-center bg-black">
                   <div className="text-center space-y-2">
                     <Loader2 className="mx-auto h-10 w-10 animate-spin text-[#E50914]" />
-                    <p className="text-sm">Connecting to DesiCinemas master stream...</p>
+                    <p className="text-sm">Finding a playable stream…</p>
                   </div>
                 </div>
-              ) : streamResult?.streamUrl ? (
+              ) : streamResult?.streamUrl && !nativeFailed ? (
                 <VideoPlayer
                   src={streamResult.streamUrl}
-                  title={movie.title}
+                  title={streamResult.title || movie.title}
                   poster={movie.backdrop || movie.poster}
+                  // If the native HLS stream stalls or can't decode, fall straight
+                  // over to the provider iframe instead of spinning forever.
+                  onError={() => setNativeFailed(true)}
                 />
               ) : streamResult?.fallbackIframe ? (
                 <iframe
                   className="h-full w-full"
                   src={streamResult.fallbackIframe}
-                  title={`${movie.title} Stream`}
+                  title={`${streamResult.title || movie.title} Stream`}
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                   allowFullScreen
                 />

@@ -11,6 +11,8 @@ export type MovieSummary = {
   genre: string;
   category?: string;
   synopsis: string;
+  /** DesiCinemas content type: "movie" | "series" | "episode" — series need episode routing. */
+  contentType?: string;
 };
 
 export type MoviesHomeData = {
@@ -35,6 +37,9 @@ export type MovieStreamResult = {
   directHls?: boolean;
   host?: string;
   error?: string;
+  /** Set for series: which episode was resolved and how many exist. */
+  episodeNumber?: number;
+  episodeCount?: number;
 };
 
 /**
@@ -127,6 +132,7 @@ export function normalizeMovieItem(item: any): MovieSummary {
     rating,
     genre,
     category: item.category || (Array.isArray(item.categories) ? item.categories[0] : undefined),
+    contentType: item.type || undefined,
     synopsis: item.synopsis || item.description || "Stream in Full HD with high-speed playback powered by DesiCinemas.",
   };
 }
@@ -197,6 +203,12 @@ export async function resolveMovieStream(params: {
   slug?: string;
   title?: string;
   year?: string | number;
+  /** "series" makes the backend walk series → season → episode. */
+  contentType?: string;
+  /** Which episode number to resolve (series only). */
+  episode?: number | string;
+  /** Abort/timeout budget in ms — prevents the UI spinning forever. */
+  timeoutMs?: number;
 }): Promise<MovieStreamResult> {
   const config = await getApiConfig();
 
@@ -213,12 +225,21 @@ export async function resolveMovieStream(params: {
   // stream (distinct per title, native HLS when the embed host is extractable —
   // e.g. Morencius/Vidmoly — else a per-title iframe as fallback).
   if (isRealSlug || params.title) {
+    // Hard timeout so a slow/hung phone backend surfaces an error instead of an
+    // endless spinner. Series resolution walks extra pages, so allow more time.
+    const budget = params.timeoutMs ?? (params.contentType === "series" ? 45000 : 30000);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), budget);
     try {
       const q = new URLSearchParams();
       if (isRealSlug) q.set("slug", String(params.slug));
       if (params.title) q.set("title", String(params.title));
       if (params.year) q.set("year", String(params.year));
-      const res = await fetch(`${config.MOVIES_API}/api/desicinemas/stream?${q.toString()}`);
+      if (params.contentType) q.set("contentType", String(params.contentType));
+      if (params.episode) q.set("episode", String(params.episode));
+      const res = await fetch(`${config.MOVIES_API}/api/desicinemas/stream?${q.toString()}`, {
+        signal: controller.signal,
+      });
       if (res.ok) {
         const data = await res.json();
         if (data.streamUrl || data.fallbackIframe) {
@@ -231,13 +252,41 @@ export async function resolveMovieStream(params: {
             host: data.host,
             title: data.title || params.title,
             thumbnail: enhancePosterUrl(data.thumbnail),
+            episodeNumber: data.episodeNumber,
+            episodeCount: data.episodeCount,
           };
         }
       }
-    } catch (e) {
+    } catch (e: any) {
+      if (e?.name === "AbortError") {
+        throw new Error(
+          "Timed out finding a stream for this title. The streaming server may be slow or offline — try again."
+        );
+      }
       console.warn("DesiCinemas stream resolve failed:", e);
+    } finally {
+      clearTimeout(timer);
     }
   }
 
   throw new Error("Could not resolve movie stream");
+}
+
+/** Full episode list for a DesiCinemas series slug. */
+export async function fetchSeriesEpisodes(slug: string): Promise<{
+  title?: string;
+  thumbnail?: string;
+  episodes: Array<{ slug: string; number: number }>;
+}> {
+  const config = await getApiConfig();
+  try {
+    const res = await fetch(`${config.MOVIES_API}/api/desicinemas/series/${encodeURIComponent(slug)}`);
+    if (res.ok) {
+      const d = await res.json();
+      return { title: d.title, thumbnail: enhancePosterUrl(d.thumbnail), episodes: d.episodes || [] };
+    }
+  } catch (e) {
+    console.warn("Series episode lookup failed:", e);
+  }
+  return { episodes: [] };
 }

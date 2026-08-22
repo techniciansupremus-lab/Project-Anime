@@ -21,6 +21,9 @@ function upgradePosters(items: MovieSummary[]): TmdbMovie[] {
   return items.map((m) => ({
     id: m.id,
     slug: m.slug,
+    // Carry the DesiCinemas content type through so the player knows a series
+    // needs series→season→episode routing (otherwise series say "Stream Not Found").
+    contentType: m.contentType,
     title: m.title,
     year: String(m.year || ""),
     genre: m.genre || "Movie",

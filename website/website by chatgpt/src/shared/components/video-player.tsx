@@ -92,6 +92,38 @@ export function VideoPlayer({
       hlsRef.current = null;
     }
 
+    // Watchdogs so a stalled/undecodable stream can never spin forever.
+    let manifestOk = false;
+    let gotFrames = false;
+    let networkRetries = 0;
+    let mediaRetries = 0;
+    const MAX_NETWORK_RETRIES = 4;
+    const MAX_MEDIA_RETRIES = 2;
+
+    const fail = (msg: string) => {
+      setHasError(msg);
+      setIsLoading(false);
+      onError?.({ fatal: true, reason: msg });
+      try { hlsRef.current?.destroy(); } catch {}
+      hlsRef.current = null;
+    };
+
+    // If the manifest never parses, stop waiting.
+    const manifestTimer = setTimeout(() => {
+      if (!manifestOk) fail("Stream did not start (manifest timed out). Try the external player or another title.");
+    }, 25000);
+
+    // If the manifest parsed but no video frame ever decodes (the classic
+    // "ad-decoy playlist" symptom: segments download fine but contain no video),
+    // give up instead of buffering forever.
+    const frameTimer = setTimeout(() => {
+      if (!gotFrames) fail("This source returned no playable video. Try the external player or another title.");
+    }, 45000);
+
+    const markFrames = () => { gotFrames = true; };
+    video.addEventListener("loadeddata", markFrames);
+    video.addEventListener("timeupdate", markFrames);
+
     if (Hls.isSupported() && (src.includes(".m3u8") || src.includes("m3u8-proxy") || !src.endsWith(".mp4"))) {
       const hls = new Hls({
         enableWorker: true,
@@ -104,6 +136,7 @@ export function VideoPlayer({
       hls.attachMedia(video);
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        manifestOk = true;
         setIsLoading(false);
         video.play().catch(() => setIsPlaying(false));
       });
@@ -112,15 +145,22 @@ export function VideoPlayer({
         if (data.fatal) {
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
-              hls.startLoad();
+              // BOUNDED retry — unbounded startLoad() was an infinite spinner.
+              if (networkRetries++ < MAX_NETWORK_RETRIES) {
+                hls.startLoad();
+              } else {
+                fail("Stream keeps failing to load. Try the external player or another title.");
+              }
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
-              hls.recoverMediaError();
+              if (mediaRetries++ < MAX_MEDIA_RETRIES) {
+                hls.recoverMediaError();
+              } else {
+                fail("This source's video could not be decoded. Try the external player.");
+              }
               break;
             default:
-              setHasError("Stream loading failed. Please try another source or refresh.");
-              onError?.(data);
-              hls.destroy();
+              fail("Stream loading failed. Please try another source or refresh.");
               break;
           }
         }
@@ -129,6 +169,7 @@ export function VideoPlayer({
       // Native HLS (Safari/iOS) or MP4
       video.src = src;
       video.addEventListener("loadedmetadata", () => {
+        manifestOk = true;
         setIsLoading(false);
         video.play().catch(() => setIsPlaying(false));
       });
@@ -137,6 +178,10 @@ export function VideoPlayer({
     }
 
     return () => {
+      clearTimeout(manifestTimer);
+      clearTimeout(frameTimer);
+      video.removeEventListener("loadeddata", markFrames);
+      video.removeEventListener("timeupdate", markFrames);
       if (hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;
