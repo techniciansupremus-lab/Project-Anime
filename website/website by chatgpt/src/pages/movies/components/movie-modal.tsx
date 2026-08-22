@@ -93,21 +93,28 @@ export const MovieModal = ({
     setStreamError(null);
 
     try {
+      // Only pass a slug when it's a REAL DesiCinemas word-slug — never a bare
+      // numeric TMDB id (those hit DesiCinemas' catch-all and resolve to the wrong
+      // movie). For TMDB-sourced catalog items we rely on title+year resolution
+      // (the backend searches DesiCinemas by title).
       const rawSlug =
-        (movie as any)?.slug ||
         (movie as any)?.dcSlug ||
         (movie as any)?.movieplexSlug ||
-        (movie?.id ? String(movie.id).replace(/^dc-|^mp-/, "") : undefined);
+        (movie as any)?.slug;
+      const realSlug =
+        rawSlug && !/^\d+$/.test(String(rawSlug)) && /[a-z]/i.test(String(rawSlug))
+          ? String(rawSlug)
+          : undefined;
 
       const res = await resolveMovieStream({
-        slug: rawSlug,
+        slug: realSlug,
         title: movie.title,
         year: movie.year,
       });
       setStreamResult(res);
     } catch (err: any) {
       console.error("Movie stream resolution error:", err);
-      setStreamError("Unable to extract live HLS stream. Please try another server or title.");
+      setStreamError("Unable to extract a playable stream. Please try another title.");
     } finally {
       setStreamLoading(false);
     }

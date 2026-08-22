@@ -200,10 +200,25 @@ export async function resolveMovieStream(params: {
 }): Promise<MovieStreamResult> {
   const config = await getApiConfig();
 
-  // 1. Try DesiCinemas stream resolver with slug
-  if (params.slug) {
+  // A "real" DesiCinemas slug is a word slug (e.g. "fighter-q-k"), never a bare
+  // numeric TMDB id. TMDB-sourced catalog items only have a numeric id, so we must
+  // NOT send that as a slug — DesiCinemas 302-redirects every unknown slug to one
+  // constant catch-all post ("vanvaas-movies-video"), which is why every such movie
+  // used to resolve to the SAME title. Only treat a slug as real if it contains a
+  // non-numeric segment.
+  const isRealSlug = !!params.slug && !/^\d+$/.test(String(params.slug)) && /[a-z]/i.test(String(params.slug));
+
+  // PRIMARY: DesiCinemas. With a real slug it resolves that exact title; otherwise
+  // the backend searches DesiCinemas by title and returns the matching post's
+  // stream (distinct per title, native HLS when the embed host is extractable —
+  // e.g. Morencius/Vidmoly — else a per-title iframe as fallback).
+  if (isRealSlug || params.title) {
     try {
-      const res = await fetch(`${config.MOVIES_API}/api/desicinemas/stream?slug=${encodeURIComponent(params.slug)}`);
+      const q = new URLSearchParams();
+      if (isRealSlug) q.set("slug", String(params.slug));
+      if (params.title) q.set("title", String(params.title));
+      if (params.year) q.set("year", String(params.year));
+      const res = await fetch(`${config.MOVIES_API}/api/desicinemas/stream?${q.toString()}`);
       if (res.ok) {
         const data = await res.json();
         if (data.streamUrl || data.fallbackIframe) {
@@ -221,37 +236,6 @@ export async function resolveMovieStream(params: {
       }
     } catch (e) {
       console.warn("DesiCinemas stream resolve failed:", e);
-    }
-  }
-
-  // 2. Search DesiCinemas by title if slug is missing
-  if (params.title) {
-    try {
-      const catalogRes = await fetch(`${config.MOVIES_API}/api/desicinemas/catalog?search=${encodeURIComponent(params.title)}`);
-      if (catalogRes.ok) {
-        const catData = await catalogRes.json();
-        const firstMatch = (catData.movies || [])[0];
-        if (firstMatch?.slug) {
-          const streamRes = await fetch(`${config.MOVIES_API}/api/desicinemas/stream?slug=${encodeURIComponent(firstMatch.slug)}`);
-          if (streamRes.ok) {
-            const data = await streamRes.json();
-            if (data.streamUrl || data.fallbackIframe) {
-              return {
-                streamUrl: data.streamUrl,
-                fallbackIframe: data.fallbackIframe,
-                source: "desicinemas",
-                isHls: data.isHls ?? !!data.streamUrl,
-                directHls: data.directHls ?? !!data.streamUrl,
-                host: data.host,
-                title: data.title || params.title,
-                thumbnail: enhancePosterUrl(data.thumbnail || firstMatch.thumbnail),
-              };
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.warn("DesiCinemas search fallback failed:", e);
     }
   }
 
