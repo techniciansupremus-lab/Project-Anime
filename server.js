@@ -3806,13 +3806,41 @@ async function dcResolveStream({ postId, optionKey = '0', type = '1', slug = nul
   let targetId = postId;
   let targetType = type;
   let detailInfo = null;
+  let pageOptions = [];
 
   if (!targetId && slug) {
     const pageUrl = type === '2' ? `${DC_BASE}/episode/${slug}/` : `${DC_BASE}/movies/${slug}/`;
     const pageRes = await axios.get(pageUrl, { headers: DC_DEFAULT_HEADERS, timeout: 12000 });
+
+    // GUARD: DesiCinemas 302-redirects ANY unknown slug (e.g. a bare TMDB numeric
+    // id like "550") to ONE constant catch-all post ("vanvaas-movies-video").
+    // Without this check every unmatched title resolves to the same movie. If the
+    // final URL's slug differs from what we requested, this is NOT our title.
+    const finalUrl = pageRes.request?.res?.responseUrl || pageRes.request?.responseURL || '';
+    const finalSlugMatch = finalUrl.match(/\/(?:movies|episode)\/([^/?#]+)/);
+    const finalSlug = finalSlugMatch ? finalSlugMatch[1] : null;
+    if (finalSlug && slug && finalSlug !== slug) {
+      const err = new Error(`DesiCinemas has no matching title for slug "${slug}" (redirected to catch-all "${finalSlug}")`);
+      err.code = 'DC_CATCHALL_REDIRECT';
+      err.finalSlug = finalSlug;
+      throw err;
+    }
+
     const $ = cheerio.load(pageRes.data);
-    const optEl = $('.ListOptions li').first();
-    targetId = optEl.attr('data-id') || ($('body').attr('class') || '').match(/postid-(\d+)/)?.[1];
+    // Collect ALL server options on the page (not just the first), so we can try
+    // multiple hosts and prefer one we can extract a direct HLS stream from.
+    $('.ListOptions li').each((_, el) => {
+      const $o = $(el);
+      const id = $o.attr('data-id');
+      if (id) {
+        pageOptions.push({
+          key: $o.attr('data-key') || '0',
+          id,
+          server: $o.find('.AAIco-dns').text().trim() || 'Server',
+        });
+      }
+    });
+    targetId = pageOptions[0]?.id || ($('body').attr('class') || '').match(/postid-(\d+)/)?.[1];
     if (!targetId) {
       targetId = ($('body').attr('class') || '').match(/term-(\d+)/)?.[1];
     }
@@ -3826,33 +3854,51 @@ async function dcResolveStream({ postId, optionKey = '0', type = '1', slug = nul
     throw new Error('Unable to resolve post ID for stream');
   }
 
-  const embedRouterUrl = `${DC_BASE}/?trembed=${optionKey}&trid=${targetId}&trtype=${targetType}`;
-  const embedRes = await axios.get(embedRouterUrl, { headers: DC_DEFAULT_HEADERS, timeout: 12000 });
-  const $emb = cheerio.load(embedRes.data);
-  const iframeSrc = $emb('iframe').attr('src') || $emb('IFRAME').attr('SRC') || '';
-
-  if (!iframeSrc) {
-    throw new Error('No iframe found in embed response');
-  }
+  // Candidate (key,id) pairs to try. Prefer the options discovered on the page;
+  // otherwise fall back to the single (optionKey,targetId) pair passed in.
+  const candidates = pageOptions.length
+    ? pageOptions.map(o => ({ key: o.key, id: o.id }))
+    : [{ key: optionKey, id: targetId }];
 
   let streamUrl = null;
   let host = 'iframe';
+  let chosenIframe = '';
+  let firstIframe = '';
 
-  if (iframeSrc.includes('morencius.com')) {
-    host = 'morencius';
-    streamUrl = await dcExtractMorenciusStream(iframeSrc);
-  } else if (iframeSrc.includes('vidmoly.org') || iframeSrc.includes('vidmoly.me')) {
-    host = 'vidmoly';
-    streamUrl = await dcExtractVidmolyStream(iframeSrc);
+  for (const cand of candidates) {
+    let iframeSrc = '';
+    try {
+      const routerUrl = `${DC_BASE}/?trembed=${cand.key}&trid=${cand.id}&trtype=${targetType}`;
+      const embedRes = await axios.get(routerUrl, { headers: DC_DEFAULT_HEADERS, timeout: 12000 });
+      const $emb = cheerio.load(embedRes.data);
+      iframeSrc = $emb('iframe').attr('src') || $emb('IFRAME').attr('SRC') || '';
+    } catch (e) { continue; }
+    if (!iframeSrc) continue;
+    if (!firstIframe) firstIframe = iframeSrc;
+
+    if (iframeSrc.includes('morencius.com')) {
+      const m = await dcExtractMorenciusStream(iframeSrc);
+      if (m) { streamUrl = m; host = 'morencius'; chosenIframe = iframeSrc; break; }
+    } else if (iframeSrc.includes('vidmoly.org') || iframeSrc.includes('vidmoly.me')) {
+      const v = await dcExtractVidmolyStream(iframeSrc);
+      if (v) { streamUrl = v; host = 'vidmoly'; chosenIframe = iframeSrc; break; }
+    }
+    // Non-extractable host (vidsrc, movieshub, peytonepre, …): keep as a possible
+    // iframe fallback but keep trying other options for a directly-playable one.
+  }
+
+  const iframeUrl = chosenIframe || firstIframe;
+  if (!iframeUrl && !streamUrl) {
+    throw new Error('No iframe found in embed response');
   }
 
   return {
     targetId,
     optionKey,
     type: targetType,
-    embedRouterUrl,
-    iframeUrl: iframeSrc,
-    fallbackIframe: iframeSrc,
+    embedRouterUrl: `${DC_BASE}/?trembed=${optionKey}&trid=${targetId}&trtype=${targetType}`,
+    iframeUrl,
+    fallbackIframe: iframeUrl,
     streamUrl: streamUrl || null,
     isHls: !!streamUrl,
     directHls: !!streamUrl,
@@ -3888,14 +3934,47 @@ app.get('/api/desicinemas/stream', async (req, res) => {
   const postId = req.query.postId;
   const option = req.query.option || req.query.optionKey || '0';
   const type = req.query.type || '1';
+  const title = req.query.title;
 
-  if (!slug && !postId) return res.status(400).json({ error: 'Missing slug or postId' });
+  // Wrap a raw extracted HLS URL through our own m3u8-proxy so the browser can
+  // play it: the CDN URLs are token/referer/IP-bound and CORS-locked, so a raw
+  // URL handed straight to the browser's player fails. Referer must match the
+  // extractor host (Morencius/Vidmoly) for the CDN to serve the manifest.
+  const proxifyStream = (result) => {
+    if (result && result.streamUrl && /^https?:\/\//i.test(result.streamUrl)) {
+      const refererHost =
+        result.host === 'vidmoly' ? 'https://vidmoly.org/' : 'https://morencius.com/';
+      const proxied = `${publicHost(req)}/api/m3u8-proxy?url=${encodeURIComponent(result.streamUrl)}&referer=${encodeURIComponent(refererHost)}`;
+      return { ...result, rawStreamUrl: result.streamUrl, streamUrl: proxied };
+    }
+    return result;
+  };
+
+  if (!slug && !postId && !title) return res.status(400).json({ error: 'Missing slug, postId or title' });
   try {
     const result = await dcResolveStream({ slug, postId, optionKey: option, type });
-    return res.json(result);
+    return res.json(proxifyStream(result));
   } catch (err) {
-    console.error(`[DC Stream] Failed for ${slug || postId}:`, err.message);
-    return res.status(502).json({ error: 'Stream resolution failed', message: err.message });
+    // If the slug didn't match a real DesiCinemas title (catch-all redirect) or
+    // failed, try to recover by searching DesiCinemas by title and retrying with
+    // the first real slug we find. This is what makes clicking an arbitrary
+    // (e.g. TMDB-sourced) title actually resolve its own stream.
+    const searchTitle = title || slug;
+    if ((err.code === 'DC_CATCHALL_REDIRECT' || !postId) && searchTitle) {
+      try {
+        const cleaned = String(searchTitle).replace(/-/g, ' ').replace(/\b(19|20)\d{2}\b/g, '').trim();
+        const found = await dcSearch(cleaned, 1);
+        const first = (found.movies || []).find(m => m.slug && m.slug !== err.finalSlug) || (found.movies || [])[0];
+        if (first?.slug && first.slug !== slug) {
+          const recovered = await dcResolveStream({ slug: first.slug, optionKey: '0', type: first.type === 'series' ? '2' : '1' });
+          return res.json({ ...proxifyStream(recovered), recoveredVia: 'title-search', requestedSlug: slug || null });
+        }
+      } catch (e2) {
+        console.warn('[DC Stream] Title-search recovery failed:', e2.message);
+      }
+    }
+    console.error(`[DC Stream] Failed for ${slug || postId || title}:`, err.message);
+    return res.status(502).json({ error: 'Stream resolution failed', message: err.message, code: err.code || null });
   }
 });
 

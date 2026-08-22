@@ -93,21 +93,28 @@ export const MovieModal = ({
     setStreamError(null);
 
     try {
+      // Only pass a slug when it's a REAL DesiCinemas word-slug — never a bare
+      // numeric TMDB id (those hit DesiCinemas' catch-all and resolve to the wrong
+      // movie). For TMDB-sourced catalog items we rely on title+year resolution
+      // (NetMirror native HLS first, then DesiCinemas title search on the backend).
       const rawSlug =
-        (movie as any)?.slug ||
         (movie as any)?.dcSlug ||
         (movie as any)?.movieplexSlug ||
-        (movie?.id ? String(movie.id).replace(/^dc-|^mp-/, "") : undefined);
+        (movie as any)?.slug;
+      const realSlug =
+        rawSlug && !/^\d+$/.test(String(rawSlug)) && /[a-z]/i.test(String(rawSlug))
+          ? String(rawSlug)
+          : undefined;
 
       const res = await resolveMovieStream({
-        slug: rawSlug,
+        slug: realSlug,
         title: movie.title,
         year: movie.year,
       });
       setStreamResult(res);
     } catch (err: any) {
       console.error("Movie stream resolution error:", err);
-      setStreamError("Unable to extract live HLS stream. Please try another server or title.");
+      setStreamError("Unable to extract a playable stream. Please try another title.");
     } finally {
       setStreamLoading(false);
     }
@@ -136,20 +143,20 @@ export const MovieModal = ({
                 <div className="h-full w-full grid place-items-center bg-black">
                   <div className="text-center space-y-2">
                     <Loader2 className="mx-auto h-10 w-10 animate-spin text-[#E50914]" />
-                    <p className="text-sm">Connecting to DesiCinemas master stream...</p>
+                    <p className="text-sm">Finding a playable stream…</p>
                   </div>
                 </div>
               ) : streamResult?.streamUrl ? (
                 <VideoPlayer
                   src={streamResult.streamUrl}
-                  title={movie.title}
+                  title={streamResult.title || movie.title}
                   poster={movie.backdrop || movie.poster}
                 />
               ) : streamResult?.fallbackIframe ? (
                 <iframe
                   className="h-full w-full"
                   src={streamResult.fallbackIframe}
-                  title={`${movie.title} Stream`}
+                  title={`${streamResult.title || movie.title} Stream`}
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                   allowFullScreen
                 />
