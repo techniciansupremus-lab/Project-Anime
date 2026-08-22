@@ -3725,7 +3725,10 @@ async function dcExtractMorenciusStream(embedUrl) {
     const evalMatch = html.match(/eval\s*\(\s*function\s*\(\s*p\s*,\s*a\s*,\s*c\s*,\s*k\s*,\s*e\s*,\s*d\s*\)[\s\S]*?\.split\('\|'\)\)\s*\)/i);
     if (!evalMatch) return null;
 
-    let capturedSources = [];
+    // Unpack once and reuse it for BOTH the jwplayer sources AND the genuine
+    // `links.hls2` master (which is a packed-string token until unpacked). We
+    // unpack in the same sandboxed DOM/window mock the jwplayer run uses, so the
+    // packed code can execute (it touches window/document/jQuery at load).
     const mockEl = () => ({
       style: {},
       setAttribute: () => {},
@@ -3735,18 +3738,39 @@ async function dcExtractMorenciusStream(embedUrl) {
       parentNode: { removeChild: () => {} },
       classList: { add: () => {}, remove: () => {} }
     });
-
     const mock$ = () => ({
       insertAfter: () => {}, detach: () => {}, remove: () => {},
       hide: () => {}, show: () => {}, on: () => {}, ready: () => {},
       addClass: () => {}, removeClass: () => {}, toggleClass: () => {},
       attr: () => '', html: () => '', text: () => ''
     });
-    mock$.ajaxSetup = () => {};
-    mock$.cookie = () => {};
-    mock$.post = () => {};
-    mock$.get = () => {};
+    mock$.ajaxSetup = () => {}; mock$.cookie = () => {}; mock$.post = () => {}; mock$.get = () => {};
 
+    let unpacked = '';
+    const _mockEl = () => ({
+      style: {}, setAttribute: () => {}, getAttribute: () => '',
+      appendChild: () => {}, removeChild: () => {},
+      parentNode: { removeChild: () => {} }, classList: { add: () => {}, remove: () => {} }
+    });
+    const _mock$ = () => ({
+      insertAfter: () => {}, detach: () => {}, remove: () => {}, hide: () => {}, show: () => {},
+      on: () => {}, ready: () => {}, addClass: () => {}, removeClass: () => {}, toggleClass: () => {},
+      attr: () => '', html: () => '', text: () => ''
+    });
+    _mock$.ajaxSetup = () => {}; _mock$.cookie = () => {}; _mock$.post = () => {}; _mock$.get = () => {};
+    const _sb = {
+      window: { location: { protocol: 'https:', host: 'morencius.com', href: embedUrl } },
+      document: { getElementById: _mockEl, createElement: _mockEl, querySelector: _mockEl, body: { appendChild: () => {} } },
+      $: _mock$, jQuery: _mock$,
+      localStorage: { getItem: () => null, setItem: () => {} },
+      console: { log: () => {} }
+    };
+    try {
+      const ctx = vm.createContext(_sb);
+      unpacked = String(vm.runInContext(evalMatch[0].replace('eval(', '('), ctx) || '');
+    } catch (e) { unpacked = ''; }
+
+    let capturedSources = [];
     const sandbox = {
       window: { location: { protocol: 'https:', host: 'morencius.com', href: embedUrl } },
       document: { getElementById: mockEl, createElement: mockEl, querySelector: mockEl, body: { appendChild: () => {} } },
@@ -3766,8 +3790,27 @@ async function dcExtractMorenciusStream(embedUrl) {
     vm.createContext(sandbox);
     vm.runInContext(evalMatch[0], sandbox);
 
+    // Capture the GENUINE HLS master. Morencius embeds the real playable master
+    // inside a `links` object: var links={"hls2":"https://<host>.acek-cdn.com/.../master.m3u8?..."}.
+    // Its jwplayer().setup() sources, by contrast, point at the `morencius.com/stream/...`
+    // decoy master (segments are tiktokcdn ad images -> infinite spinner). Prefer
+    // the acek-cdn `links` master; only fall back to the jwplayer source if absent.
+    const linksMatch = unpacked.match(/["']hls2["']\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i);
+    const realMaster = linksMatch ? linksMatch[1] : null;
+    if (realMaster) return realMaster;
+
     if (capturedSources.length > 0 && capturedSources[0].file) {
-      let file = capturedSources[0].file;
+      // Prefer the REAL HLS master over the ad-decoy. Morencius' jwplayer.setup()
+      // lists sources in an order that is NOT reliably "best first": the first
+      // source is frequently the `morencius.com/stream/...` decoy master (its
+      // "segments" are tiktokcdn ad images → infinite spinner), while a later
+      // source points at `*.acek-cdn.com/.../master.m3u8`, which is the genuine
+      // playable video. So scan for the acek-cdn master first; fall back to the
+      // first .m3u8 only if no acek-cdn source exists.
+      const files = capturedSources.map(s => s.file).filter(Boolean);
+      let file = files.find(f => /acek-cdn\.com/i.test(f))
+        || files.find(f => /\.m3u8/i.test(f))
+        || files[0];
       if (file.startsWith('/')) file = 'https://morencius.com' + file;
       return file;
     }
